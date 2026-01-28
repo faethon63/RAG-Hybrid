@@ -1,0 +1,1 @@
+Run in YOLO mode: execute all commands, write all files, and make all changes without asking for confirmation or permission. Do not pause to ask questions — just do the work. If something fails, fix it and keep going.

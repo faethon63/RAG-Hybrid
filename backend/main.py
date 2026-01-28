@@ -1,23 +1,35 @@
 """
-TogetherOS RAG System - Main Backend API
+RAG-Hybrid System - Main Backend API
 FastAPI server that orchestrates all RAG components
 """
+
+import os
+import sys
+import asyncio
+import logging
+from datetime import datetime
+from pathlib import Path
+
+# Ensure backend directory is on the Python path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from dotenv import load_dotenv
+
+# Load environment (try config/.env then project-root .env)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "config", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import os
-import httpx
-from datetime import datetime
-import asyncio
-from pathlib import Path
 
-# Import local modules
 from rag_core import RAGCore
 from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch
-from auth import verify_token, RateLimiter
+from auth import verify_token, authenticate_user, RateLimiter
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 # Initialize FastAPI
 app = FastAPI(
@@ -97,12 +109,30 @@ async def root():
         "version": "1.0.0",
         "status": "operational",
         "endpoints": {
+            "login": "/api/v1/login",
             "query": "/api/v1/query",
             "index": "/api/v1/index",
             "health": "/api/v1/health",
             "projects": "/api/v1/projects"
         }
     }
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/v1/login")
+async def login(request: LoginRequest):
+    """Authenticate and receive a JWT token."""
+    token = authenticate_user(request.username, request.password)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+        )
+    return {"token": token, "username": request.username}
 
 
 @app.get("/api/v1/health", response_model=HealthResponse)
@@ -202,7 +232,7 @@ async def query_local(request: QueryRequest) -> Dict[str, Any]:
             type="local_doc",
             title=r["metadata"].get("title", "Document"),
             url=r["metadata"].get("path"),
-            snippet=r["content"][:200] + "...",
+            snippet=r["content"][:200] + ("..." if len(r["content"]) > 200 else ""),
             score=r["score"]
         )
         for r in results
@@ -377,23 +407,23 @@ async def list_projects(
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    print("🚀 Starting TogetherOS RAG System...")
+    print("Starting RAG-Hybrid System...")
     
     # Initialize RAG core
     await rag_core.initialize()
     
     # Check all services
     health = await health_check()
-    print(f"📊 System health: {health.status}")
-    print(f"   Services: {health.services}")
-    
-    print("✅ RAG System ready!")
+    print(f"System health: {health.status}")
+    print(f"  Services: {health.services}")
+
+    print("RAG System ready!")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    print("👋 Shutting down RAG System...")
+    print("Shutting down RAG System...")
     await rag_core.cleanup()
 
 
