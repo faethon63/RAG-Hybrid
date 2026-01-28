@@ -32,13 +32,55 @@ if "messages" not in st.session_state:
 if "api_url" not in st.session_state:
     st.session_state["api_url"] = os.getenv("API_URL", "http://localhost:8000")
 if "auth_token" not in st.session_state:
-    st.session_state["auth_token"] = os.getenv("AUTH_TOKEN", "")
+    st.session_state["auth_token"] = ""
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
 if "current_project" not in st.session_state:
     st.session_state["current_project"] = None
 if "last_sources" not in st.session_state:
     st.session_state["last_sources"] = []
 
 API_URL = st.session_state["api_url"]
+
+
+def do_login(username: str, password: str) -> bool:
+    """Authenticate and store token."""
+    try:
+        resp = httpx.post(
+            f"{API_URL}/api/v1/login",
+            json={"username": username, "password": password},
+            timeout=10.0,
+        )
+        if resp.status_code == 200:
+            st.session_state["auth_token"] = resp.json()["token"]
+            st.session_state["logged_in"] = True
+            return True
+    except Exception:
+        pass
+    return False
+
+
+# --- Auto-login or show login form ---
+
+if not st.session_state["logged_in"]:
+    st.title("RAG-Hybrid Login")
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("login_form"):
+            username = st.text_input("Username", value="admin")
+            password = st.text_input("Password", type="password", value="admin")
+            submitted = st.form_submit_button("Login")
+
+            if submitted:
+                if do_login(username, password):
+                    st.success("Logged in!")
+                    st.rerun()
+                else:
+                    st.error("Login failed. Check credentials.")
+
+        st.caption("Default: admin / admin")
+    st.stop()
 
 
 # --- Sidebar ---
