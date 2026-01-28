@@ -334,7 +334,6 @@ async def query_hybrid(request: QueryRequest) -> Dict[str, Any]:
 
 async def combine_answers(local_answer: str, web_answer: str, query: str) -> str:
     """Intelligently combine local and web answers"""
-    # Use Claude to synthesize
     prompt = f"""Given the query: "{query}"
 
 Local knowledge says:
@@ -345,7 +344,15 @@ Web search says:
 
 Provide a comprehensive answer that synthesizes both sources, noting any agreements or contradictions."""
 
-    return await claude_search.generate(prompt)
+    # Try Claude first, fall back to Ollama
+    try:
+        if await claude_search.is_healthy():
+            return await claude_search.generate(prompt)
+    except Exception:
+        pass
+
+    # Fallback: use local Ollama for synthesis
+    return await rag_core.generate_answer(query, f"Local: {local_answer}\n\nWeb: {web_answer}")
 
 
 def calculate_confidence(results: List[Dict]) -> float:
