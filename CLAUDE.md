@@ -263,3 +263,4 @@ Note: moondream and llava hallucinate document content. Use minicpm-v for OCR ta
 ### Standalone GGUF Files (G:\AI-Project\models\)
 These are for LM Studio or other tools, NOT used by RAG-Hybrid:
 - `granite-embedding-107m-multilingual-f16.gguf` (211MB) - Embeddings (can be deleted if not using LM Studio)
+
