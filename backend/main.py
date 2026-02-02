@@ -730,7 +730,7 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
             response = await client.post(
                 "http://localhost:11434/api/chat",
                 json={
-                    "model": "llava:7b",
+                    "model": "minicpm-v",
                     "messages": messages,
                     "stream": False,
                 }
@@ -760,7 +760,7 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
                 "prompt_tokens": result.get("prompt_eval_count", 0),
                 "completion_tokens": result.get("eval_count", 0),
             },
-            "model_used": "llava:7b (vision)",
+            "model_used": "minicpm-v (vision)",
         }
 
     except Exception as e:

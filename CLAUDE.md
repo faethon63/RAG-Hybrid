@@ -32,7 +32,7 @@ Switched from Claude Haiku to Groq for cost savings (Groq is FREE) and better to
 - **Frontend:** React + Vite (localhost:5173) at `frontend-react/`
 - **Vector DB:** ChromaDB at `data/chromadb/`
 - **Embeddings:** sentence-transformers/all-MiniLM-L6-v2
-- **Local LLM:** Ollama at `G:\AI-Project\Ollama\` with moondream (vision) and qwen2.5:14b (text)
+- **Local LLM:** Ollama at `G:\AI-Project\Ollama\` with minicpm-v (vision/OCR) and qwen2.5:14b (text)
 - **Auth:** Disabled (was JWT + bcrypt)
 - **Python:** 3.12.10, venv at `.venv/`
 - **PDF Support:** Requires `pypdf` package
@@ -91,6 +91,9 @@ When telling user to run PowerShell commands:
 4. Include full command sequence if venv activation is needed
 5. **NEVER chain assumptions** - if first command fails, don't assume the "fix" will work either
 6. **When uncertain, ask user to test** a verification command first before giving the full solution
+7. **DO NOT ask user to restart services** - Start/restart backend and frontend yourself using Bash tool
+8. **Check chat history for errors** - When something goes wrong, check the last chat via API instead of asking user to debug
+9. **ALWAYS test after making changes** - Verify the change works before reporting completion
 
 ## Running (Windows)
 
@@ -251,9 +254,11 @@ cd G:\AI-Project\RAG-Hybrid
 
 ### Ollama Models (G:\AI-Project\Ollama\models\)
 Active models managed by Ollama. Currently installed:
-- `qwen2.5vl:7b` - **PRIMARY** (~5GB, vision + text, tool-use capable)
+- `minicpm-v` - Vision/OCR model (~5.4GB) - best for reading document text
+- `qwen2.5:14b` - Text generation model
+- `llava:7b` - Alternate vision model (lower accuracy for documents)
 
-Total: ~5GB after cleanup.
+Note: moondream and llava hallucinate document content. Use minicpm-v for OCR tasks.
 
 ### Standalone GGUF Files (G:\AI-Project\models\)
 These are for LM Studio or other tools, NOT used by RAG-Hybrid:
