@@ -19,6 +19,13 @@ export interface AgentStep {
   output?: string;
 }
 
+export interface AttachedFile {
+  name: string;
+  type: string;
+  data: string; // base64 for images/PDFs, text content for text files
+  isImage: boolean;
+}
+
 export interface QueryRequest {
   query: string;
   mode?: 'auto' | 'private' | 'research' | 'deep_agent';
@@ -27,6 +34,7 @@ export interface QueryRequest {
   max_results?: number;
   include_sources?: boolean;
   conversation_history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  files?: AttachedFile[];
 }
 
 export interface QueryResponse {

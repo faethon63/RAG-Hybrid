@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { ChatIcon, TrashIcon, LoaderIcon } from '../common/icons';
-import { truncate } from '../../utils/parseThinking';
+import { api } from '../../api/client';
+import { ChatIcon, TrashIcon, LoaderIcon, EditIcon, CheckIcon, CloseIcon } from '../common/icons';
 import clsx from 'clsx';
 
 export function ChatList() {
@@ -13,6 +13,9 @@ export function ChatList() {
   const loadChat = useChatStore((s) => s.loadChat);
   const deleteChat = useChatStore((s) => s.deleteChat);
   const currentProject = useProjectStore((s) => s.currentProject);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
 
   useEffect(() => {
     loadChats(currentProject);
@@ -27,6 +30,38 @@ export function ChatList() {
     if (confirm('Delete this chat?')) {
       await deleteChat(chatId);
       await loadChats(currentProject);
+    }
+  };
+
+  const handleStartRename = (e: React.MouseEvent, chatId: string, currentName: string) => {
+    e.stopPropagation();
+    setEditingId(chatId);
+    setEditName(currentName);
+  };
+
+  const handleCancelRename = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(null);
+    setEditName('');
+  };
+
+  const handleSaveRename = async (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation();
+    if (editName.trim()) {
+      await api.renameChat(chatId, editName.trim());
+      await loadChats(currentProject);
+    }
+    setEditingId(null);
+    setEditName('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, chatId: string) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveRename(e as unknown as React.MouseEvent, chatId);
+    } else if (e.key === 'Escape') {
+      setEditingId(null);
+      setEditName('');
     }
   };
 
@@ -48,7 +83,7 @@ export function ChatList() {
         filteredChats.slice(0, 20).map((chat) => (
           <div
             key={chat.id}
-            onClick={() => loadChat(chat.id)}
+            onClick={() => editingId !== chat.id && loadChat(chat.id)}
             className={clsx(
               'group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
               chat.id === currentChatId
@@ -57,15 +92,51 @@ export function ChatList() {
             )}
           >
             <ChatIcon className="w-4 h-4 text-[var(--color-text-secondary)] flex-shrink-0" />
-            <span className="flex-1 text-sm truncate">
-              {truncate(chat.name, 30)}
-            </span>
-            <button
-              onClick={(e) => handleDelete(e, chat.id)}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[var(--color-border)] rounded transition-all"
-            >
-              <TrashIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
-            </button>
+            {editingId === chat.id ? (
+              <>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(e, chat.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                  className="flex-1 text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded px-1 py-0.5 outline-none focus:border-[var(--color-primary)]"
+                />
+                <button
+                  onClick={(e) => handleSaveRename(e, chat.id)}
+                  className="p-1 hover:bg-[var(--color-border)] rounded"
+                >
+                  <CheckIcon className="w-3 h-3 text-green-500" />
+                </button>
+                <button
+                  onClick={handleCancelRename}
+                  className="p-1 hover:bg-[var(--color-border)] rounded"
+                >
+                  <CloseIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1 text-sm truncate" title={chat.name}>
+                  {chat.name}
+                </span>
+                <button
+                  onClick={(e) => handleStartRename(e, chat.id, chat.name)}
+                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[var(--color-border)] rounded transition-all"
+                  title="Rename"
+                >
+                  <EditIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
+                </button>
+                <button
+                  onClick={(e) => handleDelete(e, chat.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[var(--color-border)] rounded transition-all"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
+                </button>
+              </>
+            )}
           </div>
         ))
       )}

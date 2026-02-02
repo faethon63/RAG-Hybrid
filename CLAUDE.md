@@ -29,11 +29,10 @@ Switched from Claude Haiku to Groq for cost savings (Groq is FREE) and better to
 ## Tech Stack
 
 - **Backend:** FastAPI (localhost:8000) at `backend/main.py`
-- **Frontend (Streamlit):** Streamlit (localhost:8501) at `frontend/app.py`
-- **Frontend (React):** React + Vite (localhost:5173) at `frontend-react/` - Modern ChatGPT-like UI
+- **Frontend:** React + Vite (localhost:5173) at `frontend-react/`
 - **Vector DB:** ChromaDB at `data/chromadb/`
 - **Embeddings:** sentence-transformers/all-MiniLM-L6-v2
-- **Local LLM:** Ollama with qwen2.5vl:7b at `G:\AI-Project\Ollama\` (vision + text, tool-use capable)
+- **Local LLM:** Ollama at `G:\AI-Project\Ollama\` with moondream (vision) and qwen2.5:14b (text)
 - **Auth:** Disabled (was JWT + bcrypt)
 - **Python:** 3.12.10, venv at `.venv/`
 - **PDF Support:** Requires `pypdf` package
@@ -50,15 +49,7 @@ RAG-Hybrid/
     search_integrations.py # Claude, Perplexity (free), Tavily APIs
     orchestrator.py       # Query analysis, model selection
     file_tools.py         # Secure file operations for projects
-  frontend/                # Streamlit frontend (original)
-    app.py                # Streamlit main UI
-    constants.py          # Shared MODEL_OPTIONS, MODE_OPTIONS
-    components/
-      chat.py             # Chat message display, input, history
-      search.py           # Source cards, citations
-      projects.py         # Project selector, doc manager
-      settings.py         # Global RAG settings UI
-  frontend-react/          # React frontend (modern, ChatGPT-like)
+  frontend-react/          # React frontend
     src/
       components/         # React components (chat, sidebar, settings)
       stores/             # Zustand state management
@@ -118,12 +109,10 @@ This runs everything in a **single window**:
 
 **Options:**
 ```powershell
-.\start.ps1              # Start both (Streamlit frontend)
-.\start.ps1 -React       # Start both with React frontend (modern UI)
+.\start.ps1              # Start both (default)
 .\start.ps1 -Stop        # Stop all services
 .\start.ps1 -BackendOnly # Start just backend
-.\start.ps1 -FrontendOnly # Start just frontend (Streamlit)
-.\start.ps1 -FrontendOnly -React # Start just React frontend
+.\start.ps1 -FrontendOnly # Start just frontend
 ```
 
 ### Manual Start - Step by Step
@@ -175,18 +164,18 @@ cd G:\AI-Project\RAG-Hybrid
 
 **STEP 6:** Start frontend:
 ```powershell
-cd frontend
-streamlit run app.py
+cd frontend-react
+npm run dev
 ```
-**Verify:** You see `Local URL: http://localhost:8501`
+**Verify:** You see `VITE ready` and `http://localhost:5173`
 
 ---
 
-**STEP 7:** Wait 5 seconds, then open browser to:
+**STEP 7:** Open browser to:
 ```
-http://localhost:8501
+http://localhost:5173
 ```
-**Verify:** You see the RAG login page or main UI
+**Verify:** You see the RAG chat interface
 
 ### Verification Commands
 
@@ -197,7 +186,7 @@ curl http://localhost:8000/api/v1/health
 **Expected:** `{"status":"healthy",...}` or `{"status":"degraded",...}`
 
 **Check if frontend is running:**
-Open http://localhost:8501 in browser. You should see login page or main UI.
+Open http://localhost:5173 in browser. You should see the chat interface.
 
 ### Stopping the App
 
@@ -215,7 +204,7 @@ Then start backend and frontend as shown above.
 ### When to Restart
 
 - **Backend**: After changing backend `.py` files (usually auto-reloads, but restart if issues)
-- **Frontend**: Streamlit hot-reloads automatically for most changes
+- **Frontend**: Vite hot-reloads automatically for most changes
 - **Both**: After system reboot, changing `.env` files, or if UI shows stale data
 - **Full restart**: If you see old UI elements or "nothing changed" after code updates
 
@@ -225,7 +214,7 @@ Both services need `.env` configured (copy from `config/.env.example`).
 
 ### "Nothing changed" after code updates
 1. Kill all Python processes: `Stop-Process -Name python -Force`
-2. Clear Python cache: Delete `__pycache__` folders in `backend/` and `frontend/`
+2. Clear Python cache: Delete `__pycache__` folders in `backend/`
 3. Restart both services
 4. Hard refresh browser: `Ctrl+Shift+R`
 

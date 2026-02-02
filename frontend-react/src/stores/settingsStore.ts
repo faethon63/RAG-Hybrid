@@ -19,6 +19,7 @@ interface SettingsState {
   // UI state
   showThinking: boolean;
   sidebarOpen: boolean;
+  sidebarWidth: number;
   showSettings: boolean;
 
   // Actions
@@ -26,6 +27,7 @@ interface SettingsState {
   setModel: (model: string) => void;
   setShowThinking: (show: boolean) => void;
   setSidebarOpen: (open: boolean) => void;
+  setSidebarWidth: (width: number) => void;
   setShowSettings: (show: boolean) => void;
 
   // API operations
@@ -46,12 +48,14 @@ export const useSettingsStore = create<SettingsState>()(
       healthLoading: false,
       showThinking: true,
       sidebarOpen: true,
+      sidebarWidth: 256,
       showSettings: false,
 
       setMode: (mode) => set({ mode }),
       setModel: (model) => set({ model }),
       setShowThinking: (show) => set({ showThinking: show }),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
+      setSidebarWidth: (width) => set({ sidebarWidth: Math.max(200, Math.min(500, width)) }),
       setShowSettings: (show) => set({ showSettings: show }),
 
       loadSettings: async () => {
@@ -121,6 +125,7 @@ export const useSettingsStore = create<SettingsState>()(
       partialize: (state) => ({
         showThinking: state.showThinking,
         sidebarOpen: state.sidebarOpen,
+        sidebarWidth: state.sidebarWidth,
       }),
     }
   )

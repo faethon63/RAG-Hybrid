@@ -1,12 +1,11 @@
 # RAG-Hybrid Startup Script
 # Runs backend in background, frontend in foreground
-# Usage: .\start.ps1 or .\start.ps1 -Stop or .\start.ps1 -React
+# Usage: .\start.ps1 or .\start.ps1 -Stop
 
 param(
     [switch]$Stop,
     [switch]$BackendOnly,
-    [switch]$FrontendOnly,
-    [switch]$React  # Use React frontend instead of Streamlit
+    [switch]$FrontendOnly
 )
 
 $ProjectRoot = "G:\AI-Project\RAG-Hybrid"
@@ -74,24 +73,7 @@ function Start-Backend {
 }
 
 function Start-Frontend {
-    Write-Host "Starting Streamlit frontend..." -ForegroundColor Cyan
-    Write-Host "Frontend will run in this window. Press Ctrl+C to stop." -ForegroundColor Gray
-    Write-Host ""
-
-    # Open browser after a short delay (frontend takes ~2 seconds to start)
-    Start-Job -ScriptBlock {
-        Start-Sleep -Seconds 4
-        Start-Process "http://localhost:8501"
-    } | Out-Null
-
-    Set-Location $ProjectRoot
-    & $VenvActivate
-    Set-Location "$ProjectRoot\frontend"
-    streamlit run app.py --server.headless true
-}
-
-function Start-ReactFrontend {
-    Write-Host "Starting React frontend..." -ForegroundColor Cyan
+    Write-Host "Starting frontend..." -ForegroundColor Cyan
     Write-Host "Frontend will run in this window. Press Ctrl+C to stop." -ForegroundColor Gray
     Write-Host ""
 
@@ -109,7 +91,7 @@ function Start-ReactFrontend {
     } | Out-Null
 
     Set-Location "$ProjectRoot\frontend-react"
-    npm run dev
+    npx vite
 }
 
 # Main logic
@@ -131,11 +113,7 @@ if ($BackendOnly) {
 }
 
 if ($FrontendOnly) {
-    if ($React) {
-        Start-ReactFrontend
-    } else {
-        Start-Frontend
-    }
+    Start-Frontend
     exit 0
 }
 
@@ -143,11 +121,7 @@ if ($FrontendOnly) {
 Start-Ollama
 $job = Start-Backend
 Write-Host ""
-if ($React) {
-    Start-ReactFrontend
-} else {
-    Start-Frontend
-}
+Start-Frontend
 
 # When frontend stops (Ctrl+C), also stop the backend job
 Write-Host ""

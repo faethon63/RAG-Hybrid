@@ -1,10 +1,9 @@
+import { useState, useCallback, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { ChatList } from './ChatList';
 import { ProjectSelector } from './ProjectSelector';
 import {
-  PlusIcon,
   SettingsIcon,
   ChevronLeftIcon,
   RefreshIcon,
@@ -16,19 +15,50 @@ import clsx from 'clsx';
 export function Sidebar() {
   const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
   const setSidebarOpen = useSettingsStore((s) => s.setSidebarOpen);
+  const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
   const setShowSettings = useSettingsStore((s) => s.setShowSettings);
   const health = useSettingsStore((s) => s.health);
   const healthLoading = useSettingsStore((s) => s.healthLoading);
   const checkHealth = useSettingsStore((s) => s.checkHealth);
-  const newChat = useChatStore((s) => s.newChat);
   const currentProject = useProjectStore((s) => s.currentProject);
+
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setSidebarWidth(e.clientX);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, setSidebarWidth]);
 
   if (!sidebarOpen) {
     return null;
   }
 
   return (
-    <aside className="w-64 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col h-full">
+    <aside
+      className="bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col h-full relative"
+      style={{ width: sidebarWidth }}
+    >
       {/* Header */}
       <div className="p-3 border-b border-[var(--color-border)] flex items-center justify-between">
         <h1 className="font-semibold text-lg">RAG Hybrid</h1>
@@ -37,17 +67,6 @@ export function Sidebar() {
           className="p-1 hover:bg-[var(--color-surface-hover)] rounded transition-colors"
         >
           <ChevronLeftIcon className="w-5 h-5" />
-        </button>
-      </div>
-
-      {/* New chat button */}
-      <div className="p-3">
-        <button
-          onClick={newChat}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white rounded-lg transition-colors"
-        >
-          <PlusIcon className="w-4 h-4" />
-          <span>New Chat</span>
         </button>
       </div>
 
@@ -101,6 +120,15 @@ export function Sidebar() {
           <span className="text-sm">Settings</span>
         </button>
       </div>
+
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className={clsx(
+          'absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-[var(--color-primary)] transition-colors',
+          isResizing && 'bg-[var(--color-primary)]'
+        )}
+      />
     </aside>
   );
 }

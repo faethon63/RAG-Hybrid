@@ -3,42 +3,20 @@ Authentication & Rate Limiting Module
 JWT token verification, bcrypt password checking, per-user rate limiting.
 """
 
-import os
 import time
 import jwt
 import bcrypt
 from typing import Optional, Dict
 from collections import defaultdict
-from dotenv import load_dotenv
 
-# Load environment
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "config", ".env"))
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+from config import (
+    get_jwt_secret,
+    get_rate_limit_rpm,
+    get_rate_limit_daily,
+    get_allowed_users,
+)
 
-# --- Configuration ---
-
-JWT_SECRET = os.getenv("JWT_SECRET", "change_me_to_random_hex_string")
 JWT_ALGORITHM = "HS256"
-RATE_LIMIT_RPM = int(os.getenv("RATE_LIMIT_RPM", "30"))
-RATE_LIMIT_DAILY = int(os.getenv("RATE_LIMIT_DAILY", "500"))
-
-
-def _load_allowed_users() -> Dict[str, str]:
-    """Parse ALLOWED_USERS env var into {username: hashed_password} dict."""
-    raw = os.getenv("ALLOWED_USERS", "")
-    users = {}
-    if not raw:
-        return users
-    for entry in raw.split(","):
-        entry = entry.strip()
-        if ":" not in entry:
-            continue
-        username, hashed = entry.split(":", 1)
-        users[username.strip()] = hashed.strip()
-    return users
-
-
-ALLOWED_USERS = _load_allowed_users()
 
 
 # --- JWT Token Functions ---
@@ -50,7 +28,7 @@ def create_token(username: str) -> str:
         "iat": int(time.time()),
         "exp": int(time.time()) + 86400 * 30,  # 30 days
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
 def verify_token(token: str) -> Optional[str]:
@@ -58,7 +36,7 @@ def verify_token(token: str) -> Optional[str]:
     Verify a JWT token and return the username, or None if invalid.
     """
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
         username = payload.get("sub")
         if username:
             return username
@@ -88,7 +66,8 @@ def authenticate_user(username: str, password: str) -> Optional[str]:
     """
     Authenticate with username/password, return JWT token or None.
     """
-    hashed = ALLOWED_USERS.get(username)
+    allowed_users = get_allowed_users()
+    hashed = allowed_users.get(username)
     if hashed and check_password(password, hashed):
         return create_token(username)
     return None
@@ -101,9 +80,13 @@ class RateLimiter:
 
     def __init__(
         self,
-        rpm: int = RATE_LIMIT_RPM,
-        daily: int = RATE_LIMIT_DAILY,
+        rpm: Optional[int] = None,
+        daily: Optional[int] = None,
     ):
+        if rpm is None:
+            rpm = get_rate_limit_rpm()
+        if daily is None:
+            daily = get_rate_limit_daily()
         self.rpm = rpm
         self.daily = daily
         # {username: [timestamp, ...]}

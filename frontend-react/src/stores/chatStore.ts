@@ -17,6 +17,9 @@ interface ChatState {
   lastSources: Source[];
   lastAgentSteps: AgentStep[];
 
+  // Persisted files for follow-up questions
+  lastAttachedFiles: AttachedFile[];
+
   // Actions
   addMessage: (message: Message) => void;
   updateLastMessage: (content: string) => void;
@@ -34,7 +37,16 @@ interface ChatState {
   saveChat: (project?: string | null) => Promise<void>;
   deleteChat: (chatId: string) => Promise<void>;
   newChat: () => void;
-  sendQuery: (query: string, mode: string, model: string, project: string | null) => Promise<void>;
+  sendQuery: (query: string, mode: string, model: string, project: string | null, files?: AttachedFile[]) => Promise<void>;
+}
+
+interface AttachedFile {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  data: string;
+  isImage: boolean;
 }
 
 let messageIdCounter = 0;
@@ -49,6 +61,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   chatsLoading: false,
   lastSources: [],
   lastAgentSteps: [],
+  lastAttachedFiles: [],
 
   addMessage: (message) =>
     set((state) => ({
@@ -66,7 +79,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   setMessages: (messages) => set({ messages }),
-  clearMessages: () => set({ messages: [], currentChatId: null, lastSources: [], lastAgentSteps: [] }),
+  clearMessages: () => set({ messages: [], currentChatId: null, lastSources: [], lastAgentSteps: [], lastAttachedFiles: [] }),
   setCurrentChatId: (id) => set({ currentChatId: id }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
@@ -139,18 +152,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentChatId: null,
       lastSources: [],
       lastAgentSteps: [],
+      lastAttachedFiles: [],
       error: null,
     });
   },
 
-  sendQuery: async (query, mode, model, project) => {
-    const { messages, saveChat } = get();
+  sendQuery: async (query, mode, model, project, files) => {
+    const { messages, saveChat, lastAttachedFiles } = get();
+
+    // Use new files if provided, otherwise reuse last attached files for follow-ups
+    const effectiveFiles = (files && files.length > 0) ? files : lastAttachedFiles;
+    const hasNewFiles = files && files.length > 0;
+
+    // Build user message content with file info
+    let userContent = query;
+    const hasImages = effectiveFiles?.some(f => f.isImage);
+    if (hasNewFiles && files.length > 0) {
+      const fileNames = files.map(f => f.name).join(', ');
+      if (!query) {
+        userContent = `[Attached: ${fileNames}]`;
+      } else {
+        userContent = `${query}\n\n[Attached: ${fileNames}]`;
+      }
+    }
 
     // Add user message
     const userMessage: Message = {
       id: generateMessageId(),
       role: 'user',
-      content: query,
+      content: userContent,
       timestamp: new Date().toISOString(),
     };
     set((state) => ({
@@ -166,14 +196,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content: m.content,
       }));
 
+      // If images attached, force local model (vision)
+      const effectiveModel = hasImages ? 'local' : model;
+
+      // Build files payload from effective files (new or persisted)
+      const filesPayload = effectiveFiles?.length > 0 ? effectiveFiles.map(f => ({
+        name: f.name,
+        type: f.type,
+        data: f.data,
+        isImage: f.isImage,
+      })) : undefined;
+
+      // Store new files for follow-up questions
+      if (hasNewFiles) {
+        set({ lastAttachedFiles: files });
+      }
+
       const response = await api.query({
-        query,
+        query: query || 'Analyze the attached file(s)',
         mode: mode as 'auto' | 'private' | 'research' | 'deep_agent',
-        model,
+        model: effectiveModel,
         project,
         max_results: 5,
         include_sources: true,
         conversation_history: history,
+        files: filesPayload,
       });
 
       // Add assistant message

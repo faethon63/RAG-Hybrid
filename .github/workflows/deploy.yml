@@ -1,0 +1,40 @@
+name: Deploy RAG-Hybrid
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: 72.60.27.167
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/rag-hybrid
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Backend: install dependencies
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet
+
+            # Frontend: rebuild React app
+            cd frontend-react
+            npm ci --silent
+            npm run build
+            cd ..
+
+            # Restart backend service
+            pm2 restart rag-backend
+
+            # Health check (wait for startup)
+            sleep 5
+            curl -sf http://localhost:8000/api/v1/health || echo "Health check failed"

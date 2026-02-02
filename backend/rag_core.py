@@ -2,38 +2,41 @@
 RAG Core Module
 ChromaDB vector store, sentence-transformer embeddings, Ollama LLM calls,
 document indexing, and project management.
+
+Updated 2026-01-31: Added Claude Haiku orchestration for reliable tool use.
 """
 
 import os
+import json
 import hashlib
 import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+from datetime import datetime
 
 import httpx
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from sentence_transformers import SentenceTransformer
-from dotenv import load_dotenv
 
-# Load environment
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "config", ".env"))
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+from file_tools import parse_tool_call, execute_tool, TOOL_DEFINITIONS
+from config import (
+    get_ollama_host,
+    get_ollama_model,
+    get_chromadb_path,
+    get_chromadb_collection,
+    get_embedding_model,
+    get_top_k,
+    get_similarity_threshold,
+    get_max_tokens,
+    get_temperature,
+    get_project_kb_path,
+    get_rag_config_path,
+    get_anthropic_api_key,
+    get_chats_path,
+)
 
 logger = logging.getLogger(__name__)
-
-# --- Configuration ---
-
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-CHROMADB_PATH = os.getenv("CHROMADB_PATH", os.path.join(os.path.dirname(__file__), "..", "data", "chromadb"))
-CHROMADB_COLLECTION = os.getenv("CHROMADB_COLLECTION", "rag_docs")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-TOP_K = int(os.getenv("TOP_K_RESULTS", "5"))
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2000"))
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
-PROJECT_KB_PATH = os.getenv("PROJECT_KB_PATH", os.path.join(os.path.dirname(__file__), "..", "data", "project-kb"))
 
 # Chunk settings
 CHUNK_SIZE = 500  # characters per chunk
@@ -57,11 +60,12 @@ class RAGCore:
         logger.info("Initializing RAG core...")
 
         # Load sentence-transformer embedding model
-        logger.info(f"Loading embedding model: {EMBEDDING_MODEL}")
-        self._embedder = SentenceTransformer(EMBEDDING_MODEL)
+        embedding_model = get_embedding_model()
+        logger.info(f"Loading embedding model: {embedding_model}")
+        self._embedder = SentenceTransformer(embedding_model)
 
         # Connect to ChromaDB (persistent on disk)
-        db_path = str(Path(CHROMADB_PATH).resolve())
+        db_path = str(Path(get_chromadb_path()).resolve())
         os.makedirs(db_path, exist_ok=True)
         logger.info(f"Connecting to ChromaDB at: {db_path}")
         self._chroma_client = chromadb.PersistentClient(path=db_path)
@@ -90,7 +94,7 @@ class RAGCore:
         try:
             if not self._http_client:
                 self._http_client = httpx.AsyncClient(timeout=10.0)
-            resp = await self._http_client.get(f"{OLLAMA_HOST}/api/tags")
+            resp = await self._http_client.get(f"{get_ollama_host()}/api/tags")
             return resp.status_code == 200
         except Exception:
             return False
@@ -122,7 +126,8 @@ class RAGCore:
 
     def _get_collection(self, project: Optional[str] = None) -> chromadb.Collection:
         """Get or create a ChromaDB collection for a project."""
-        name = f"{CHROMADB_COLLECTION}_{project}" if project else CHROMADB_COLLECTION
+        collection_name = get_chromadb_collection()
+        name = f"{collection_name}_{project}" if project else collection_name
         # Sanitize collection name (ChromaDB requires 3-63 chars, alphanumeric + _ -)
         name = "".join(c if c.isalnum() or c in "_-" else "_" for c in name)
         if len(name) < 3:
@@ -216,7 +221,7 @@ class RAGCore:
         self,
         query: str,
         project: Optional[str] = None,
-        top_k: int = TOP_K,
+        top_k: Optional[int] = None,
         threshold: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -227,8 +232,10 @@ class RAGCore:
         if not self._initialized:
             await self.initialize()
 
+        if top_k is None:
+            top_k = get_top_k()
         if threshold is None:
-            threshold = SIMILARITY_THRESHOLD
+            threshold = get_similarity_threshold()
 
         collection = self._get_collection(project)
 
@@ -266,21 +273,208 @@ class RAGCore:
     # LLM generation (Ollama)
     # ------------------------------------------------------------------
 
-    async def generate_answer(self, query: str, context: str) -> str:
+    async def generate_answer(
+        self,
+        query: str,
+        context: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        project_config: Optional[Dict[str, Any]] = None,
+        enable_tools: bool = True,
+        max_tool_iterations: int = 3,
+        model: str = "local",
+        global_instructions: Optional[str] = None,
+        query_classification: Optional[Dict[str, Any]] = None,
+        documents_read: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         """
-        Generate an answer using Ollama, grounded in the provided context.
+        Generate an answer using Ollama or Claude, grounded in the provided context.
+        Supports conversation history, project-specific instructions, and file tools.
+        Now supports query classification for flexible prompts and citation tracking.
+        Returns {"text": str, "usage": dict} with token counts for Claude.
         """
-        prompt = f"""Answer the following question based on the provided context.
+        # Build system prompt from project config
+        system_prompt = "You are a helpful assistant."
+        allowed_paths = []
+
+        # Determine if we should use flexible mode (for non-task queries)
+        use_flexible = False
+        if query_classification:
+            from query_classifier import QueryIntent
+            intent = query_classification.get("intent")
+            # Use flexible mode for meta-questions, technical questions, corrections
+            if intent in [QueryIntent.META_QUESTION, QueryIntent.TECHNICAL_CODING, QueryIntent.CONVERSATION]:
+                use_flexible = True
+            # Also use flexible if no documents are required
+            if not query_classification.get("requires_documents"):
+                use_flexible = True
+
+        if project_config:
+            if use_flexible and project_config.get("flexible_prompt"):
+                # Use flexible prompt for non-task queries
+                system_prompt = project_config["flexible_prompt"]
+            else:
+                if project_config.get("system_prompt"):
+                    system_prompt = project_config["system_prompt"]
+                if project_config.get("instructions"):
+                    system_prompt += f"\n\nInstructions: {project_config['instructions']}"
+            allowed_paths = project_config.get("allowed_paths", [])
+
+        # Add context modifier based on query classification
+        if query_classification:
+            from query_classifier import QueryClassifier
+            context_modifier = QueryClassifier.get_context_modifier(query_classification)
+            if context_modifier:
+                system_prompt = f"{context_modifier}\n\n{system_prompt}"
+
+        # Add citation constraints based on documents actually read
+        if documents_read:
+            doc_names = [d.get("title", "Unknown") for d in documents_read]
+            citation_notice = (
+                f"\n\nCITATION CONSTRAINT: Only cite from these retrieved documents: {', '.join(doc_names)}. "
+                f"Do NOT fabricate page numbers or references to other documents."
+            )
+            system_prompt += citation_notice
+        elif context.strip():
+            # Context provided but no document tracking
+            pass
+        else:
+            # No documents retrieved
+            system_prompt += (
+                "\n\nCITATION CONSTRAINT: No documents were retrieved. "
+                "Do NOT cite page numbers or document sections unless you use tools to read them."
+            )
+
+        # Prepend global instructions if provided
+        if global_instructions:
+            system_prompt = f"{global_instructions}\n\n{system_prompt}"
+
+        # Add current date to system prompt
+        current_date = datetime.now().strftime("%B %d, %Y")
+        system_prompt = f"Today's date is {current_date}.\n\n{system_prompt}"
+
+        # Add file tools instructions if enabled and paths are allowed
+        tool_instructions = ""
+        if enable_tools and allowed_paths:
+            tool_instructions = f"\n\n{TOOL_DEFINITIONS}\nAllowed paths: {', '.join(allowed_paths)}"
+
+        # Build conversation history section (last 6 messages max)
+        history_section = ""
+        if conversation_history:
+            recent_history = conversation_history[-6:]
+            history_lines = []
+            for msg in recent_history:
+                role = msg.get("role", "user").capitalize()
+                content = msg.get("content", "")
+                history_lines.append(f"{role}: {content}")
+            if history_lines:
+                history_section = "Previous conversation:\n" + "\n".join(history_lines) + "\n\n"
+
+        prompt = f"""{system_prompt}{tool_instructions}
+
+Answer the following question based on the provided context and conversation history.
 If the context doesn't contain enough information, say so honestly.
 
-Context:
+{history_section}Context:
 {context}
 
 Question: {query}
 
 Answer:"""
 
-        return await self._call_ollama(prompt)
+        # Track cumulative usage across tool iterations
+        total_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        # Tool execution loop
+        iteration = 0
+        response_text = ""
+        while iteration < max_tool_iterations:
+            if model == "local":
+                response_text = await self._call_ollama(prompt)
+                # Ollama doesn't provide token counts
+            else:
+                result = await self._call_claude(prompt, model)
+                response_text = result["text"]
+                usage = result.get("usage", {})
+                total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                total_usage["output_tokens"] += usage.get("output_tokens", 0)
+
+            # Check if response contains a tool call
+            if not enable_tools or not allowed_paths:
+                # Strip any fake tool output the LLM might have generated
+                response_text = self._strip_fake_tool_output(response_text)
+                return {"text": response_text, "usage": total_usage}
+
+            tool_call = parse_tool_call(response_text)
+            if not tool_call:
+                # No tool call found - strip any fake tool output and return
+                response_text = self._strip_fake_tool_output(response_text)
+                return {"text": response_text, "usage": total_usage}
+
+            # Execute the tool
+            logger.info(f"Executing tool: {tool_call.get('tool')} on path: {tool_call.get('path')}")
+            tool_result = execute_tool(tool_call, allowed_paths)
+
+            # Format tool result for follow-up prompt
+            if tool_result.get("success"):
+                if tool_call.get("tool") == "read_file":
+                    result_text = f"File contents of {tool_call.get('path')}:\n```\n{tool_result.get('content', '')[:5000]}\n```"
+                elif tool_call.get("tool") == "list_dir":
+                    entries = tool_result.get("entries", [])
+                    entry_list = "\n".join([f"  - {e['name']} ({e['type']})" for e in entries])
+                    result_text = f"Directory contents of {tool_call.get('path')}:\n{entry_list}"
+                elif tool_call.get("tool") == "search_files":
+                    matches = tool_result.get("matches", [])
+                    match_list = "\n".join([f"  - {m['path']}" for m in matches])
+                    result_text = f"Files matching '{tool_call.get('pattern')}' in {tool_call.get('path')}:\n{match_list}"
+                elif tool_call.get("tool") == "write_file":
+                    result_text = f"Successfully wrote file: {tool_result.get('message', '')}"
+                else:
+                    result_text = f"Tool result: {tool_result}"
+            else:
+                result_text = f"Tool error: {tool_result.get('error', 'Unknown error')}"
+
+            # Create follow-up prompt with tool result
+            prompt = f"""{system_prompt}
+
+Tool execution result:
+{result_text}
+
+Based on this result, please answer the user's original question:
+{query}
+
+Answer:"""
+
+            iteration += 1
+
+        # If we hit max iterations, return the last response
+        return {"text": response_text, "usage": total_usage}
+
+    def _strip_fake_tool_output(self, text: str) -> str:
+        """
+        Remove fake tool output that the LLM generated without actually using tools.
+        This prevents responses like "Tool error: File not found" when no tool was invoked.
+        """
+        import re
+
+        # Only strip if there's no actual <tool> tag (meaning LLM is faking tool output)
+        if '<tool>' in text:
+            return text
+
+        # Patterns for fake tool errors/output
+        fake_patterns = [
+            r'\*\*Tool (?:Execution )?(?:Result|Error)[:\*]*\*\*[^\n]*(?:\n|$)',
+            r'Tool error:[^\n]*(?:\n|$)',
+            r'Tool result:[^\n]*(?:\n|$)',
+            r'\[Tool error:[^\]]*\]',
+            r'Error reading file:[^\n]*(?:\n|$)',
+            r'File not found:[^\n]*(?:\n|$)',
+        ]
+
+        cleaned = text
+        for pattern in fake_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+
+        return cleaned.strip()
 
     async def _call_ollama(self, prompt: str) -> str:
         """Call Ollama's generate API."""
@@ -289,14 +483,14 @@ Answer:"""
 
         try:
             resp = await self._http_client.post(
-                f"{OLLAMA_HOST}/api/generate",
+                f"{get_ollama_host()}/api/generate",
                 json={
-                    "model": OLLAMA_MODEL,
+                    "model": get_ollama_model(),
                     "prompt": prompt,
                     "stream": False,
                     "options": {
-                        "num_predict": MAX_TOKENS,
-                        "temperature": TEMPERATURE,
+                        "num_predict": get_max_tokens(),
+                        "temperature": get_temperature(),
                     },
                 },
             )
@@ -312,63 +506,934 @@ Answer:"""
             logger.error(f"Ollama error: {e}")
             return f"[Ollama error: {e}]"
 
+    async def _call_claude(self, prompt: str, model: str) -> Dict[str, Any]:
+        """Call Claude API for generation. Returns {"text": str, "usage": dict}."""
+        api_key = get_anthropic_api_key()
+        if not api_key or api_key.startswith("your_"):
+            return {"text": "[Claude API key not configured]", "usage": {}}
+
+        if not self._http_client:
+            self._http_client = httpx.AsyncClient(timeout=120.0)
+
+        try:
+            resp = await self._http_client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": get_max_tokens(),
+                    "temperature": get_temperature(),
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = ""
+            if data.get("content"):
+                text = data["content"][0].get("text", "")
+            usage = data.get("usage", {})
+            return {
+                "text": text,
+                "usage": {
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
+                }
+            }
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            logger.error(f"Claude HTTP error {e.response.status_code}: {error_body}")
+            return {"text": f"[Claude error {e.response.status_code}: {error_body}]", "usage": {}}
+        except Exception as e:
+            logger.error(f"Claude error: {e}")
+            return {"text": f"[Claude error: {e}]", "usage": {}}
+
+    # ------------------------------------------------------------------
+    # Haiku Orchestrator (for reliable tool use)
+    # ------------------------------------------------------------------
+
+    async def _call_haiku_orchestrator(
+        self,
+        query: str,
+        project_config: Dict[str, Any],
+        available_tools: List[str],
+        tool_results: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Use Claude Haiku to decide what action to take.
+        Returns: {"action": "respond" | "use_tool" | "delegate", ...}
+        """
+        api_key = get_anthropic_api_key()
+        if not api_key or api_key.startswith("your_"):
+            return {"action": "respond", "reason": "No API key configured"}
+
+        if not self._http_client:
+            self._http_client = httpx.AsyncClient(timeout=60.0)
+
+        allowed_paths = project_config.get("allowed_paths", [])
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Build context from tool results
+        context_parts = []
+        for tr in tool_results:
+            context_parts.append(f"Tool: {tr.get('tool')}\nResult: {tr.get('result', '')[:2000]}")
+        context_str = "\n\n".join(context_parts) if context_parts else "No previous tool results."
+
+        system_prompt = f"""You are an orchestrator that decides what action to take to answer user queries.
+Today's date: {current_date}
+
+You have access to these file tools: {', '.join(available_tools)}
+File access is allowed in these paths: {', '.join(allowed_paths)}
+
+Previous tool results:
+{context_str}
+
+Based on the user's query, decide the next action. Respond with ONLY valid JSON:
+
+For file operations:
+{{"action": "use_tool", "tool": "list_dir", "path": "<path>"}}
+{{"action": "use_tool", "tool": "read_file", "path": "<path>"}}
+{{"action": "use_tool", "tool": "search_files", "path": "<path>", "pattern": "<glob>"}}
+
+When you have enough information to answer:
+{{"action": "respond", "summary": "<brief summary of what you found>"}}
+
+For complex queries needing Claude Sonnet:
+{{"action": "delegate", "model": "sonnet", "reason": "<why>"}}
+
+For web search queries:
+{{"action": "delegate", "model": "perplexity", "reason": "<why>"}}
+
+IMPORTANT RULES:
+1. If asked about files/documents, ALWAYS use list_dir first to see what exists
+2. NEVER guess file names - use list_dir to discover them
+3. After reading files, respond with action="respond" and include a summary
+4. Only respond with valid JSON, nothing else"""
+
+        try:
+            resp = await self._http_client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 500,
+                    "temperature": 0,
+                    "messages": [{"role": "user", "content": query}],
+                    "system": system_prompt,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            text = ""
+            if data.get("content"):
+                text = data["content"][0].get("text", "").strip()
+
+            # Parse JSON response
+            try:
+                decision = json.loads(text)
+                logger.info(f"Haiku decision: {decision}")
+                return decision
+            except json.JSONDecodeError:
+                logger.warning(f"Haiku returned non-JSON: {text}")
+                return {"action": "respond", "reason": "Could not parse orchestrator response"}
+
+        except Exception as e:
+            logger.error(f"Haiku orchestrator error: {e}")
+            return {"action": "respond", "reason": f"Orchestrator error: {e}"}
+
+    async def execute_with_haiku(
+        self,
+        query: str,
+        project_config: Dict[str, Any],
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        global_instructions: Optional[str] = None,
+        max_iterations: int = 5,
+    ) -> Dict[str, Any]:
+        """
+        Execute a query using Haiku as orchestrator for tool decisions.
+        Returns {"text": str, "usage": dict, "tool_steps": list}.
+        """
+        available_tools = ["list_dir", "read_file", "search_files", "write_file"]
+        allowed_paths = project_config.get("allowed_paths", [])
+        tool_results = []
+        total_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        for i in range(max_iterations):
+            decision = await self._call_haiku_orchestrator(
+                query, project_config, available_tools, tool_results
+            )
+
+            action = decision.get("action", "respond")
+
+            if action == "respond":
+                # Generate final response using Ollama (free) with gathered context
+                context_parts = []
+                for tr in tool_results:
+                    context_parts.append(f"### {tr.get('tool')} result:\n{tr.get('result', '')}")
+                context = "\n\n".join(context_parts) if context_parts else ""
+
+                # Add summary if provided
+                summary = decision.get("summary", "")
+                if summary:
+                    context = f"Summary: {summary}\n\n{context}"
+
+                result = await self.generate_answer(
+                    query=query,
+                    context=context,
+                    conversation_history=conversation_history,
+                    project_config=project_config,
+                    enable_tools=False,  # Tools already handled by Haiku
+                    global_instructions=global_instructions,
+                )
+
+                return {
+                    "text": result.get("text", ""),
+                    "usage": total_usage,
+                    "tool_steps": tool_results,
+                    "orchestrator": "haiku",
+                }
+
+            elif action == "use_tool":
+                tool_name = decision.get("tool", "")
+                tool_path = decision.get("path", "")
+
+                if not tool_path or not tool_name:
+                    logger.warning(f"Invalid tool call: {decision}")
+                    continue
+
+                # Execute the tool
+                tool_call = {
+                    "tool": tool_name,
+                    "path": tool_path,
+                    "pattern": decision.get("pattern"),
+                    "content": decision.get("content"),
+                }
+
+                logger.info(f"Haiku executing tool: {tool_name} on {tool_path}")
+                result = execute_tool(tool_call, allowed_paths)
+
+                # Format result for context
+                if result.get("success"):
+                    if tool_name == "list_dir":
+                        entries = result.get("entries", [])
+                        result_text = "\n".join([f"- {e['name']} ({e['type']})" for e in entries])
+                    elif tool_name == "read_file":
+                        result_text = result.get("content", "")[:5000]
+                    elif tool_name == "search_files":
+                        matches = result.get("matches", [])
+                        result_text = "\n".join([m["path"] for m in matches])
+                    else:
+                        result_text = str(result)
+                else:
+                    result_text = f"Error: {result.get('error', 'Unknown error')}"
+
+                tool_results.append({
+                    "tool": tool_name,
+                    "path": tool_path,
+                    "result": result_text,
+                })
+
+            elif action == "delegate":
+                model = decision.get("model", "sonnet")
+                reason = decision.get("reason", "Complex query")
+
+                if model == "perplexity":
+                    # Use Perplexity for web search
+                    from search_integrations import PerplexitySearch
+                    perplexity = PerplexitySearch()
+                    result = await perplexity.search(query)
+                    return {
+                        "text": result.get("answer", ""),
+                        "usage": result.get("usage", {}),
+                        "citations": result.get("citations", []),
+                        "orchestrator": "haiku->perplexity",
+                        "reason": reason,
+                    }
+                else:
+                    # Use Claude Sonnet for complex reasoning
+                    context = "\n\n".join([
+                        f"### {tr.get('tool')} result:\n{tr.get('result', '')}"
+                        for tr in tool_results
+                    ]) if tool_results else ""
+
+                    result = await self.generate_answer(
+                        query=query,
+                        context=context,
+                        conversation_history=conversation_history,
+                        project_config=project_config,
+                        enable_tools=False,
+                        model="claude-sonnet-4-5-20250929",
+                        global_instructions=global_instructions,
+                    )
+
+                    return {
+                        "text": result.get("text", ""),
+                        "usage": result.get("usage", {}),
+                        "tool_steps": tool_results,
+                        "orchestrator": "haiku->sonnet",
+                        "reason": reason,
+                    }
+
+        # Max iterations reached
+        return {
+            "text": "I couldn't complete this request within the allowed steps. Please try a more specific query.",
+            "usage": total_usage,
+            "tool_steps": tool_results,
+            "orchestrator": "haiku",
+            "error": "max_iterations_reached",
+        }
+
     # ------------------------------------------------------------------
     # Project management
     # ------------------------------------------------------------------
 
     async def list_projects(self) -> List[Dict[str, Any]]:
-        """List all project knowledge bases."""
+        """List all projects from project-kb directory.
+
+        Iterates over project-kb directories with config.json files,
+        and shows document count from ChromaDB if collection exists.
+        """
         if not self._initialized:
             await self.initialize()
 
         projects = []
-        prefix = f"{CHROMADB_COLLECTION}_"
-        for col in self._chroma_client.list_collections():
-            name = col.name if hasattr(col, "name") else str(col)
-            if name.startswith(prefix):
-                project_name = name[len(prefix):]
-                collection = self._chroma_client.get_collection(name)
-                projects.append({
-                    "name": project_name,
-                    "collection": name,
-                    "document_count": collection.count(),
-                })
-            elif name == CHROMADB_COLLECTION:
-                collection = self._chroma_client.get_collection(name)
-                projects.append({
-                    "name": "default",
-                    "collection": name,
-                    "document_count": collection.count(),
-                })
+        project_kb_path = Path(get_project_kb_path()).resolve()
+        logger.info(f"Looking for projects in: {project_kb_path}")
+
+        if not project_kb_path.exists():
+            logger.warning(f"Project KB path does not exist: {project_kb_path}")
+            return projects
+
+        for project_dir in project_kb_path.iterdir():
+            logger.debug(f"Checking: {project_dir}")
+            if not project_dir.is_dir():
+                continue
+            config_path = project_dir / "config.json"
+            if not config_path.exists():
+                logger.debug(f"No config.json in {project_dir}")
+                continue
+            logger.info(f"Found project: {project_dir.name}")
+
+            # Load config for description
+            try:
+                import json
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+
+            # Get document count from ChromaDB (0 if no collection)
+            collection_name = f"{get_chromadb_collection()}_{project_dir.name}"
+            # Sanitize collection name same way as _get_collection does
+            collection_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in collection_name)[:63]
+            doc_count = 0
+            try:
+                col = self._chroma_client.get_collection(collection_name)
+                doc_count = col.count()
+            except Exception:
+                pass
+
+            projects.append({
+                "name": project_dir.name,
+                "description": config.get("description", ""),
+                "document_count": doc_count,
+            })
 
         return projects
 
-    async def create_project(self, name: str) -> Dict[str, Any]:
-        """Create a new project knowledge base."""
+    async def delete_collection(self, collection_name: str) -> bool:
+        """Delete a ChromaDB collection by name.
+
+        Use this to clean up orphaned collections like 'rag_docs_default'.
+        """
         if not self._initialized:
             await self.initialize()
 
-        collection = self._get_collection(name)
-        # Also create filesystem directory for project docs
-        project_dir = os.path.join(PROJECT_KB_PATH, name)
-        os.makedirs(project_dir, exist_ok=True)
-
-        return {
-            "name": name,
-            "collection": collection.name,
-            "document_count": 0,
-            "path": project_dir,
-        }
+        try:
+            self._chroma_client.delete_collection(collection_name)
+            logger.info(f"Deleted collection: {collection_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to delete collection '{collection_name}': {e}")
+            return False
 
     async def delete_project(self, name: str) -> bool:
         """Delete a project's ChromaDB collection."""
         if not self._initialized:
             await self.initialize()
 
-        col_name = f"{CHROMADB_COLLECTION}_{name}"
+        col_name = f"{get_chromadb_collection()}_{name}"
         col_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in col_name)[:63]
         try:
             self._chroma_client.delete_collection(col_name)
             return True
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    # Project configuration
+    # ------------------------------------------------------------------
+
+    def _get_project_config_path(self, project_name: str) -> Path:
+        """Get the path to a project's config.json file."""
+        return Path(get_project_kb_path()) / project_name / "config.json"
+
+    async def get_project_config(self, project_name: str) -> Optional[Dict[str, Any]]:
+        """Load a project's configuration from config.json."""
+        if not project_name:
+            return None
+
+        config_path = self._get_project_config_path(project_name)
+        if not config_path.exists():
+            return None
+
+        try:
+            import json
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load project config for '{project_name}': {e}")
+            return None
+
+    async def save_project_config(self, project_name: str, config: Dict[str, Any]) -> bool:
+        """Save a project's configuration to config.json."""
+        if not project_name:
+            return False
+
+        import json
+        from datetime import datetime
+
+        # Ensure project directory exists
+        project_dir = Path(get_project_kb_path()) / project_name
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        # Add/update timestamps
+        config["name"] = project_name
+        config["updated_at"] = datetime.utcnow().isoformat()
+        if "created_at" not in config:
+            config["created_at"] = config["updated_at"]
+
+        config_path = self._get_project_config_path(project_name)
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2)
+            logger.info(f"Saved config for project '{project_name}'")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save project config for '{project_name}': {e}")
+            return False
+
+    async def create_project(self, name: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Create a new project knowledge base with optional configuration."""
+        if not self._initialized:
+            await self.initialize()
+
+        collection = self._get_collection(name)
+        # Create filesystem directory for project docs
+        project_kb_path = get_project_kb_path()
+        project_dir = os.path.join(project_kb_path, name)
+        os.makedirs(project_dir, exist_ok=True)
+        os.makedirs(os.path.join(project_dir, "documents"), exist_ok=True)
+
+        # Initialize config with defaults
+        default_config = {
+            "name": name,
+            "description": "",
+            "system_prompt": "",
+            "instructions": "",
+            "allowed_paths": [os.path.join(project_dir, "documents")],
+        }
+        if config:
+            default_config.update(config)
+
+        # Save config
+        await self.save_project_config(name, default_config)
+
+        return {
+            "name": name,
+            "collection": collection.name,
+            "document_count": 0,
+            "path": project_dir,
+            "config": default_config,
+        }
+
+    def _extract_pdf_text(self, file_path: Path) -> str:
+        """Extract text from a PDF file."""
+        try:
+            import pypdf
+            text_parts = []
+            with open(file_path, "rb") as f:
+                reader = pypdf.PdfReader(f)
+                for page in reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_parts.append(page_text)
+            return "\n\n".join(text_parts)
+        except ImportError:
+            logger.warning("pypdf not installed. Run: pip install pypdf")
+            return ""
+        except Exception as e:
+            logger.warning(f"Failed to extract PDF text from {file_path}: {e}")
+            return ""
+
+    async def index_project_files(self, project_name: str) -> Dict[str, Any]:
+        """
+        Index all files from a project's allowed_paths directories.
+        Supports: .txt, .md, .json, .py, .js, .ts, .html, .css, .yaml, .yml, .pdf
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        config = await self.get_project_config(project_name)
+        if not config:
+            return {"error": f"Project '{project_name}' not found", "indexed": 0}
+
+        allowed_paths = config.get("allowed_paths", [])
+        if not allowed_paths:
+            return {"error": "No allowed_paths configured", "indexed": 0}
+
+        # Supported file extensions (text-based)
+        text_extensions = {".txt", ".md", ".json", ".py", ".js", ".ts", ".html", ".css", ".yaml", ".yml", ".rst", ".csv"}
+        # PDF extension handled separately
+        all_extensions = text_extensions | {".pdf"}
+
+        documents = []
+        files_found = []
+
+        for base_path in allowed_paths:
+            base_path = Path(base_path)
+            if not base_path.exists():
+                logger.warning(f"Path does not exist: {base_path}")
+                continue
+
+            # Find all supported files recursively
+            if base_path.is_file():
+                files = [base_path]
+            else:
+                files = []
+                for ext in all_extensions:
+                    files.extend(base_path.rglob(f"*{ext}"))
+
+            for file_path in files:
+                try:
+                    # Handle PDFs differently
+                    if file_path.suffix.lower() == ".pdf":
+                        content = self._extract_pdf_text(file_path)
+                    else:
+                        content = file_path.read_text(encoding="utf-8", errors="ignore")
+
+                    if content.strip():
+                        documents.append({
+                            "content": content,
+                            "title": file_path.name,
+                            "path": str(file_path),
+                            "metadata": {
+                                "source": "allowed_paths",
+                                "project": project_name,
+                                "file_type": file_path.suffix.lower(),
+                            }
+                        })
+                        files_found.append(str(file_path))
+                except Exception as e:
+                    logger.warning(f"Failed to read {file_path}: {e}")
+
+        if not documents:
+            return {"message": "No files found to index", "indexed": 0, "files": []}
+
+        # Index the documents
+        indexed_count = await self.index_documents(documents, project=project_name)
+
+        return {
+            "indexed": indexed_count,
+            "files": files_found,
+            "message": f"Indexed {indexed_count} chunks from {len(files_found)} files",
+        }
+
+    # ------------------------------------------------------------------
+    # Global RAG configuration
+    # ------------------------------------------------------------------
+
+    async def get_global_config(self) -> Dict[str, Any]:
+        """Load global RAG configuration from rag_config.json."""
+        import json
+
+        config_path = Path(get_rag_config_path())
+        if not config_path.exists():
+            # Return defaults
+            return {
+                "default_model": "claude-sonnet-4-5-20250929",
+                "default_mode": "auto",
+            }
+
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load global config: {e}")
+            return {
+                "default_model": "claude-sonnet-4-5-20250929",
+                "default_mode": "auto",
+            }
+
+    async def save_global_config(self, config: Dict[str, Any]) -> bool:
+        """Save global RAG configuration to rag_config.json."""
+        import json
+
+        config_path = Path(get_rag_config_path())
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2)
+            logger.info("Saved global RAG config")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save global config: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Chat mode (direct LLM, no RAG)
+    # ------------------------------------------------------------------
+
+    async def chat(
+        self,
+        query: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        model: str = "local",
+        project_config: Optional[Dict[str, Any]] = None,
+        global_instructions: Optional[str] = None,
+        query_classification: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Direct chat without RAG context. Uses specified model.
+        model: "local" for Ollama, or Claude model ID for Anthropic API.
+        project_config: Optional project config with system_prompt and instructions.
+        global_instructions: Optional global instructions to prepend to system prompt.
+        query_classification: Optional classification result for flexible prompts.
+        Returns {"text": str, "usage": dict}.
+        """
+        if model == "local":
+            text = await self._chat_ollama(query, conversation_history, project_config, global_instructions, query_classification)
+            return {"text": text, "usage": {}}
+        else:
+            return await self._chat_claude(query, conversation_history, model, project_config, global_instructions, query_classification)
+
+    async def _chat_ollama(
+        self,
+        query: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        project_config: Optional[Dict[str, Any]] = None,
+        global_instructions: Optional[str] = None,
+        query_classification: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Chat using local Ollama with optional project instructions."""
+        # Determine if we should use flexible mode (for non-task queries)
+        use_flexible = False
+        if query_classification:
+            from query_classifier import QueryIntent
+            intent = query_classification.get("intent")
+            if intent in [QueryIntent.META_QUESTION, QueryIntent.TECHNICAL_CODING, QueryIntent.CONVERSATION]:
+                use_flexible = True
+
+        # Build system prompt from project config
+        system_prompt = "You are a helpful assistant."
+        if project_config:
+            if use_flexible and project_config.get("flexible_prompt"):
+                system_prompt = project_config["flexible_prompt"]
+            else:
+                if project_config.get("system_prompt"):
+                    system_prompt = project_config["system_prompt"]
+                if project_config.get("instructions"):
+                    system_prompt += f"\n\nInstructions: {project_config['instructions']}"
+
+        # Add context modifier based on query classification
+        if query_classification:
+            from query_classifier import QueryClassifier
+            context_modifier = QueryClassifier.get_context_modifier(query_classification)
+            if context_modifier:
+                system_prompt = f"{context_modifier}\n\n{system_prompt}"
+
+        # Prepend global instructions if provided
+        if global_instructions:
+            system_prompt = f"{global_instructions}\n\n{system_prompt}"
+
+        # Add current date to system prompt
+        current_date = datetime.now().strftime("%B %d, %Y")
+        system_prompt = f"Today's date is {current_date}.\n\n{system_prompt}"
+
+        # Build conversation history section
+        history_section = ""
+        if conversation_history:
+            recent_history = conversation_history[-6:]
+            history_lines = []
+            for msg in recent_history:
+                role = msg.get("role", "user").capitalize()
+                content = msg.get("content", "")
+                history_lines.append(f"{role}: {content}")
+            if history_lines:
+                history_section = "Previous conversation:\n" + "\n".join(history_lines) + "\n\n"
+
+        prompt = f"""{system_prompt}
+
+{history_section}User: {query}
+
+Assistant:"""
+
+        return await self._call_ollama(prompt)
+
+    async def _chat_claude(
+        self,
+        query: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        model: str = "claude-sonnet-4-5-20250929",
+        project_config: Optional[Dict[str, Any]] = None,
+        global_instructions: Optional[str] = None,
+        query_classification: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Chat using Claude API with optional project instructions. Returns {"text": str, "usage": dict}."""
+        api_key = get_anthropic_api_key()
+        if not api_key or api_key.startswith("your_"):
+            return {"text": "[Claude API key not configured]", "usage": {}}
+
+        if not self._http_client:
+            self._http_client = httpx.AsyncClient(timeout=120.0)
+
+        # Determine if we should use flexible mode (for non-task queries)
+        use_flexible = False
+        if query_classification:
+            from query_classifier import QueryIntent
+            intent = query_classification.get("intent")
+            if intent in [QueryIntent.META_QUESTION, QueryIntent.TECHNICAL_CODING, QueryIntent.CONVERSATION]:
+                use_flexible = True
+
+        # Build system prompt from project config
+        system_prompt = None
+        if project_config:
+            parts = []
+            if use_flexible and project_config.get("flexible_prompt"):
+                parts.append(project_config["flexible_prompt"])
+            else:
+                if project_config.get("system_prompt"):
+                    parts.append(project_config["system_prompt"])
+                if project_config.get("instructions"):
+                    parts.append(f"Instructions: {project_config['instructions']}")
+            if parts:
+                system_prompt = "\n\n".join(parts)
+
+        # Add context modifier based on query classification
+        if query_classification:
+            from query_classifier import QueryClassifier
+            context_modifier = QueryClassifier.get_context_modifier(query_classification)
+            if context_modifier:
+                if system_prompt:
+                    system_prompt = f"{context_modifier}\n\n{system_prompt}"
+                else:
+                    system_prompt = context_modifier
+
+        # Prepend global instructions if provided
+        if global_instructions:
+            if system_prompt:
+                system_prompt = f"{global_instructions}\n\n{system_prompt}"
+            else:
+                system_prompt = global_instructions
+
+        # Add current date to system prompt
+        current_date = datetime.now().strftime("%B %d, %Y")
+        if system_prompt:
+            system_prompt = f"Today's date is {current_date}.\n\n{system_prompt}"
+        else:
+            system_prompt = f"Today's date is {current_date}."
+
+        # Build messages list with conversation history
+        messages = []
+        if conversation_history:
+            for msg in conversation_history[-6:]:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        messages.append({"role": "user", "content": query})
+
+        # Build request payload
+        payload = {
+            "model": model,
+            "max_tokens": get_max_tokens(),
+            "temperature": get_temperature(),
+            "messages": messages,
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+
+        try:
+            resp = await self._http_client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = ""
+            if data.get("content"):
+                text = data["content"][0].get("text", "")
+            usage = data.get("usage", {})
+            return {
+                "text": text,
+                "usage": {
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
+                }
+            }
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            logger.error(f"Claude HTTP error {e.response.status_code}: {error_body}")
+            return {"text": f"[Claude error {e.response.status_code}: {error_body}]", "usage": {}}
+        except Exception as e:
+            logger.error(f"Claude error: {e}")
+            return {"text": f"[Claude error: {e}]", "usage": {}}
+
+    # ------------------------------------------------------------------
+    # Chat history persistence
+    # ------------------------------------------------------------------
+
+    def _get_chats_dir(self) -> Path:
+        """Get and ensure the chats directory exists."""
+        chats_dir = Path(get_chats_path()).resolve()
+        chats_dir.mkdir(parents=True, exist_ok=True)
+        return chats_dir
+
+    async def list_chats(
+        self,
+        project: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        List chat summaries, optionally filtered by project.
+        Returns list sorted by updated_at (newest first).
+        """
+        import json
+
+        chats_dir = self._get_chats_dir()
+        chats = []
+
+        for chat_file in chats_dir.glob("*.json"):
+            try:
+                with open(chat_file, "r", encoding="utf-8") as f:
+                    chat = json.load(f)
+
+                # Filter by project if specified
+                if project and chat.get("project") != project:
+                    continue
+
+                # Return summary (no full messages)
+                chats.append({
+                    "id": chat.get("id"),
+                    "name": chat.get("name", "Untitled"),
+                    "project": chat.get("project"),
+                    "created_at": chat.get("created_at"),
+                    "updated_at": chat.get("updated_at"),
+                    "message_count": len(chat.get("messages", [])),
+                })
+            except Exception as e:
+                logger.warning(f"Failed to read chat file {chat_file}: {e}")
+
+        # Sort by updated_at descending (newest first)
+        chats.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+
+        return chats[:limit]
+
+    async def get_chat(self, chat_id: str) -> Optional[Dict[str, Any]]:
+        """Load a full chat by ID."""
+        import json
+
+        chat_path = self._get_chats_dir() / f"{chat_id}.json"
+        if not chat_path.exists():
+            return None
+
+        try:
+            with open(chat_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read chat {chat_id}: {e}")
+            return None
+
+    async def save_chat(self, chat: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create or update a chat.
+        Chat dict should have: id (optional), name, project, messages.
+        Timestamps are auto-managed.
+        Returns the saved chat with generated ID.
+        """
+        import json
+        from datetime import datetime
+
+        chat_id = chat.get("id")
+        if not chat_id:
+            # Generate new ID
+            import secrets
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            chat_id = f"chat_{timestamp}_{secrets.token_hex(4)}"
+            chat["id"] = chat_id
+
+        # Manage timestamps
+        now = datetime.utcnow().isoformat() + "Z"
+        if "created_at" not in chat:
+            chat["created_at"] = now
+        chat["updated_at"] = now
+
+        # Auto-generate name from first user message if not set
+        if not chat.get("name") or chat.get("name") == "New Chat":
+            messages = chat.get("messages", [])
+            for msg in messages:
+                if msg.get("role") == "user":
+                    content = msg.get("content", "")
+                    # Take first 50 chars as name
+                    chat["name"] = content[:50] + ("..." if len(content) > 50 else "")
+                    break
+            if not chat.get("name"):
+                chat["name"] = "New Chat"
+
+        chat_path = self._get_chats_dir() / f"{chat_id}.json"
+        try:
+            with open(chat_path, "w", encoding="utf-8") as f:
+                json.dump(chat, f, indent=2)
+            logger.info(f"Saved chat: {chat_id}")
+            return chat
+        except Exception as e:
+            logger.error(f"Failed to save chat {chat_id}: {e}")
+            raise
+
+    async def delete_chat(self, chat_id: str) -> bool:
+        """Delete a chat by ID."""
+        chat_path = self._get_chats_dir() / f"{chat_id}.json"
+        if not chat_path.exists():
+            return False
+
+        try:
+            chat_path.unlink()
+            logger.info(f"Deleted chat: {chat_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete chat {chat_id}: {e}")
+            return False
+
+    async def rename_chat(self, chat_id: str, new_name: str) -> bool:
+        """Rename a chat."""
+        chat = await self.get_chat(chat_id)
+        if not chat:
+            return False
+
+        chat["name"] = new_name
+        await self.save_chat(chat)
+        return True

@@ -4,26 +4,34 @@ Claude API, Perplexity API (free tier), and Tavily search.
 Each provider has a search method and a health check.
 """
 
-import os
 import logging
 from typing import Dict, Any, List, Optional
 
 import httpx
-from dotenv import load_dotenv
 
-# Load environment
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "config", ".env"))
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+import base64
+
+from config import (
+    get_anthropic_api_key,
+    get_perplexity_api_key,
+    get_tavily_api_key,
+    get_max_tokens,
+    get_temperature,
+)
+
+
+def get_idealista_api_key() -> str:
+    """Get Idealista API key from environment."""
+    import os
+    return os.getenv("IDEALISTA_API_KEY", "")
+
+
+def get_idealista_api_secret() -> str:
+    """Get Idealista API secret from environment."""
+    import os
+    return os.getenv("IDEALISTA_API_SECRET", "")
 
 logger = logging.getLogger(__name__)
-
-# --- Configuration ---
-
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
-TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
-MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2000"))
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.7"))
 
 
 # ======================================================================
@@ -44,34 +52,17 @@ class ClaudeSearch:
         return self._client
 
     async def is_healthy(self) -> bool:
-        """Check if Claude API key is configured and reachable."""
-        if not ANTHROPIC_API_KEY or ANTHROPIC_API_KEY.startswith("your_"):
+        """Check if Claude API key is configured (no API call, saves quota)."""
+        api_key = get_anthropic_api_key()
+        if not api_key or api_key.startswith("your_"):
             return False
-        try:
-            client = self._get_client()
-            # Light check: send a tiny message
-            resp = await client.post(
-                self.API_URL,
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 10,
-                    "messages": [{"role": "user", "content": "ping"}],
-                },
-            )
-            return resp.status_code == 200
-        except Exception as e:
-            logger.warning(f"Claude health check failed: {e}")
-            return False
+        # Key is configured - assume healthy (actual errors caught on query)
+        return True
 
-    async def search(self, query: str) -> Dict[str, Any]:
+    async def search(self, query: str, model: str = "claude-sonnet-4-5-20250929") -> Dict[str, Any]:
         """
         Ask Claude to answer a question.
-        Returns {"answer": str, "sources": list[dict]}.
+        Returns {"answer": str, "sources": list[dict], "usage": dict}.
         """
         client = self._get_client()
         prompt = f"""Answer the following question accurately and concisely.
@@ -79,63 +70,101 @@ If you cite any sources, list them at the end.
 
 Question: {query}"""
 
-        resp = await client.post(
-            self.API_URL,
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": MAX_TOKENS,
-                "temperature": TEMPERATURE,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        # Use local model fallback if specified
+        actual_model = model if model != "local" else "claude-sonnet-4-5-20250929"
+        api_key = get_anthropic_api_key()
 
-        answer = ""
-        if data.get("content"):
-            answer = data["content"][0].get("text", "")
+        try:
+            resp = await client.post(
+                self.API_URL,
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": actual_model,
+                    "max_tokens": get_max_tokens(),
+                    "temperature": get_temperature(),
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
 
-        return {
-            "answer": answer,
-            "sources": [
-                {
-                    "title": "Claude AI",
-                    "url": "https://claude.ai",
-                    "snippet": answer[:200] if answer else "",
-                }
-            ],
-        }
+            answer = ""
+            if data.get("content"):
+                answer = data["content"][0].get("text", "")
 
-    async def generate(self, prompt: str) -> str:
+            usage = data.get("usage", {})
+
+            return {
+                "answer": answer,
+                "sources": [
+                    {
+                        "title": "Claude AI",
+                        "url": "https://claude.ai",
+                        "snippet": answer[:200] if answer else "",
+                    }
+                ],
+                "usage": {
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
+                },
+            }
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            logger.error(f"Claude API error {e.response.status_code}: {error_body}")
+            return {
+                "answer": f"[Claude error {e.response.status_code}: {error_body}]",
+                "sources": [],
+                "usage": {},
+            }
+
+    async def generate(self, prompt: str, model: str = "claude-sonnet-4-5-20250929") -> Dict[str, Any]:
         """
         General-purpose generation with Claude.
         Used for synthesizing hybrid answers.
+        Returns {"text": str, "usage": dict}.
         """
         client = self._get_client()
-        resp = await client.post(
-            self.API_URL,
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": MAX_TOKENS,
-                "temperature": TEMPERATURE,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("content"):
-            return data["content"][0].get("text", "")
-        return ""
+        actual_model = model if model != "local" else "claude-sonnet-4-5-20250929"
+        api_key = get_anthropic_api_key()
+        try:
+            resp = await client.post(
+                self.API_URL,
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": actual_model,
+                    "max_tokens": get_max_tokens(),
+                    "temperature": get_temperature(),
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = ""
+            if data.get("content"):
+                text = data["content"][0].get("text", "")
+            usage = data.get("usage", {})
+            return {
+                "text": text,
+                "usage": {
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
+                },
+            }
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text
+            logger.error(f"Claude generate error {e.response.status_code}: {error_body}")
+            return {
+                "text": f"[Claude error {e.response.status_code}: {error_body}]",
+                "usage": {},
+            }
 
 
 # ======================================================================
@@ -144,77 +173,40 @@ Question: {query}"""
 
 class PerplexitySearch:
     """
-    Search and research via Perplexity API.
-    Uses the OpenAI-compatible endpoint. Free tier has rate limits
-    but does not require a subscription.
+    Search and research via Perplexity API (2025 Sonar models).
+    Features: search_mode (high/medium/low), academic filter, recency filter.
+    Citation tokens are now free (not charged).
     """
 
     API_URL = "https://api.perplexity.ai/chat/completions"
+
+    # Search modes (March 2025 update)
+    SEARCH_MODE_HIGH = "high"      # Maximum depth for complex queries
+    SEARCH_MODE_MEDIUM = "medium"  # Balanced approach
+    SEARCH_MODE_LOW = "low"        # Cost-efficient for simple queries
 
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=60.0)
+            self._client = httpx.AsyncClient(timeout=90.0)
         return self._client
 
     async def is_healthy(self) -> bool:
         """Check if Perplexity API key is configured."""
-        if not PERPLEXITY_API_KEY or PERPLEXITY_API_KEY.startswith("your_"):
+        api_key = get_perplexity_api_key()
+        if not api_key or api_key.startswith("your_"):
             return False
-        try:
-            client = self._get_client()
-            resp = await client.post(
-                self.API_URL,
-                headers={
-                    "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "sonar",
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 5,
-                },
-            )
-            return resp.status_code == 200
-        except Exception as e:
-            logger.warning(f"Perplexity health check failed: {e}")
-            return False
+        return True
 
-    async def search(self, query: str) -> Dict[str, Any]:
-        """
-        Quick search via Perplexity sonar model.
-        Returns {"answer": str, "citations": list[dict]}.
-        """
-        client = self._get_client()
-        resp = await client.post(
-            self.API_URL,
-            headers={
-                "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "sonar",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Answer concisely with citations where possible.",
-                    },
-                    {"role": "user", "content": query},
-                ],
-                "max_tokens": MAX_TOKENS,
-                "temperature": 0.2,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
+    def _parse_response(self, data: Dict) -> Dict[str, Any]:
+        """Parse Perplexity response and extract answer + citations."""
         answer = ""
         if data.get("choices"):
             answer = data["choices"][0].get("message", {}).get("content", "")
 
-        # Perplexity returns citations in the response
+        # Citations are now free (no token charge)
         raw_citations = data.get("citations", [])
         citations = []
         for i, url in enumerate(raw_citations):
@@ -231,96 +223,158 @@ class PerplexitySearch:
                 "snippet": answer[:200] if answer else "",
             })
 
-        return {"answer": answer, "citations": citations}
+        # Include cost info if available (new API feature)
+        usage = data.get("usage", {})
 
-    async def research(self, query: str, depth: str = "deep") -> Dict[str, Any]:
+        return {"answer": answer, "citations": citations, "usage": usage}
+
+    async def search(
+        self,
+        query: str,
+        search_mode: str = "low",
+        recency: Optional[str] = None,
+        academic: bool = False,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         """
-        Deep research query via Perplexity sonar-pro model.
-        Falls back to sonar if sonar-pro is not available on free tier.
+        Search via Perplexity Sonar model.
+
+        Args:
+            query: Search query
+            search_mode: "low" (cheap), "medium" (balanced), "high" (thorough)
+            recency: Filter by time - "day", "week", "month", "year", or None
+            academic: If True, prioritize academic/scholarly sources
+            conversation_history: Previous messages for context
+
+        Returns: {"answer": str, "citations": list[dict], "usage": dict}
         """
-        # Try sonar-pro first (deeper analysis), fall back to sonar
+        client = self._get_client()
+        api_key = get_perplexity_api_key()
+
+        # Use sonar-pro for high mode, sonar for low/medium
+        model = "sonar-pro" if search_mode == "high" else "sonar"
+
+        # Build messages with conversation history for context
+        messages = [
+            {
+                "role": "system",
+                "content": "Answer concisely with citations where possible. Maintain context from the conversation.",
+            },
+        ]
+
+        # Add conversation history (last 4 exchanges max to avoid token limits)
+        if conversation_history:
+            recent_history = conversation_history[-8:]  # Last 4 user+assistant pairs
+            for msg in recent_history:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+
+        # Add current query
+        messages.append({"role": "user", "content": query})
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": get_max_tokens(),
+            "temperature": 0.2,
+        }
+
+        # Add recency filter if specified
+        if recency:
+            payload["search_recency_filter"] = recency
+
+        # Add academic filter if requested
+        if academic:
+            payload["web_search_options"] = {"search_mode": "academic"}
+
+        try:
+            resp = await client.post(
+                self.API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            return self._parse_response(resp.json())
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Perplexity search error: {e.response.status_code}")
+            return {"answer": f"[Perplexity error: {e.response.status_code}]", "citations": [], "usage": {}}
+
+    async def research(
+        self,
+        query: str,
+        depth: str = "deep",
+        recency: Optional[str] = None,
+        academic: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Deep research via Perplexity Sonar Pro (multi-step reasoning).
+
+        Args:
+            query: Research query
+            depth: "deep" uses sonar-pro, "standard" uses sonar
+            recency: Filter by time - "day", "week", "month", "year"
+            academic: If True, prioritize academic sources
+
+        Returns: {"answer": str, "citations": list[dict], "usage": dict}
+        """
         model = "sonar-pro" if depth == "deep" else "sonar"
+        search_mode = self.SEARCH_MODE_HIGH if depth == "deep" else self.SEARCH_MODE_MEDIUM
+        api_key = get_perplexity_api_key()
+
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Provide a thorough, well-researched answer. "
+                        "Include specific details, data, and cite all sources."
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
+            "max_tokens": get_max_tokens(),
+            "temperature": 0.1,
+            "search_mode": search_mode,
+        }
+
+        if recency:
+            payload["search_recency_filter"] = recency
+
+        if academic:
+            payload["web_search_options"] = {"search_mode": "academic"}
 
         client = self._get_client()
         try:
             resp = await client.post(
                 self.API_URL,
                 headers={
-                    "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": model,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": (
-                                "Provide a thorough, well-researched answer. "
-                                "Include specific details, data, and cite sources."
-                            ),
-                        },
-                        {"role": "user", "content": query},
-                    ],
-                    "max_tokens": MAX_TOKENS,
-                    "temperature": 0.1,
-                },
+                json=payload,
             )
 
-            # If sonar-pro fails (not available on free tier), retry with sonar
+            # Fallback to sonar if sonar-pro unavailable
             if resp.status_code != 200 and model == "sonar-pro":
                 logger.info("sonar-pro unavailable, falling back to sonar")
+                payload["model"] = "sonar"
                 resp = await client.post(
                     self.API_URL,
                     headers={
-                        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+                        "Authorization": f"Bearer {api_key}",
                         "Content-Type": "application/json",
                     },
-                    json={
-                        "model": "sonar",
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "Provide a thorough, well-researched answer. "
-                                    "Include specific details, data, and cite sources."
-                                ),
-                            },
-                            {"role": "user", "content": query},
-                        ],
-                        "max_tokens": MAX_TOKENS,
-                        "temperature": 0.1,
-                    },
+                    json=payload,
                 )
 
             resp.raise_for_status()
-            data = resp.json()
+            return self._parse_response(resp.json())
         except httpx.HTTPStatusError as e:
-            return {
-                "answer": f"[Perplexity API error: {e.response.status_code}]",
-                "citations": [],
-            }
-
-        answer = ""
-        if data.get("choices"):
-            answer = data["choices"][0].get("message", {}).get("content", "")
-
-        raw_citations = data.get("citations", [])
-        citations = []
-        for i, url in enumerate(raw_citations):
-            citations.append({
-                "title": f"Source {i + 1}",
-                "url": url if isinstance(url, str) else str(url),
-                "snippet": "",
-            })
-
-        if not citations:
-            citations.append({
-                "title": "Perplexity AI",
-                "url": "https://perplexity.ai",
-                "snippet": answer[:200] if answer else "",
-            })
-
-        return {"answer": answer, "citations": citations}
+            logger.error(f"Perplexity research error: {e.response.status_code}")
+            return {"answer": f"[Perplexity error: {e.response.status_code}]", "citations": [], "usage": {}}
 
 
 # ======================================================================
@@ -328,9 +382,22 @@ class PerplexitySearch:
 # ======================================================================
 
 class TavilySearch:
-    """Backup web search via Tavily API."""
+    """
+    Web search via Tavily API.
+    Better for specific URL retrieval than Perplexity.
+    """
 
     API_URL = "https://api.tavily.com/search"
+
+    # Real estate domains for focused searches
+    REAL_ESTATE_DOMAINS = [
+        "idealista.com",
+        "atemporal.com",
+        "spotahome.com",
+        "habitaclia.com",
+        "fotocasa.es",
+        "pisos.com",
+    ]
 
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
@@ -342,34 +409,309 @@ class TavilySearch:
 
     async def is_healthy(self) -> bool:
         """Check if Tavily API key is configured."""
-        return bool(TAVILY_API_KEY) and not TAVILY_API_KEY.startswith("your_")
+        api_key = get_tavily_api_key()
+        return bool(api_key) and not api_key.startswith("your_")
 
-    async def search(self, query: str, max_results: int = 5) -> Dict[str, Any]:
+    async def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        search_depth: str = "advanced",
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
-        Search via Tavily.
-        Returns {"answer": str, "sources": list[dict]}.
+        Search via Tavily with domain filtering.
+
+        Args:
+            query: Search query
+            max_results: Max results to return (default 10)
+            search_depth: "basic" or "advanced" (advanced gets more specific URLs)
+            include_domains: Only search these domains
+            exclude_domains: Exclude these domains
+
+        Returns: {"answer": str, "citations": list[dict]} - citations format for compatibility
         """
         client = self._get_client()
-        resp = await client.post(
-            self.API_URL,
-            json={
-                "api_key": TAVILY_API_KEY,
-                "query": query,
-                "max_results": max_results,
-                "include_answer": True,
-                "search_depth": "basic",
-            },
+        api_key = get_tavily_api_key()
+
+        if not api_key or api_key.startswith("your_"):
+            return {
+                "answer": "Tavily API key not configured",
+                "citations": [],
+            }
+
+        payload = {
+            "api_key": api_key,
+            "query": query,
+            "max_results": max_results,
+            "include_answer": True,
+            "search_depth": search_depth,
+        }
+
+        if include_domains:
+            payload["include_domains"] = include_domains
+        if exclude_domains:
+            payload["exclude_domains"] = exclude_domains
+
+        try:
+            resp = await client.post(self.API_URL, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+            answer = data.get("answer", "")
+
+            # Return in citations format for compatibility with Groq agent
+            citations = []
+            for result in data.get("results", []):
+                citations.append({
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("content", "")[:300],
+                })
+
+            logger.info(f"Tavily returned {len(citations)} results with URLs")
+            for c in citations[:5]:
+                logger.info(f"  - {c['url']}")
+
+            return {"answer": answer, "citations": citations}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Tavily error: {e.response.status_code}")
+            return {"answer": f"[Tavily error: {e.response.status_code}]", "citations": []}
+
+    async def search_real_estate(
+        self,
+        query: str,
+        max_results: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Search real estate listings with focused domain filtering.
+        Returns specific listing URLs from Idealista, Atemporal, etc.
+        """
+        return await self.search(
+            query=query,
+            max_results=max_results,
+            search_depth="advanced",
+            include_domains=self.REAL_ESTATE_DOMAINS,
         )
-        resp.raise_for_status()
-        data = resp.json()
 
-        answer = data.get("answer", "")
-        sources = []
-        for result in data.get("results", []):
-            sources.append({
-                "title": result.get("title", ""),
-                "url": result.get("url", ""),
-                "snippet": result.get("content", "")[:200],
-            })
 
-        return {"answer": answer, "sources": sources}
+# ======================================================================
+# Idealista API (Direct Real Estate Listings)
+# ======================================================================
+
+class IdealistaSearch:
+    """
+    Direct access to Idealista listings via their official API.
+    Requires API key from https://developers.idealista.com/access-request
+
+    Returns actual listing URLs with prices, features, and photos.
+    """
+
+    TOKEN_URL = "https://api.idealista.com/oauth/token"
+    SEARCH_URL = "https://api.idealista.com/3.5/{country}/search"
+
+    def __init__(self):
+        self._client: Optional[httpx.AsyncClient] = None
+        self._token: Optional[str] = None
+        self._token_expires: float = 0
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=30.0)
+        return self._client
+
+    async def is_healthy(self) -> bool:
+        """Check if Idealista API credentials are configured."""
+        api_key = get_idealista_api_key()
+        api_secret = get_idealista_api_secret()
+        return bool(api_key and api_secret and
+                    not api_key.startswith("your_") and
+                    not api_secret.startswith("your_"))
+
+    async def _get_token(self) -> Optional[str]:
+        """Get OAuth token for Idealista API."""
+        import time
+
+        # Return cached token if still valid
+        if self._token and time.time() < self._token_expires:
+            return self._token
+
+        api_key = get_idealista_api_key()
+        api_secret = get_idealista_api_secret()
+
+        if not api_key or not api_secret:
+            logger.warning("Idealista API credentials not configured")
+            return None
+
+        # Create Basic auth header
+        credentials = f"{api_key}:{api_secret}"
+        encoded = base64.b64encode(credentials.encode()).decode()
+
+        client = self._get_client()
+        try:
+            resp = await client.post(
+                self.TOKEN_URL,
+                headers={
+                    "Authorization": f"Basic {encoded}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data={
+                    "grant_type": "client_credentials",
+                    "scope": "read",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            self._token = data.get("access_token")
+            # Token typically valid for 1 hour, refresh 5 min early
+            self._token_expires = time.time() + data.get("expires_in", 3600) - 300
+
+            logger.info("Obtained Idealista API token")
+            return self._token
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Idealista token error: {e.response.status_code} - {e.response.text}")
+            return None
+
+    async def search(
+        self,
+        location: str = "barcelona",
+        country: str = "es",
+        operation: str = "rent",
+        property_type: str = "homes",
+        max_price: Optional[int] = None,
+        min_size: Optional[int] = None,
+        bedrooms: Optional[int] = None,
+        has_terrace: bool = False,
+        max_results: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Search Idealista listings directly.
+
+        Args:
+            location: City or area name (e.g., "barcelona", "madrid")
+            country: Country code (es, it, pt)
+            operation: "rent" or "sale"
+            property_type: "homes", "premises", "garages", etc.
+            max_price: Maximum price in euros
+            min_size: Minimum size in m²
+            bedrooms: Number of bedrooms (0=studio, 1, 2, 3, 4+)
+            has_terrace: Filter for properties with terrace/balcony
+            max_results: Maximum listings to return
+
+        Returns: {"answer": str, "citations": list[dict], "listings": list[dict]}
+        """
+        token = await self._get_token()
+        if not token:
+            return {
+                "answer": "Idealista API not configured. Request access at https://developers.idealista.com/access-request",
+                "citations": [],
+                "listings": [],
+            }
+
+        # Build search parameters
+        # Note: Idealista uses center point + distance, so we need geocoding
+        # For now, use pre-defined centers for common cities
+        centers = {
+            "barcelona": "41.3851,2.1734",
+            "madrid": "40.4168,-3.7038",
+            "valencia": "39.4699,-0.3763",
+            "lisbon": "38.7223,-9.1393",
+            "porto": "41.1579,-8.6291",
+            "milan": "45.4642,9.1900",
+            "rome": "41.9028,12.4964",
+        }
+
+        center = centers.get(location.lower(), centers["barcelona"])
+
+        params = {
+            "center": center,
+            "distance": 10000,  # 10km radius
+            "operation": operation,
+            "propertyType": property_type,
+            "maxItems": max_results,
+            "numPage": 1,
+            "order": "priceDown",
+            "sort": "desc",
+        }
+
+        if max_price:
+            params["maxPrice"] = max_price
+        if min_size:
+            params["minSize"] = min_size
+        if bedrooms is not None:
+            if bedrooms == 0:
+                params["studio"] = True
+            else:
+                params["bedrooms"] = f"{bedrooms},{bedrooms}"
+        if has_terrace:
+            params["terrace"] = True
+
+        client = self._get_client()
+        try:
+            url = self.SEARCH_URL.format(country=country)
+            resp = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                data=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            listings = []
+            citations = []
+
+            for item in data.get("elementList", []):
+                listing = {
+                    "id": item.get("propertyCode"),
+                    "url": item.get("url", f"https://www.idealista.com/inmueble/{item.get('propertyCode')}/"),
+                    "price": item.get("price"),
+                    "size": item.get("size"),
+                    "rooms": item.get("rooms"),
+                    "bathrooms": item.get("bathrooms"),
+                    "address": item.get("address"),
+                    "district": item.get("district"),
+                    "neighborhood": item.get("neighborhood"),
+                    "has_terrace": item.get("hasTerrace", False),
+                    "has_lift": item.get("hasLift", False),
+                    "floor": item.get("floor"),
+                    "description": item.get("description", "")[:200],
+                    "thumbnail": item.get("thumbnail"),
+                }
+                listings.append(listing)
+
+                # Also add to citations for Groq agent compatibility
+                citations.append({
+                    "title": f"€{listing['price']}/mo - {listing['rooms'] or 'Studio'} bed, {listing['size']}m² in {listing['neighborhood'] or listing['district']}",
+                    "url": listing["url"],
+                    "snippet": f"{listing['description'][:150]}... Terrace: {'Yes' if listing['has_terrace'] else 'No'}",
+                })
+
+            # Build summary answer
+            total = data.get("total", len(listings))
+            answer = f"Found {total} listings. Showing {len(listings)} results:\n\n"
+            for i, l in enumerate(listings[:5], 1):
+                answer += f"{i}. €{l['price']}/mo - {l['rooms'] or 'Studio'} bed, {l['size']}m² in {l['neighborhood'] or l['district']}\n"
+                answer += f"   {l['url']}\n"
+
+            logger.info(f"Idealista returned {len(listings)} listings")
+
+            return {
+                "answer": answer,
+                "citations": citations,
+                "listings": listings,
+            }
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Idealista search error: {e.response.status_code} - {e.response.text}")
+            return {
+                "answer": f"[Idealista error: {e.response.status_code}]",
+                "citations": [],
+                "listings": [],
+            }

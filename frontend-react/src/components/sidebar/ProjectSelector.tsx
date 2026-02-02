@@ -7,6 +7,7 @@ import {
   PlusIcon,
   CloseIcon,
   LoaderIcon,
+  EditIcon,
 } from '../common/icons';
 import clsx from 'clsx';
 
@@ -19,6 +20,7 @@ export function ProjectSelector() {
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const setCurrentProject = useProjectStore((s) => s.setCurrentProject);
   const setShowProjectForm = useProjectStore((s) => s.setShowProjectForm);
+  const setEditingProject = useProjectStore((s) => s.setEditingProject);
   const newChat = useChatStore((s) => s.newChat);
   const loadChats = useChatStore((s) => s.loadChats);
 
@@ -35,6 +37,12 @@ export function ProjectSelector() {
 
   const handleCreateNew = () => {
     setShowProjectForm(true);
+    setIsOpen(false);
+  };
+
+  const handleEditProject = (e: React.MouseEvent, name: string) => {
+    e.stopPropagation();
+    setEditingProject(name);
     setIsOpen(false);
   };
 
@@ -106,11 +114,11 @@ export function ProjectSelector() {
             ) : (
               <div className="max-h-48 overflow-y-auto">
                 {sortedProjects.map((project) => (
-                  <button
+                  <div
                     key={project.name}
                     onClick={() => handleSelectProject(project.name)}
                     className={clsx(
-                      'w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                      'group w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors cursor-pointer',
                       'hover:bg-[var(--color-surface-hover)]',
                       currentProject === project.name &&
                         'text-[var(--color-primary)]'
@@ -118,7 +126,14 @@ export function ProjectSelector() {
                   >
                     <ProjectIcon className="w-4 h-4" />
                     <span className="flex-1 truncate">{project.name}</span>
-                  </button>
+                    <button
+                      onClick={(e) => handleEditProject(e, project.name)}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[var(--color-border)] rounded transition-all"
+                      title="Edit project"
+                    >
+                      <EditIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
