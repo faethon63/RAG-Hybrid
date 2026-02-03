@@ -160,7 +160,7 @@ class GroqAgent:
             "type": "function",
             "function": {
                 "name": "notion_tool",
-                "description": "Full Notion workspace access: search, read, create, and edit pages. Use for: finding notes, reading pages, creating new pages, updating existing pages, managing databases.",
+                "description": "Full Notion workspace access. IMPORTANT: When looking for specific info (like AGI, receipts, notes), use logic: 1) Search for the CATEGORY (e.g., 'tax' for AGI, 'finance' for bank info), 2) Read the page with read_page to see content INCLUDING dropdown/toggle content which often contains year-specific data. Dropdowns are commonly used to organize by year (2023, 2024, etc.).",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -202,6 +202,17 @@ TOOL SELECTION GUIDE:
   - For Spain/Portugal/Italy: use provider="idealista"
   - For other locations: use provider="tavily"
 - COMPREHENSIVE RESEARCH: Use deep_research tool
+- PERSONAL DATA (user's notes, documents, tax info, AGI, receipts, personal records): Use notion_tool
+  - Think about WHERE it would be stored: AGI → tax pages, bank info → finance pages, etc.
+  - First SEARCH for the category, then READ the page (dropdowns contain year-specific data)
+- CODE/REPOS (source code, issues, projects): Use github_search tool
+
+NOTION NAVIGATION LOGIC:
+When user asks for personal info like "my 2023 AGI" or "my tax return":
+1. Identify the CATEGORY (AGI = taxes, receipts = expenses, etc.)
+2. Search Notion for that category (e.g., search "tax")
+3. Read the most relevant page - dropdowns/toggles often organize by YEAR
+4. Look inside the content for the specific data requested
 
 ABSOLUTE RULES - VIOLATION IS UNACCEPTABLE:
 1. NEVER make up numbers, prices, or statistics. If the tool didn't return specific data, say "I couldn't find that specific information."
