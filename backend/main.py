@@ -310,23 +310,58 @@ async def _tool_notion(action: str, query: str = None, parent_id: str = None, ti
             elif action == "read_page":
                 if not query:
                     return {"answer": "Error: page ID required for read_page", "sources": []}
-                response = await client.get(
-                    f"https://api.notion.com/v1/blocks/{query}/children?page_size=100",
-                    headers=headers
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    content_lines = []
-                    for block in data.get("results", []):
+
+                async def read_blocks_recursive(block_id: str, indent: int = 0) -> list:
+                    """Recursively read blocks including toggle/dropdown content."""
+                    resp = await client.get(
+                        f"https://api.notion.com/v1/blocks/{block_id}/children?page_size=100",
+                        headers=headers
+                    )
+                    if resp.status_code != 200:
+                        return []
+
+                    lines = []
+                    prefix_indent = "  " * indent
+                    for block in resp.json().get("results", []):
                         block_type = block.get("type", "")
-                        if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item"]:
+                        block_id_child = block.get("id", "")
+                        has_children = block.get("has_children", False)
+
+                        # Extract text from common block types
+                        text = ""
+                        if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item", "toggle", "to_do", "callout", "quote"]:
                             text_content = block.get(block_type, {}).get("rich_text", [])
                             text = "".join([t.get("plain_text", "") for t in text_content])
-                            if text:
-                                prefix = "# " if "heading_1" in block_type else "## " if "heading_2" in block_type else "### " if "heading_3" in block_type else "- " if "list" in block_type else ""
-                                content_lines.append(f"{prefix}{text}")
+                        elif block_type == "child_page":
+                            text = f"[Subpage: {block.get('child_page', {}).get('title', 'Untitled')}]"
+                        elif block_type == "child_database":
+                            text = f"[Database: {block.get('child_database', {}).get('title', 'Untitled')}]"
+
+                        if text:
+                            if "heading_1" in block_type:
+                                lines.append(f"{prefix_indent}# {text}")
+                            elif "heading_2" in block_type:
+                                lines.append(f"{prefix_indent}## {text}")
+                            elif "heading_3" in block_type:
+                                lines.append(f"{prefix_indent}### {text}")
+                            elif "toggle" in block_type:
+                                lines.append(f"{prefix_indent}▼ {text}")  # Dropdown/toggle indicator
+                            elif "list" in block_type or "to_do" in block_type:
+                                lines.append(f"{prefix_indent}- {text}")
+                            else:
+                                lines.append(f"{prefix_indent}{text}")
+
+                        # Recursively fetch children (for toggles/dropdowns)
+                        if has_children:
+                            child_lines = await read_blocks_recursive(block_id_child, indent + 1)
+                            lines.extend(child_lines)
+
+                    return lines
+
+                content_lines = await read_blocks_recursive(query)
+                if content_lines:
                     return {"answer": f"Page content:\n\n" + "\n".join(content_lines), "sources": [{"url": f"https://notion.so/{query.replace('-', '')}"}]}
-                return {"answer": f"Error reading page: {response.status_code} - {response.text}", "sources": []}
+                return {"answer": "Page is empty or has no readable content.", "sources": [{"url": f"https://notion.so/{query.replace('-', '')}"}]}
 
             elif action == "create_page":
                 if not parent_id:
