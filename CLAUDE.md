@@ -97,6 +97,7 @@ RAG-Hybrid/
 3. **Never assume technical knowledge** - Explain what things mean
 4. **Test everything yourself** before saying it's done
 5. **Check logs and errors yourself** instead of asking the user to debug
+6. **Terminal limitations:** Cannot control Windows Terminal tabs or close windows programmatically. Prefer background processes to avoid window clutter.
 
 ## Claude Instructions
 
