@@ -163,7 +163,13 @@ def get_fastapi_port() -> int:
 # --- Chat Storage ---
 
 def get_chats_path() -> str:
-    """Get the path for storing chat history JSON files."""
+    """Get the path for storing chat history JSON files (fallback if no DB)."""
     _ensure_env_loaded()
     default = os.path.join(os.path.dirname(__file__), "..", "data", "chats")
     return os.getenv("CHATS_PATH", default)
+
+
+def get_database_url() -> str:
+    """Get PostgreSQL connection URL for chat sync across local/VPS."""
+    _ensure_env_loaded()
+    return os.getenv("DATABASE_URL", "")

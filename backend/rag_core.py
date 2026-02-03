@@ -34,6 +34,7 @@ from config import (
     get_rag_config_path,
     get_anthropic_api_key,
     get_chats_path,
+    get_database_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -1304,11 +1305,23 @@ Assistant:"""
             return {"text": f"[Claude error: {e}]", "usage": {}}
 
     # ------------------------------------------------------------------
-    # Chat history persistence
+    # Chat history persistence (PostgreSQL with file fallback)
     # ------------------------------------------------------------------
 
+    def _get_db_connection(self):
+        """Get PostgreSQL connection if DATABASE_URL is configured."""
+        import psycopg2
+        db_url = get_database_url()
+        if not db_url:
+            return None
+        try:
+            return psycopg2.connect(db_url)
+        except Exception as e:
+            logger.warning(f"Failed to connect to database: {e}")
+            return None
+
     def _get_chats_dir(self) -> Path:
-        """Get and ensure the chats directory exists."""
+        """Get and ensure the chats directory exists (file fallback)."""
         chats_dir = Path(get_chats_path()).resolve()
         chats_dir.mkdir(parents=True, exist_ok=True)
         return chats_dir
@@ -1321,22 +1334,48 @@ Assistant:"""
         """
         List chat summaries, optionally filtered by project.
         Returns list sorted by updated_at (newest first).
+        Uses PostgreSQL if configured, otherwise falls back to files.
         """
-        import json
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    if project:
+                        cur.execute("""
+                            SELECT id, name, project, created_at, updated_at,
+                                   jsonb_array_length(messages) as message_count
+                            FROM chats WHERE project = %s
+                            ORDER BY updated_at DESC LIMIT %s
+                        """, (project, limit))
+                    else:
+                        cur.execute("""
+                            SELECT id, name, project, created_at, updated_at,
+                                   jsonb_array_length(messages) as message_count
+                            FROM chats ORDER BY updated_at DESC LIMIT %s
+                        """, (limit,))
+                    rows = cur.fetchall()
+                    return [{
+                        "id": r[0],
+                        "name": r[1] or "Untitled",
+                        "project": r[2],
+                        "created_at": r[3].isoformat() + "Z" if r[3] else None,
+                        "updated_at": r[4].isoformat() + "Z" if r[4] else None,
+                        "message_count": r[5] or 0,
+                    } for r in rows]
+            except Exception as e:
+                logger.error(f"Database error listing chats: {e}")
+            finally:
+                conn.close()
 
+        # Fallback to file storage
         chats_dir = self._get_chats_dir()
         chats = []
-
         for chat_file in chats_dir.glob("*.json"):
             try:
                 with open(chat_file, "r", encoding="utf-8") as f:
                     chat = json.load(f)
-
-                # Filter by project if specified
                 if project and chat.get("project") != project:
                     continue
-
-                # Return summary (no full messages)
                 chats.append({
                     "id": chat.get("id"),
                     "name": chat.get("name", "Untitled"),
@@ -1347,20 +1386,38 @@ Assistant:"""
                 })
             except Exception as e:
                 logger.warning(f"Failed to read chat file {chat_file}: {e}")
-
-        # Sort by updated_at descending (newest first)
         chats.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
-
         return chats[:limit]
 
     async def get_chat(self, chat_id: str) -> Optional[Dict[str, Any]]:
-        """Load a full chat by ID."""
-        import json
+        """Load a full chat by ID. Uses PostgreSQL if configured."""
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id, name, project, messages, created_at, updated_at
+                        FROM chats WHERE id = %s
+                    """, (chat_id,))
+                    row = cur.fetchone()
+                    if row:
+                        return {
+                            "id": row[0],
+                            "name": row[1],
+                            "project": row[2],
+                            "messages": row[3] or [],
+                            "created_at": row[4].isoformat() + "Z" if row[4] else None,
+                            "updated_at": row[5].isoformat() + "Z" if row[5] else None,
+                        }
+            except Exception as e:
+                logger.error(f"Database error getting chat {chat_id}: {e}")
+            finally:
+                conn.close()
 
+        # Fallback to file storage
         chat_path = self._get_chats_dir() / f"{chat_id}.json"
         if not chat_path.exists():
             return None
-
         try:
             with open(chat_path, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -1434,18 +1491,16 @@ Assistant:"""
 
     async def save_chat(self, chat: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create or update a chat.
+        Create or update a chat. Uses PostgreSQL if configured.
         Chat dict should have: id (optional), name, project, messages.
         Timestamps are auto-managed.
         Returns the saved chat with generated ID.
         """
-        import json
+        import secrets
         from datetime import datetime
 
         chat_id = chat.get("id")
         if not chat_id:
-            # Generate new ID
-            import secrets
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             chat_id = f"chat_{timestamp}_{secrets.token_hex(4)}"
             chat["id"] = chat_id
@@ -1467,36 +1522,98 @@ Assistant:"""
             if not chat.get("name"):
                 chat["name"] = "New Chat"
 
+        # Try PostgreSQL first
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO chats (id, name, project, messages, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, NOW(), NOW())
+                        ON CONFLICT (id) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            project = EXCLUDED.project,
+                            messages = EXCLUDED.messages,
+                            updated_at = NOW()
+                    """, (
+                        chat_id,
+                        chat.get("name"),
+                        chat.get("project"),
+                        json.dumps(chat.get("messages", [])),
+                    ))
+                conn.commit()
+                logger.info(f"Saved chat to database: {chat_id}")
+                return chat
+            except Exception as e:
+                logger.error(f"Database error saving chat {chat_id}: {e}")
+                conn.rollback()
+            finally:
+                conn.close()
+
+        # Fallback to file storage
         chat_path = self._get_chats_dir() / f"{chat_id}.json"
         try:
             with open(chat_path, "w", encoding="utf-8") as f:
                 json.dump(chat, f, indent=2)
-            logger.info(f"Saved chat: {chat_id}")
+            logger.info(f"Saved chat to file: {chat_id}")
             return chat
         except Exception as e:
             logger.error(f"Failed to save chat {chat_id}: {e}")
             raise
 
     async def delete_chat(self, chat_id: str) -> bool:
-        """Delete a chat by ID."""
+        """Delete a chat by ID. Uses PostgreSQL if configured."""
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM chats WHERE id = %s", (chat_id,))
+                    deleted = cur.rowcount > 0
+                conn.commit()
+                if deleted:
+                    logger.info(f"Deleted chat from database: {chat_id}")
+                return deleted
+            except Exception as e:
+                logger.error(f"Database error deleting chat {chat_id}: {e}")
+                conn.rollback()
+            finally:
+                conn.close()
+
+        # Fallback to file storage
         chat_path = self._get_chats_dir() / f"{chat_id}.json"
         if not chat_path.exists():
             return False
-
         try:
             chat_path.unlink()
-            logger.info(f"Deleted chat: {chat_id}")
+            logger.info(f"Deleted chat file: {chat_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to delete chat {chat_id}: {e}")
             return False
 
     async def rename_chat(self, chat_id: str, new_name: str) -> bool:
-        """Rename a chat."""
+        """Rename a chat. Uses PostgreSQL if configured."""
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE chats SET name = %s, updated_at = NOW()
+                        WHERE id = %s
+                    """, (new_name, chat_id))
+                    updated = cur.rowcount > 0
+                conn.commit()
+                return updated
+            except Exception as e:
+                logger.error(f"Database error renaming chat {chat_id}: {e}")
+                conn.rollback()
+            finally:
+                conn.close()
+
+        # Fallback to file-based rename
         chat = await self.get_chat(chat_id)
         if not chat:
             return False
-
         chat["name"] = new_name
         await self.save_chat(chat)
         return True
