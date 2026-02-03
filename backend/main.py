@@ -5,6 +5,7 @@ FastAPI server that orchestrates all RAG components
 
 import os
 import sys
+import re
 import asyncio
 import logging
 import json
@@ -277,6 +278,240 @@ async def _tool_notion(action: str, query: str = None, parent_id: str = None, ti
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
+            # === SMART find_info ACTION ===
+            # Intelligently navigates Notion to find personal data
+            if action == "find_info":
+                if not query:
+                    return {"answer": "Error: query required for find_info", "sources": []}
+
+                # Category mapping - detect what kind of info and map to category
+                query_lower = query.lower()
+                category_map = {
+                    # Tax-related
+                    "agi": "tax",
+                    "tax return": "tax",
+                    "tax": "tax",
+                    "w-2": "tax",
+                    "w2": "tax",
+                    "1099": "tax",
+                    "income": "tax",
+                    "deduction": "tax",
+                    "irs": "tax",
+                    "refund": "tax",
+                    # Finance-related
+                    "bank": "bank",
+                    "account number": "bank",
+                    "routing": "bank",
+                    "credit card": "finance",
+                    "investment": "finance",
+                    # Expenses
+                    "receipt": "expenses",
+                    "expense": "expenses",
+                    "purchase": "expenses",
+                    "bill": "expenses",
+                    # Personal
+                    "password": "passwords",
+                    "login": "passwords",
+                    "credential": "passwords",
+                    "address": "personal",
+                    "phone": "personal",
+                    "ssn": "personal",
+                    "social security": "personal",
+                }
+
+                # Find matching category
+                search_category = None
+                for keyword, category in category_map.items():
+                    if keyword in query_lower:
+                        search_category = category
+                        break
+
+                # If no category matched, use the query as-is
+                if not search_category:
+                    search_category = query.split()[0] if query.split() else query
+
+                # Extract year from query for smarter searching
+                year_match = re.search(r'\b(20\d{2})\b', query)
+                target_year = year_match.group(1) if year_match else None
+
+                logger.info(f"find_info: query='{query}' → category='{search_category}', year={target_year}")
+
+                # Step 1: Search for the category (and optionally year-specific)
+                results = []
+
+                # First search: year + category if year is specified
+                if target_year:
+                    year_search_resp = await client.post(
+                        "https://api.notion.com/v1/search",
+                        headers=headers,
+                        json={"query": f"{target_year} {search_category}", "page_size": 5}
+                    )
+                    if year_search_resp.status_code == 200:
+                        results.extend(year_search_resp.json().get("results", []))
+
+                # Second search: just the category
+                search_resp = await client.post(
+                    "https://api.notion.com/v1/search",
+                    headers=headers,
+                    json={"query": search_category, "page_size": 5}
+                )
+
+                if search_resp.status_code != 200:
+                    return {"answer": f"Notion search error: {search_resp.status_code}", "sources": []}
+
+                # Combine results, deduplicate by ID
+                seen_ids = {r["id"] for r in results}
+                for r in search_resp.json().get("results", []):
+                    if r["id"] not in seen_ids:
+                        results.append(r)
+                        seen_ids.add(r["id"])
+
+                # Log all found pages for debugging
+                logger.info(f"find_info: found {len(results)} pages:")
+                for r in results[:5]:
+                    title = ""
+                    if r.get("properties", {}).get("title", {}).get("title"):
+                        title = "".join([t.get("plain_text", "") for t in r["properties"]["title"]["title"]])
+                    elif r.get("properties", {}).get("Name", {}).get("title"):
+                        title = "".join([t.get("plain_text", "") for t in r["properties"]["Name"]["title"]])
+                    logger.info(f"  - {title or '(untitled)'} (ID: {r.get('id', 'N/A')[:8]}...)")
+
+                if not results:
+                    # Try a broader search with the first word
+                    first_word = query.split()[0] if query.split() else query
+                    if first_word != search_category:
+                        search_resp = await client.post(
+                            "https://api.notion.com/v1/search",
+                            headers=headers,
+                            json={"query": first_word, "page_size": 5}
+                        )
+                        if search_resp.status_code == 200:
+                            results = search_resp.json().get("results", [])
+
+                if not results:
+                    return {"answer": f"No Notion pages found for category '{search_category}'. Try a different search term.", "sources": []}
+
+                # Step 2: Pick the best page - smart year matching
+                # Helper to get page title
+                def get_page_title(item):
+                    if item.get("properties", {}).get("title"):
+                        title_prop = item["properties"]["title"]
+                        if title_prop.get("title"):
+                            return "".join([t.get("plain_text", "") for t in title_prop["title"]])
+                    if item.get("properties", {}).get("Name"):
+                        name_prop = item["properties"]["Name"]
+                        if name_prop.get("title"):
+                            return "".join([t.get("plain_text", "") for t in name_prop["title"]])
+                    return ""
+
+                # Score pages for relevance
+                best_page = None
+                best_score = -1
+
+                for item in results:
+                    if item.get("object") != "page":
+                        continue
+                    title = get_page_title(item).lower()
+                    score = 0
+
+                    # Prefer pages matching the year
+                    if target_year and target_year in title:
+                        score += 10
+
+                    # Prefer "previous years" or generic tax pages for historical data
+                    if target_year and target_year != "2024":
+                        if "previous" in title or "history" in title or "archive" in title:
+                            score += 5
+
+                    # Prefer pages with the category in the name
+                    if search_category.lower() in title:
+                        score += 3
+
+                    # Prefer pages without a specific different year
+                    if target_year:
+                        other_years = re.findall(r'\b(20\d{2})\b', title)
+                        if other_years and target_year not in other_years:
+                            score -= 5  # Penalize pages with different years
+
+                    if score > best_score:
+                        best_score = score
+                        best_page = item
+
+                # Fallback to first page result
+                if not best_page:
+                    for item in results:
+                        if item.get("object") == "page":
+                            best_page = item
+                            break
+                if not best_page:
+                    best_page = results[0]
+
+                page_id = best_page.get("id", "")
+                page_title = get_page_title(best_page)
+
+                logger.info(f"find_info: selected page '{page_title}' (ID: {page_id})")
+
+                # Step 3: Read the page content (with recursive dropdown reading)
+                async def read_blocks_recursive_inner(block_id: str, indent: int = 0) -> list:
+                    """Recursively read blocks including toggle/dropdown content."""
+                    resp = await client.get(
+                        f"https://api.notion.com/v1/blocks/{block_id}/children?page_size=100",
+                        headers=headers
+                    )
+                    if resp.status_code != 200:
+                        return []
+
+                    lines = []
+                    prefix_indent = "  " * indent
+                    for block in resp.json().get("results", []):
+                        block_type = block.get("type", "")
+                        block_id_child = block.get("id", "")
+                        has_children = block.get("has_children", False)
+
+                        text = ""
+                        if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item", "toggle", "to_do", "callout", "quote"]:
+                            text_content = block.get(block_type, {}).get("rich_text", [])
+                            text = "".join([t.get("plain_text", "") for t in text_content])
+                        elif block_type == "child_page":
+                            text = f"[Subpage: {block.get('child_page', {}).get('title', 'Untitled')}]"
+                        elif block_type == "child_database":
+                            text = f"[Database: {block.get('child_database', {}).get('title', 'Untitled')}]"
+
+                        if text:
+                            if "heading_1" in block_type:
+                                lines.append(f"{prefix_indent}# {text}")
+                            elif "heading_2" in block_type:
+                                lines.append(f"{prefix_indent}## {text}")
+                            elif "heading_3" in block_type:
+                                lines.append(f"{prefix_indent}### {text}")
+                            elif "toggle" in block_type:
+                                lines.append(f"{prefix_indent}[DROPDOWN] {text}")
+                            elif "list" in block_type or "to_do" in block_type:
+                                lines.append(f"{prefix_indent}- {text}")
+                            else:
+                                lines.append(f"{prefix_indent}{text}")
+
+                        if has_children:
+                            child_lines = await read_blocks_recursive_inner(block_id_child, indent + 1)
+                            lines.extend(child_lines)
+
+                    return lines
+
+                content_lines = await read_blocks_recursive_inner(page_id)
+                page_url = f"https://notion.so/{page_id.replace('-', '')}"
+
+                if content_lines:
+                    content_text = "\n".join(content_lines)
+                    return {
+                        "answer": f"Found in page '{page_title}':\n\n{content_text}",
+                        "sources": [{"url": page_url}]
+                    }
+                return {
+                    "answer": f"Page '{page_title}' found but has no readable content.",
+                    "sources": [{"url": page_url}]
+                }
+
+            # === REGULAR SEARCH ACTION ===
             if action == "search":
                 if not query:
                     return {"answer": "Error: query required for search", "sources": []}
@@ -719,14 +954,14 @@ async def query(request: QueryRequest):
             result = await query_deep_agent(request)
 
         else:  # auto mode (default) - Groq agent with tools
-            # Use Groq as the conversational agent with tool access
-            if request.model == "auto":
-                # Get project config for context
-                project_config = None
-                if request.project:
-                    project_config = await rag_core.get_project_config(request.project)
+            # ALWAYS use Groq agent in auto mode - it handles web search, Notion, etc.
+            # Model selection (haiku/sonnet/opus) only affects complex_reasoning delegation
+            # Get project config for context
+            project_config = None
+            if request.project:
+                project_config = await rag_core.get_project_config(request.project)
 
-                logging.getLogger(__name__).info("Using Groq agent with tools")
+            logging.getLogger(__name__).info(f"Using Groq agent with tools (user model pref: {request.model})")
 
                 # Groq agent handles everything - routing, tool calls, synthesis
                 agent_result = await groq_agent.chat(
@@ -757,20 +992,6 @@ async def query(request: QueryRequest):
                     "usage": agent_result.get("usage", {}),
                 }
                 request.model = "groq"  # For response metadata
-
-            # Handle specific model requests (not auto)
-            elif request.model == "perplexity":
-                result = await query_perplexity(request, search_mode="low")
-            elif request.model == "deep_agent":
-                result = await query_deep_agent(request)
-            elif request.model == "local":
-                if request.project:
-                    result = await query_local(request, global_instructions, query_classification)
-                else:
-                    result = await query_chat(request, global_instructions, query_classification)
-            else:
-                # Claude models - use hybrid (local + web)
-                result = await query_hybrid(request, global_instructions, query_classification)
         
         # Calculate processing time
         processing_time = (datetime.utcnow() - start_time).total_seconds()

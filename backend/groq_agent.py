@@ -160,18 +160,18 @@ class GroqAgent:
             "type": "function",
             "function": {
                 "name": "notion_tool",
-                "description": "Full Notion workspace access. IMPORTANT: When looking for specific info (like AGI, receipts, notes), use logic: 1) Search for the CATEGORY (e.g., 'tax' for AGI, 'finance' for bank info), 2) Read the page with read_page to see content INCLUDING dropdown/toggle content which often contains year-specific data. Dropdowns are commonly used to organize by year (2023, 2024, etc.).",
+                "description": "Full Notion workspace access. Use 'find_info' action for personal data (AGI, tax returns, bank info, receipts) - it handles navigation automatically. Use 'search' for general page lookups. Use 'read_page' to read specific page content.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "action": {
                             "type": "string",
-                            "enum": ["search", "read_page", "create_page", "update_page", "append_to_page", "query_database"],
-                            "description": "Action: search (find pages), read_page (get content), create_page (new page), update_page (modify page properties), append_to_page (add content to existing page), query_database (list entries)"
+                            "enum": ["find_info", "search", "read_page", "create_page", "update_page", "append_to_page", "query_database"],
+                            "description": "Action: find_info (BEST for personal data like AGI, tax, receipts - auto-navigates), search (general page search), read_page (get page content), create_page (new page), update_page (modify properties), append_to_page (add content), query_database (list database entries)"
                         },
                         "query": {
                             "type": "string",
-                            "description": "For search: search text. For read_page/update_page/append_to_page: page ID. For query_database: database ID. For create_page: not used."
+                            "description": "For find_info: describe what you're looking for (e.g., '2023 AGI', 'bank account number'). For search: search text. For read_page: page ID."
                         },
                         "parent_id": {
                             "type": "string",
@@ -202,23 +202,10 @@ TOOL SELECTION GUIDE:
   - For Spain/Portugal/Italy: use provider="idealista"
   - For other locations: use provider="tavily"
 - COMPREHENSIVE RESEARCH: Use deep_research tool
-- PERSONAL DATA (user's notes, documents, tax info, AGI, receipts, personal records): Use notion_tool
-  - Think about WHERE it would be stored: AGI → tax pages, bank info → finance pages, etc.
-  - First SEARCH for the category, then READ the page (dropdowns contain year-specific data)
+- PERSONAL DATA (user's notes, documents, tax info, AGI, receipts, personal records): Use notion_tool with action="find_info"
+  - This action handles navigation automatically - just pass what the user is looking for
+  - Example: find_info with query="2023 AGI" → tool auto-navigates to tax page and finds it
 - CODE/REPOS (source code, issues, projects): Use github_search tool
-
-NOTION NAVIGATION LOGIC (FOLLOW THIS EXACTLY):
-When user asks for personal info like "my 2023 AGI" or "my tax return":
-1. DO NOT search for the exact term (e.g., don't search "2023 AGI")
-2. Instead, search for the CATEGORY: AGI/tax return → search "tax", bank info → search "finance", receipts → search "expenses"
-3. From search results, pick the most relevant page (e.g., "TAX" or "Previous Years Tax Returns")
-4. Use read_page with that page's ID - dropdowns contain year-specific data (2023, 2024, etc.)
-5. The specific data (like AGI amount) will be INSIDE the page content, often in a dropdown
-
-EXAMPLE for "my 2023 AGI":
-- Search "tax" (NOT "2023 AGI")
-- Find "TAX" page with ID abc123
-- Read page abc123 → contains dropdown "2023" → contains AGI
 
 ABSOLUTE RULES - VIOLATION IS UNACCEPTABLE:
 1. NEVER make up numbers, prices, or statistics. If the tool didn't return specific data, say "I couldn't find that specific information."
@@ -453,6 +440,24 @@ BAD RESPONSE (NEVER DO THIS):
             except httpx.HTTPStatusError as e:
                 error_body = e.response.text
                 logger.error(f"Groq API error: {e.response.status_code} - {error_body}")
+
+                # Check if error contains a valid response in failed_generation
+                # This happens when Groq's model produces correct content but wrong format
+                try:
+                    error_data = json.loads(error_body)
+                    failed_gen = error_data.get("error", {}).get("failed_generation", "")
+                    if failed_gen and len(failed_gen) > 20:
+                        # Model had a valid answer, just formatting issue
+                        logger.info(f"Recovered answer from failed_generation: {failed_gen[:100]}...")
+                        return {
+                            "answer": failed_gen,
+                            "sources": all_sources,
+                            "tool_calls": all_tool_calls,
+                            "usage": total_usage,
+                        }
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
                 return {
                     "answer": f"[Groq error: {e.response.status_code}] {error_body}",
                     "sources": [],
