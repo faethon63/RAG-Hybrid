@@ -159,22 +159,34 @@ class GroqAgent:
         {
             "type": "function",
             "function": {
-                "name": "notion_search",
-                "description": "Search and read content from Notion workspace. Use for: finding notes, reading pages, querying databases. Has access to pages shared with the RAG-Hybrid integration.",
+                "name": "notion_tool",
+                "description": "Full Notion workspace access: search, read, create, and edit pages. Use for: finding notes, reading pages, creating new pages, updating existing pages, managing databases.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "action": {
                             "type": "string",
-                            "enum": ["search", "read_page", "query_database"],
-                            "description": "Action: search (find pages by text), read_page (get page content), query_database (list database entries)"
+                            "enum": ["search", "read_page", "create_page", "update_page", "append_to_page", "query_database"],
+                            "description": "Action: search (find pages), read_page (get content), create_page (new page), update_page (modify page properties), append_to_page (add content to existing page), query_database (list entries)"
                         },
                         "query": {
                             "type": "string",
-                            "description": "Search text for search action, page ID for read_page, or database ID for query_database"
+                            "description": "For search: search text. For read_page/update_page/append_to_page: page ID. For query_database: database ID. For create_page: not used."
+                        },
+                        "parent_id": {
+                            "type": "string",
+                            "description": "For create_page: parent page ID or database ID where new page will be created"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "For create_page/update_page: the page title"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "For create_page/append_to_page: text content to add (supports markdown-like formatting)"
                         }
                     },
-                    "required": ["action", "query"]
+                    "required": ["action"]
                 }
             }
         },

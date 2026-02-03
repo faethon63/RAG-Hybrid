@@ -217,14 +217,14 @@ async def _tool_github_search(action: str, query: str = None, repo: str = None) 
         return {"answer": f"GitHub error: {str(e)}", "sources": []}
 
 
-async def _tool_notion_search(action: str, query: str) -> Dict[str, Any]:
+async def _tool_notion(action: str, query: str = None, parent_id: str = None, title: str = None, content: str = None) -> Dict[str, Any]:
     """
-    Notion tool using Notion API.
-    Actions: search, read_page, query_database
+    Full Notion tool using Notion API.
+    Actions: search, read_page, create_page, update_page, append_to_page, query_database
     """
     import httpx
     logger = logging.getLogger(__name__)
-    logger.info(f"notion_search: action={action}, query={query}")
+    logger.info(f"notion_tool: action={action}, query={query}, parent_id={parent_id}, title={title}")
 
     notion_token = os.getenv("NOTION_API_KEY", "")
     if not notion_token:
@@ -236,9 +236,50 @@ async def _tool_notion_search(action: str, query: str) -> Dict[str, Any]:
         "Notion-Version": "2022-06-28"
     }
 
+    def text_to_blocks(text: str) -> list:
+        """Convert text content to Notion blocks."""
+        blocks = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("# "):
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {"rich_text": [{"type": "text", "text": {"content": line[2:]}}]}
+                })
+            elif line.startswith("## "):
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_2",
+                    "heading_2": {"rich_text": [{"type": "text", "text": {"content": line[3:]}}]}
+                })
+            elif line.startswith("### "):
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_3",
+                    "heading_3": {"rich_text": [{"type": "text", "text": {"content": line[4:]}}]}
+                })
+            elif line.startswith("- ") or line.startswith("* "):
+                blocks.append({
+                    "object": "block",
+                    "type": "bulleted_list_item",
+                    "bulleted_list_item": {"rich_text": [{"type": "text", "text": {"content": line[2:]}}]}
+                })
+            else:
+                blocks.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": [{"type": "text", "text": {"content": line}}]}
+                })
+        return blocks
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             if action == "search":
+                if not query:
+                    return {"answer": "Error: query required for search", "sources": []}
                 response = await client.post(
                     "https://api.notion.com/v1/search",
                     headers=headers,
@@ -248,33 +289,34 @@ async def _tool_notion_search(action: str, query: str) -> Dict[str, Any]:
                     data = response.json()
                     results = []
                     for item in data.get("results", []):
-                        title = ""
+                        title_text = ""
                         if item.get("properties", {}).get("title"):
                             title_prop = item["properties"]["title"]
                             if title_prop.get("title"):
-                                title = "".join([t.get("plain_text", "") for t in title_prop["title"]])
+                                title_text = "".join([t.get("plain_text", "") for t in title_prop["title"]])
                         elif item.get("properties", {}).get("Name"):
                             name_prop = item["properties"]["Name"]
                             if name_prop.get("title"):
-                                title = "".join([t.get("plain_text", "") for t in name_prop["title"]])
+                                title_text = "".join([t.get("plain_text", "") for t in name_prop["title"]])
                         results.append({
                             "id": item["id"],
                             "type": item["object"],
-                            "title": title or "(untitled)",
+                            "title": title_text or "(untitled)",
                             "url": item.get("url", "")
                         })
                     return {"answer": f"Notion search results for '{query}':\n{json.dumps(results, indent=2)}", "sources": [{"url": r["url"]} for r in results if r.get("url")]}
                 return {"answer": f"Notion search error: {response.status_code} - {response.text}", "sources": []}
 
             elif action == "read_page":
-                # Get page blocks (content)
+                if not query:
+                    return {"answer": "Error: page ID required for read_page", "sources": []}
                 response = await client.get(
                     f"https://api.notion.com/v1/blocks/{query}/children?page_size=100",
                     headers=headers
                 )
                 if response.status_code == 200:
                     data = response.json()
-                    content = []
+                    content_lines = []
                     for block in data.get("results", []):
                         block_type = block.get("type", "")
                         if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item"]:
@@ -282,11 +324,89 @@ async def _tool_notion_search(action: str, query: str) -> Dict[str, Any]:
                             text = "".join([t.get("plain_text", "") for t in text_content])
                             if text:
                                 prefix = "# " if "heading_1" in block_type else "## " if "heading_2" in block_type else "### " if "heading_3" in block_type else "- " if "list" in block_type else ""
-                                content.append(f"{prefix}{text}")
-                    return {"answer": f"Page content:\n\n" + "\n".join(content), "sources": [{"url": f"https://notion.so/{query.replace('-', '')}"}]}
+                                content_lines.append(f"{prefix}{text}")
+                    return {"answer": f"Page content:\n\n" + "\n".join(content_lines), "sources": [{"url": f"https://notion.so/{query.replace('-', '')}"}]}
                 return {"answer": f"Error reading page: {response.status_code} - {response.text}", "sources": []}
 
+            elif action == "create_page":
+                if not parent_id:
+                    return {"answer": "Error: parent_id required for create_page (page or database ID)", "sources": []}
+                if not title:
+                    return {"answer": "Error: title required for create_page", "sources": []}
+
+                # Determine if parent is a page or database
+                # Try as page first
+                page_data = {
+                    "parent": {"page_id": parent_id},
+                    "properties": {
+                        "title": {"title": [{"text": {"content": title}}]}
+                    }
+                }
+                if content:
+                    page_data["children"] = text_to_blocks(content)
+
+                response = await client.post(
+                    "https://api.notion.com/v1/pages",
+                    headers=headers,
+                    json=page_data
+                )
+
+                # If failed, try as database parent
+                if response.status_code == 400 and "database" in response.text.lower():
+                    page_data["parent"] = {"database_id": parent_id}
+                    page_data["properties"] = {
+                        "Name": {"title": [{"text": {"content": title}}]}
+                    }
+                    response = await client.post(
+                        "https://api.notion.com/v1/pages",
+                        headers=headers,
+                        json=page_data
+                    )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    return {"answer": f"Page created successfully!\nTitle: {title}\nID: {data['id']}\nURL: {data.get('url', 'N/A')}", "sources": [{"url": data.get("url", "")}]}
+                return {"answer": f"Error creating page: {response.status_code} - {response.text}", "sources": []}
+
+            elif action == "append_to_page":
+                if not query:
+                    return {"answer": "Error: page ID required for append_to_page", "sources": []}
+                if not content:
+                    return {"answer": "Error: content required for append_to_page", "sources": []}
+
+                blocks = text_to_blocks(content)
+                response = await client.patch(
+                    f"https://api.notion.com/v1/blocks/{query}/children",
+                    headers=headers,
+                    json={"children": blocks}
+                )
+                if response.status_code == 200:
+                    return {"answer": f"Content appended to page successfully!", "sources": [{"url": f"https://notion.so/{query.replace('-', '')}"}]}
+                return {"answer": f"Error appending to page: {response.status_code} - {response.text}", "sources": []}
+
+            elif action == "update_page":
+                if not query:
+                    return {"answer": "Error: page ID required for update_page", "sources": []}
+
+                update_data = {"properties": {}}
+                if title:
+                    update_data["properties"]["title"] = {"title": [{"text": {"content": title}}]}
+
+                if not update_data["properties"]:
+                    return {"answer": "Error: title required for update_page", "sources": []}
+
+                response = await client.patch(
+                    f"https://api.notion.com/v1/pages/{query}",
+                    headers=headers,
+                    json=update_data
+                )
+                if response.status_code == 200:
+                    return {"answer": f"Page updated successfully!", "sources": [{"url": f"https://notion.so/{query.replace('-', '')}"}]}
+                return {"answer": f"Error updating page: {response.status_code} - {response.text}", "sources": []}
+
             elif action == "query_database":
+                if not query:
+                    return {"answer": "Error: database ID required for query_database", "sources": []}
                 response = await client.post(
                     f"https://api.notion.com/v1/databases/{query}/query",
                     headers=headers,
@@ -296,7 +416,7 @@ async def _tool_notion_search(action: str, query: str) -> Dict[str, Any]:
                     data = response.json()
                     entries = []
                     for item in data.get("results", []):
-                        props = {}
+                        props = {"_id": item["id"]}
                         for key, val in item.get("properties", {}).items():
                             if val.get("title"):
                                 props[key] = "".join([t.get("plain_text", "") for t in val["title"]])
@@ -311,7 +431,7 @@ async def _tool_notion_search(action: str, query: str) -> Dict[str, Any]:
                 return {"answer": f"Error querying database: {response.status_code} - {response.text}", "sources": []}
 
             else:
-                return {"answer": f"Unknown action: {action}", "sources": []}
+                return {"answer": f"Unknown action: {action}. Available: search, read_page, create_page, update_page, append_to_page, query_database", "sources": []}
 
     except Exception as e:
         logger.error(f"Notion tool error: {e}")
@@ -323,7 +443,7 @@ groq_agent.register_tool_handler("search_listings", _tool_search_listings)
 groq_agent.register_tool_handler("deep_research", _tool_deep_research)
 groq_agent.register_tool_handler("complex_reasoning", _tool_complex_reasoning)
 groq_agent.register_tool_handler("github_search", _tool_github_search)
-groq_agent.register_tool_handler("notion_search", _tool_notion_search)
+groq_agent.register_tool_handler("notion_tool", _tool_notion)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
