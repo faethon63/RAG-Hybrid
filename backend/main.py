@@ -963,35 +963,35 @@ async def query(request: QueryRequest):
 
             logging.getLogger(__name__).info(f"Using Groq agent with tools (user model pref: {request.model})")
 
-                # Groq agent handles everything - routing, tool calls, synthesis
-                agent_result = await groq_agent.chat(
-                    query=request.query,
-                    conversation_history=request.conversation_history,
-                    project_config=project_config,
-                )
+            # Groq agent handles everything - routing, tool calls, synthesis
+            agent_result = await groq_agent.chat(
+                query=request.query,
+                conversation_history=request.conversation_history,
+                project_config=project_config,
+            )
 
-                # Log tool usage
-                if agent_result.get("tool_calls"):
-                    tools_used = [tc["tool"] for tc in agent_result["tool_calls"]]
-                    logging.getLogger(__name__).info(f"Groq used tools: {tools_used}")
+            # Log tool usage
+            if agent_result.get("tool_calls"):
+                tools_used = [tc["tool"] for tc in agent_result["tool_calls"]]
+                logging.getLogger(__name__).info(f"Groq used tools: {tools_used}")
 
-                # Convert sources to Source objects
-                sources = []
-                for s in agent_result.get("sources", []):
-                    if isinstance(s, dict):
-                        sources.append(Source(
-                            type="web",
-                            title=s.get("title", ""),
-                            url=s.get("url", ""),
-                            snippet=s.get("snippet", ""),
-                        ))
+            # Convert sources to Source objects
+            sources = []
+            for s in agent_result.get("sources", []):
+                if isinstance(s, dict):
+                    sources.append(Source(
+                        type="web",
+                        title=s.get("title", ""),
+                        url=s.get("url", ""),
+                        snippet=s.get("snippet", ""),
+                    ))
 
-                result = {
-                    "answer": agent_result["answer"],
-                    "sources": sources,
-                    "usage": agent_result.get("usage", {}),
-                }
-                request.model = "groq"  # For response metadata
+            result = {
+                "answer": agent_result["answer"],
+                "sources": sources,
+                "usage": agent_result.get("usage", {}),
+            }
+            request.model = "groq"  # For response metadata
         
         # Calculate processing time
         processing_time = (datetime.utcnow() - start_time).total_seconds()
