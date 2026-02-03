@@ -13,7 +13,7 @@ from pathlib import Path
 # Ensure backend directory is on the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import reload_env, get_log_level, get_fastapi_port, get_project_kb_path, get_chromadb_collection
+from config import reload_env, get_log_level, get_fastapi_port, get_project_kb_path, get_chromadb_collection, get_chromadb_path
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -1231,6 +1231,156 @@ async def delete_chat(chat_id: str):
         "chat_id": chat_id,
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# ============================================================================
+# DATA SYNC (Local <-> VPS)
+# ============================================================================
+
+class SyncImportRequest(BaseModel):
+    """Request to import synced data."""
+    data: str  # Base64-encoded tarball
+    sync_key: str  # JWT_SECRET as sync key
+
+
+@app.get("/api/v1/sync/export")
+async def sync_export():
+    """
+    Export ChromaDB and project-kb data as base64 tarball.
+    Used to sync local indexed data to VPS.
+    """
+    import tarfile
+    import base64
+    import io
+
+    try:
+        # Get paths
+        chromadb_path = Path(get_chromadb_path()).resolve()
+        project_kb_path = Path(get_project_kb_path()).resolve()
+
+        # Create tarball in memory
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode='w:gz') as tar:
+            # Add chromadb directory
+            if chromadb_path.exists():
+                tar.add(str(chromadb_path), arcname='chromadb')
+
+            # Add project-kb directory
+            if project_kb_path.exists():
+                tar.add(str(project_kb_path), arcname='project-kb')
+
+        # Get base64 encoded data
+        buffer.seek(0)
+        data = base64.b64encode(buffer.read()).decode('utf-8')
+
+        return {
+            "status": "success",
+            "data": data,
+            "size_bytes": len(data),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+@app.post("/api/v1/sync/import")
+async def sync_import(request: SyncImportRequest):
+    """
+    Import ChromaDB and project-kb data from base64 tarball.
+    Requires sync_key matching JWT_SECRET for security.
+    """
+    import tarfile
+    import base64
+    import io
+    import shutil
+    from config import get_jwt_secret
+
+    # Verify sync key
+    if request.sync_key != get_jwt_secret():
+        raise HTTPException(status_code=403, detail="Invalid sync key")
+
+    try:
+        # Decode tarball
+        data = base64.b64decode(request.data)
+        buffer = io.BytesIO(data)
+
+        # Get paths
+        chromadb_path = Path(get_chromadb_path()).resolve()
+        project_kb_path = Path(get_project_kb_path()).resolve()
+
+        # Backup existing data (just rename)
+        backup_suffix = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        if chromadb_path.exists():
+            backup_chromadb = chromadb_path.parent / f"chromadb_backup_{backup_suffix}"
+            shutil.move(str(chromadb_path), str(backup_chromadb))
+
+        if project_kb_path.exists():
+            backup_kb = project_kb_path.parent / f"project-kb_backup_{backup_suffix}"
+            shutil.move(str(project_kb_path), str(backup_kb))
+
+        # Extract tarball
+        with tarfile.open(fileobj=buffer, mode='r:gz') as tar:
+            # Security: Check for path traversal
+            for member in tar.getmembers():
+                if member.name.startswith('/') or '..' in member.name:
+                    raise HTTPException(status_code=400, detail="Invalid tarball content")
+
+            # Extract chromadb to correct location
+            tar.extractall(path=str(chromadb_path.parent))
+
+        # Reinitialize RAG core to pick up new data
+        await rag_core.initialize()
+
+        return {
+            "status": "success",
+            "message": "Data imported successfully. ChromaDB reinitialized.",
+            "backup_suffix": backup_suffix,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+@app.post("/api/v1/sync/push")
+async def sync_push_to_vps(vps_url: str = "https://rag.coopeverything.org"):
+    """
+    Push local data to VPS. Call this from local machine.
+    Gets export data and POSTs it to VPS /api/v1/sync/import endpoint.
+    """
+    import httpx
+    from config import get_jwt_secret
+
+    try:
+        # Get local export
+        export_result = await sync_export()
+        data = export_result["data"]
+
+        # Push to VPS
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{vps_url}/api/v1/sync/import",
+                json={
+                    "data": data,
+                    "sync_key": get_jwt_secret()
+                }
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"VPS import failed: {response.text}"
+                )
+
+            return {
+                "status": "success",
+                "message": "Data pushed to VPS successfully",
+                "vps_response": response.json(),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="VPS request timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Push failed: {str(e)}")
 
 
 # ============================================================================
