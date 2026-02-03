@@ -12,7 +12,7 @@ $VPS_USER = "root"
 $REMOTE_PATH = "/opt/rag-hybrid"
 
 Write-Host "=== Deploying RAG-Hybrid to VPS ===" -ForegroundColor Cyan
-Write-Host "Target: $VPS_USER@$VPS_HOST:$REMOTE_PATH"
+Write-Host "Target: ${VPS_USER}@${VPS_HOST}:${REMOTE_PATH}"
 Write-Host ""
 
 # Build deploy command based on flags

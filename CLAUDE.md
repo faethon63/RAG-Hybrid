@@ -33,7 +33,7 @@ Switched from Claude Haiku to Groq for cost savings (Groq is FREE) and better to
 - **Vector DB:** ChromaDB at `data/chromadb/`
 - **Embeddings:** sentence-transformers/all-MiniLM-L6-v2
 - **Local LLM:** Ollama at `G:\AI-Project\Ollama\` with qwen2.5:14b (text generation)
-- **Vision/OCR:** Claude Sonnet 4 (local models hallucinate document text)
+- **Vision/OCR:** Claude Sonnet 4.5 (local models hallucinate document text)
 - **Auth:** Disabled (was JWT + bcrypt)
 - **Python:** 3.12.10, venv at `.venv/`
 - **PDF Support:** Requires `pypdf` package
@@ -82,6 +82,21 @@ RAG-Hybrid/
 5. **NEVER use Write tool to replace entire files** - Use Edit tool with targeted changes instead. Write tool destroys uncommitted user modifications.
 6. **ALWAYS Read a file before modifying it** - Even for "simple" changes. The file may have local modifications not in git.
 7. **When making large changes, use multiple small Edits** - Not one big Write. This preserves existing code the user may have customized.
+
+## User Profile
+
+**The user does not code.** They "vibe-code" with Claude - describing what they want and having Claude implement it. This means:
+
+1. **Automate everything possible** - Don't ask the user to run commands if you can run them yourself
+2. **When automation isn't possible, provide COMPLETE step-by-step instructions:**
+   - State what application to open (e.g., "Open PowerShell as Administrator")
+   - State what directory to be in FIRST (e.g., "Make sure you're in G:\AI-Project\RAG-Hybrid")
+   - Provide the exact command to paste
+   - Explain what success looks like
+   - Explain what to do if it fails
+3. **Never assume technical knowledge** - Explain what things mean
+4. **Test everything yourself** before saying it's done
+5. **Check logs and errors yourself** instead of asking the user to debug
 
 ## Claude Instructions
 
@@ -258,9 +273,87 @@ Active models managed by Ollama. Currently installed:
 - `qwen2.5:14b` - Text generation model (9GB)
 
 Note: Local vision models (moondream, llava, minicpm-v, qwen2.5vl) all hallucinate document text.
-Vision/OCR is routed to Claude Sonnet 4 for accuracy.
+Vision/OCR is routed to Claude Sonnet 4.5 for accuracy. These local vision models can be deleted to save space.
 
 ### Standalone GGUF Files (G:\AI-Project\models\)
 These are for LM Studio or other tools, NOT used by RAG-Hybrid:
 - `granite-embedding-107m-multilingual-f16.gguf` (211MB) - Embeddings (can be deleted if not using LM Studio)
+
+## VPS Deployment
+
+### VPS Info
+- **URL:** https://rag.coopeverything.org
+- **IP:** 72.60.27.167
+- **User:** root
+- **Path:** /opt/rag-hybrid
+- **Process Manager:** PM2 (backend runs as `rag-backend`)
+- **Web Server:** nginx (serves React build + proxies API)
+
+### SSH Access
+Claude does NOT have SSH access from this machine. The SSH key is stored in GitHub Secrets for automated deployment.
+
+To SSH manually (if user has key configured):
+```bash
+ssh root@72.60.27.167
+cd /opt/rag-hybrid
+```
+
+### Auto-Deployment (Recommended)
+Pushing to `main` branch triggers GitHub Actions which:
+1. SSHs into VPS using secret key
+2. Runs `git pull`
+3. Installs Python dependencies
+4. Rebuilds React frontend
+5. Restarts PM2 backend
+6. Runs health check
+
+**To deploy:** Just push to main. GitHub Actions handles everything.
+```powershell
+# From G:\AI-Project\RAG-Hybrid
+git add -A
+git commit -m "Your message"
+git push origin main
+```
+
+**Check deployment status:**
+```powershell
+gh run list --repo faethon63/RAG-Hybrid --limit 3
+```
+
+### Manual VPS Commands (via SSH)
+If you need to run commands on the VPS manually:
+
+**Restart backend:**
+```bash
+pm2 restart rag-backend
+```
+
+**View backend logs:**
+```bash
+pm2 logs rag-backend --lines 50
+```
+
+**Check health:**
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+**Full redeploy:**
+```bash
+cd /opt/rag-hybrid
+git fetch origin main
+git reset --hard origin/main
+source venv/bin/activate
+pip install -r requirements.txt
+cd frontend-react && npm ci && npm run build && cd ..
+pm2 restart rag-backend
+```
+
+### VPS vs Local Differences
+| Feature | Local (Windows) | VPS |
+|---------|----------------|-----|
+| Ollama | ✅ Running (GPU) | ❌ Disabled (no GPU) |
+| Vision/OCR | Claude Sonnet 4.5 | Claude Sonnet 4.5 |
+| Text generation | Ollama qwen2.5:14b | Claude (fallback) |
+| URL | localhost:5173 | rag.coopeverything.org |
 
