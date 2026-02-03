@@ -111,6 +111,12 @@ export const api = {
       method: 'POST',
     }),
 
+  // Data sync (local <-> VPS)
+  syncPushToVps: (vpsUrl: string = 'https://rag.coopeverything.org') =>
+    request<{ status: string; message: string; vps_response?: Record<string, unknown> }>(`/sync/push?vps_url=${encodeURIComponent(vpsUrl)}`, {
+      method: 'POST',
+    }),
+
   // Settings
   getSettings: () =>
     request<import('../types/api').SettingsResponse>('/settings'),
