@@ -98,6 +98,7 @@ RAG-Hybrid/
 4. **Test everything yourself** before saying it's done
 5. **Check logs and errors yourself** instead of asking the user to debug
 6. **Terminal limitations:** Cannot control Windows Terminal tabs or close windows programmatically. Prefer background processes to avoid window clutter.
+7. **ALWAYS start/restart services yourself** - If the backend or frontend needs to be started or restarted, DO IT. Never say "start the backend" and wait for the user. Use PowerShell via Bash tool to start services in background.
 
 ## Claude Instructions
 

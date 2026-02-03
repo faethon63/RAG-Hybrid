@@ -996,6 +996,7 @@ IMPORTANT RULES:
 
         Supports: .txt, .md, .json, .py, .js, .ts, .html, .css, .yaml, .yml, .pdf
         """
+        logger.info(f"Starting index for project: {project_name}")
         if not self._initialized:
             await self.initialize()
 
@@ -1009,6 +1010,7 @@ IMPORTANT RULES:
 
         # Load existing file index (tracks what's been indexed)
         indexed_files = config.get("indexed_files", {})  # {filepath: mtime_timestamp}
+        logger.info(f"Found {len(indexed_files)} previously indexed files")
 
         # Supported file extensions
         text_extensions = {".txt", ".md", ".json", ".py", ".js", ".ts", ".html", ".css", ".yaml", ".yml", ".rst", ".csv"}
@@ -1032,6 +1034,7 @@ IMPORTANT RULES:
                 files = []
                 for ext in all_extensions:
                     files.extend(base_path.rglob(f"*{ext}"))
+            logger.info(f"Found {len(files)} files in {base_path}")
 
             for file_path in files:
                 try:
@@ -1048,6 +1051,7 @@ IMPORTANT RULES:
                             continue
 
                     # File is new or modified - index it
+                    logger.info(f"Indexing: {file_path.name}")
                     if file_path.suffix.lower() == ".pdf":
                         content = self._extract_pdf_text(file_path)
                     else:
@@ -1070,6 +1074,7 @@ IMPORTANT RULES:
                     logger.warning(f"Failed to read {file_path}: {e}")
 
         # Index the new/modified documents
+        logger.info(f"Files to index: {len(documents)}, skipped: {len(files_skipped)}")
         indexed_count = 0
         if documents:
             indexed_count = await self.index_documents(documents, project=project_name)
@@ -1078,6 +1083,7 @@ IMPORTANT RULES:
         config["indexed_files"] = new_indexed_files
         await self.save_project_config(project_name, config)
 
+        logger.info(f"Indexing complete: {indexed_count} chunks from {len(files_indexed)} files")
         return {
             "indexed_chunks": indexed_count,
             "files": files_indexed,
