@@ -445,8 +445,10 @@ async def query(request: QueryRequest):
                 "input": usage.get("input_tokens", 0),
                 "output": usage.get("output_tokens", 0)
             }
+            # Use actual model for pricing (result may specify pricing_model for vision etc)
+            pricing_model = result.get("pricing_model") or request.model
             estimated_cost = calculate_cost(
-                request.model,
+                pricing_model,
                 tokens["input"],
                 tokens["output"]
             )
@@ -787,7 +789,7 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
             for f in files
         ]
 
-        # Extract usage info
+        # Extract usage info from Claude response
         usage = result.get("usage", {})
 
         return {
@@ -795,10 +797,11 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
             "sources": sources,
             "confidence": 0.95,
             "usage": {
-                "prompt_tokens": usage.get("input_tokens", 0),
-                "completion_tokens": usage.get("output_tokens", 0),
+                "input_tokens": usage.get("input_tokens", 0),
+                "output_tokens": usage.get("output_tokens", 0),
             },
             "model_used": "claude-sonnet-4.5 (vision)",
+            "pricing_model": "claude-sonnet-4-5-20250929",
         }
 
     except httpx.HTTPStatusError as e:
