@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useChatStore } from '../../stores/chatStore';
 import { ChatList } from './ChatList';
 import { ProjectSelector } from './ProjectSelector';
 import {
@@ -9,6 +10,7 @@ import {
   RefreshIcon,
   CheckIcon,
   AlertIcon,
+  PlusIcon,
 } from '../common/icons';
 import clsx from 'clsx';
 
@@ -22,6 +24,7 @@ export function Sidebar() {
   const healthLoading = useSettingsStore((s) => s.healthLoading);
   const checkHealth = useSettingsStore((s) => s.checkHealth);
   const currentProject = useProjectStore((s) => s.currentProject);
+  const newChat = useChatStore((s) => s.newChat);
 
   const [isResizing, setIsResizing] = useState(false);
 
@@ -67,6 +70,17 @@ export function Sidebar() {
           className="p-1 hover:bg-[var(--color-surface-hover)] rounded transition-colors"
         >
           <ChevronLeftIcon className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* New Chat button */}
+      <div className="p-3 border-b border-[var(--color-border)]">
+        <button
+          onClick={newChat}
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[var(--color-primary)] text-white rounded-lg hover:bg-[var(--color-primary-hover)] transition-colors"
+        >
+          <PlusIcon className="w-4 h-4" />
+          <span className="text-sm font-medium">New Chat</span>
         </button>
       </div>
 
