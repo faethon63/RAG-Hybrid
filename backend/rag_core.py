@@ -985,9 +985,15 @@ IMPORTANT RULES:
             logger.warning(f"Failed to extract PDF text from {file_path}: {e}")
             return ""
 
-    async def index_project_files(self, project_name: str) -> Dict[str, Any]:
+    async def index_project_files(self, project_name: str, force_reindex: bool = False) -> Dict[str, Any]:
         """
-        Index all files from a project's allowed_paths directories.
+        Index files from a project's allowed_paths directories.
+        Uses incremental indexing - only new/modified files are indexed.
+
+        Args:
+            project_name: Name of the project
+            force_reindex: If True, re-index all files regardless of modification time
+
         Supports: .txt, .md, .json, .py, .js, .ts, .html, .css, .yaml, .yml, .pdf
         """
         if not self._initialized:
@@ -995,19 +1001,23 @@ IMPORTANT RULES:
 
         config = await self.get_project_config(project_name)
         if not config:
-            return {"error": f"Project '{project_name}' not found", "indexed": 0}
+            return {"error": f"Project '{project_name}' not found", "indexed_chunks": 0}
 
         allowed_paths = config.get("allowed_paths", [])
         if not allowed_paths:
-            return {"error": "No allowed_paths configured", "indexed": 0}
+            return {"error": "No allowed_paths configured", "indexed_chunks": 0}
 
-        # Supported file extensions (text-based)
+        # Load existing file index (tracks what's been indexed)
+        indexed_files = config.get("indexed_files", {})  # {filepath: mtime_timestamp}
+
+        # Supported file extensions
         text_extensions = {".txt", ".md", ".json", ".py", ".js", ".ts", ".html", ".css", ".yaml", ".yml", ".rst", ".csv"}
-        # PDF extension handled separately
         all_extensions = text_extensions | {".pdf"}
 
         documents = []
-        files_found = []
+        files_indexed = []
+        files_skipped = []
+        new_indexed_files = {}
 
         for base_path in allowed_paths:
             base_path = Path(base_path)
@@ -1025,7 +1035,19 @@ IMPORTANT RULES:
 
             for file_path in files:
                 try:
-                    # Handle PDFs differently
+                    file_str = str(file_path)
+                    file_mtime = file_path.stat().st_mtime
+
+                    # Check if file needs indexing
+                    previously_indexed_mtime = indexed_files.get(file_str)
+                    if not force_reindex and previously_indexed_mtime is not None:
+                        if file_mtime <= previously_indexed_mtime:
+                            # File unchanged, skip
+                            files_skipped.append(file_str)
+                            new_indexed_files[file_str] = previously_indexed_mtime
+                            continue
+
+                    # File is new or modified - index it
                     if file_path.suffix.lower() == ".pdf":
                         content = self._extract_pdf_text(file_path)
                     else:
@@ -1035,27 +1057,33 @@ IMPORTANT RULES:
                         documents.append({
                             "content": content,
                             "title": file_path.name,
-                            "path": str(file_path),
+                            "path": file_str,
                             "metadata": {
                                 "source": "allowed_paths",
                                 "project": project_name,
                                 "file_type": file_path.suffix.lower(),
                             }
                         })
-                        files_found.append(str(file_path))
+                        files_indexed.append(file_str)
+                        new_indexed_files[file_str] = file_mtime
                 except Exception as e:
                     logger.warning(f"Failed to read {file_path}: {e}")
 
-        if not documents:
-            return {"message": "No files found to index", "indexed": 0, "files": []}
+        # Index the new/modified documents
+        indexed_count = 0
+        if documents:
+            indexed_count = await self.index_documents(documents, project=project_name)
 
-        # Index the documents
-        indexed_count = await self.index_documents(documents, project=project_name)
+        # Update the project config with the file index
+        config["indexed_files"] = new_indexed_files
+        await self.save_project_config(project_name, config)
 
         return {
-            "indexed": indexed_count,
-            "files": files_found,
-            "message": f"Indexed {indexed_count} chunks from {len(files_found)} files",
+            "indexed_chunks": indexed_count,
+            "files": files_indexed,
+            "skipped": len(files_skipped),
+            "total_files": len(new_indexed_files),
+            "message": f"Indexed {indexed_count} chunks from {len(files_indexed)} new/modified files ({len(files_skipped)} unchanged)",
         }
 
     # ------------------------------------------------------------------

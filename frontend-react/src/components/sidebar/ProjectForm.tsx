@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { CloseIcon, LoaderIcon, CheckIcon } from '../common/icons';
-import { api } from '../../api/client';
 
 export function ProjectForm() {
   const showProjectForm = useProjectStore((s) => s.showProjectForm);
@@ -22,8 +21,6 @@ export function ProjectForm() {
   const [saving, setSaving] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [indexResult, setIndexResult] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const isEditing = !!editingProject;
@@ -56,7 +53,6 @@ export function ProjectForm() {
     setEditingProject(null);
     setError(null);
     setIndexResult(null);
-    setSyncResult(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -104,33 +100,25 @@ export function ProjectForm() {
 
     setIndexing(true);
     setIndexResult(null);
-    setSyncResult(null);
     setError(null);
 
     try {
       const result = await indexProject(editingProject);
-      setIndexResult(
-        `Indexed ${result.indexed_chunks} chunks from ${result.files.length} files`
-      );
+      // Build result message
+      let msg = `Indexed ${result.indexed_chunks} chunks from ${result.files.length} new files`;
+      if (result.skipped && result.skipped > 0) {
+        msg += ` (${result.skipped} unchanged)`;
+      }
+      if (result.synced_to_vps) {
+        msg += ' - Synced to VPS';
+      } else if (result.sync_error) {
+        msg += ` - VPS sync failed: ${result.sync_error}`;
+      }
+      setIndexResult(msg);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to index files');
     } finally {
       setIndexing(false);
-    }
-  };
-
-  const handleSyncToVps = async () => {
-    setSyncing(true);
-    setSyncResult(null);
-    setError(null);
-
-    try {
-      const result = await api.syncPushToVps();
-      setSyncResult(result.message || 'Synced successfully');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sync to VPS');
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -246,30 +234,6 @@ export function ProjectForm() {
                 <p className="text-sm text-green-400 mt-2 flex items-center gap-1">
                   <CheckIcon className="w-4 h-4" />
                   {indexResult}
-                </p>
-              )}
-              {/* Sync to VPS button - appears after successful indexing */}
-              {indexResult && (
-                <button
-                  type="button"
-                  onClick={handleSyncToVps}
-                  disabled={syncing}
-                  className="mt-2 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
-                >
-                  {syncing ? (
-                    <>
-                      <LoaderIcon className="w-4 h-4 animate-spin" />
-                      <span>Syncing to VPS...</span>
-                    </>
-                  ) : (
-                    <span>Sync to VPS</span>
-                  )}
-                </button>
-              )}
-              {syncResult && (
-                <p className="text-sm text-blue-400 mt-2 flex items-center gap-1">
-                  <CheckIcon className="w-4 h-4" />
-                  {syncResult}
                 </p>
               )}
             </div>

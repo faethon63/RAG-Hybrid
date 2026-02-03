@@ -150,7 +150,11 @@ export interface IndexResponse {
   indexed_count?: number;
   indexed_chunks?: number;
   files?: string[];
+  skipped?: number;
+  total_files?: number;
   project?: string | null;
   message?: string;
+  synced_to_vps?: boolean;
+  sync_error?: string;
   timestamp: string;
 }

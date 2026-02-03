@@ -1059,21 +1059,46 @@ async def update_project_config(name: str, request: ProjectConfigRequest):
 
 
 @app.post("/api/v1/projects/{name}/index")
-async def index_project_files(name: str):
-    """Index all files from project's allowed_paths directories"""
-    result = await rag_core.index_project_files(name)
+async def index_project_files(
+    name: str,
+    force_reindex: bool = False,
+    auto_sync: bool = True,
+    vps_url: str = "https://rag.coopeverything.org"
+):
+    """
+    Index files from project's allowed_paths directories.
+
+    - Incremental by default: only indexes new/modified files
+    - Auto-syncs to VPS after indexing (disable with auto_sync=false)
+    - Use force_reindex=true to re-index all files
+    """
+    result = await rag_core.index_project_files(name, force_reindex=force_reindex)
 
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
 
-    return {
+    response = {
         "status": "success",
         "project": name,
-        "indexed_chunks": result.get("indexed", 0),
+        "indexed_chunks": result.get("indexed_chunks", 0),
         "files": result.get("files", []),
+        "skipped": result.get("skipped", 0),
+        "total_files": result.get("total_files", 0),
         "message": result.get("message", ""),
         "timestamp": datetime.utcnow().isoformat()
     }
+
+    # Auto-sync to VPS if enabled and we indexed something
+    if auto_sync and result.get("indexed_chunks", 0) > 0:
+        try:
+            sync_result = await sync_push_to_vps(vps_url)
+            response["synced_to_vps"] = True
+            response["sync_message"] = "Data synced to VPS"
+        except Exception as e:
+            response["synced_to_vps"] = False
+            response["sync_error"] = str(e)
+
+    return response
 
 
 # ============================================================================
