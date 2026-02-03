@@ -7,6 +7,7 @@ import os
 import sys
 import asyncio
 import logging
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -136,10 +137,193 @@ async def _tool_complex_reasoning(task: str, context: str = "") -> Dict[str, Any
     return await claude_search.search(full_query)
 
 
+async def _tool_github_search(action: str, query: str = None, repo: str = None) -> Dict[str, Any]:
+    """
+    GitHub tool using gh CLI.
+    Actions: search_code, read_file, list_repos, list_issues, search_issues
+    """
+    import subprocess
+    logger = logging.getLogger(__name__)
+    logger.info(f"github_search: action={action}, query={query}, repo={repo}")
+
+    try:
+        if action == "list_repos":
+            # List user's repos
+            result = subprocess.run(
+                ["gh", "repo", "list", "--limit", "30", "--json", "name,description,url"],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                return {"answer": f"Your repositories:\n{result.stdout}", "sources": []}
+            return {"answer": f"Error listing repos: {result.stderr}", "sources": []}
+
+        elif action == "search_code":
+            if not query:
+                return {"answer": "Error: query required for search_code", "sources": []}
+            result = subprocess.run(
+                ["gh", "search", "code", query, "--limit", "10", "--json", "path,repository,textMatches"],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                return {"answer": f"Code search results for '{query}':\n{result.stdout}", "sources": []}
+            return {"answer": f"Error searching code: {result.stderr}", "sources": []}
+
+        elif action == "read_file":
+            if not repo or not query:
+                return {"answer": "Error: repo and query (file path) required for read_file", "sources": []}
+            result = subprocess.run(
+                ["gh", "api", f"repos/{repo}/contents/{query}", "-q", ".content", "--jq", "@base64d"],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                # Decode base64 content
+                import base64
+                try:
+                    content = base64.b64decode(result.stdout.strip()).decode('utf-8')
+                    return {"answer": f"File {query} from {repo}:\n```\n{content[:5000]}\n```", "sources": [{"url": f"https://github.com/{repo}/blob/main/{query}"}]}
+                except:
+                    return {"answer": f"File content:\n{result.stdout[:5000]}", "sources": []}
+            return {"answer": f"Error reading file: {result.stderr}", "sources": []}
+
+        elif action == "list_issues":
+            if not repo:
+                return {"answer": "Error: repo required for list_issues", "sources": []}
+            result = subprocess.run(
+                ["gh", "issue", "list", "--repo", repo, "--limit", "15", "--json", "number,title,state,url"],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                return {"answer": f"Issues in {repo}:\n{result.stdout}", "sources": []}
+            return {"answer": f"Error listing issues: {result.stderr}", "sources": []}
+
+        elif action == "search_issues":
+            if not query:
+                return {"answer": "Error: query required for search_issues", "sources": []}
+            result = subprocess.run(
+                ["gh", "search", "issues", query, "--limit", "10", "--json", "number,title,repository,url"],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                return {"answer": f"Issue search results for '{query}':\n{result.stdout}", "sources": []}
+            return {"answer": f"Error searching issues: {result.stderr}", "sources": []}
+
+        else:
+            return {"answer": f"Unknown action: {action}", "sources": []}
+
+    except subprocess.TimeoutExpired:
+        return {"answer": "GitHub request timed out", "sources": []}
+    except Exception as e:
+        logger.error(f"GitHub tool error: {e}")
+        return {"answer": f"GitHub error: {str(e)}", "sources": []}
+
+
+async def _tool_notion_search(action: str, query: str) -> Dict[str, Any]:
+    """
+    Notion tool using Notion API.
+    Actions: search, read_page, query_database
+    """
+    import httpx
+    logger = logging.getLogger(__name__)
+    logger.info(f"notion_search: action={action}, query={query}")
+
+    notion_token = os.getenv("NOTION_API_KEY", "")
+    if not notion_token:
+        return {"answer": "Notion API key not configured. Add NOTION_API_KEY to .env file.", "sources": []}
+
+    headers = {
+        "Authorization": f"Bearer {notion_token}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            if action == "search":
+                response = await client.post(
+                    "https://api.notion.com/v1/search",
+                    headers=headers,
+                    json={"query": query, "page_size": 10}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    results = []
+                    for item in data.get("results", []):
+                        title = ""
+                        if item.get("properties", {}).get("title"):
+                            title_prop = item["properties"]["title"]
+                            if title_prop.get("title"):
+                                title = "".join([t.get("plain_text", "") for t in title_prop["title"]])
+                        elif item.get("properties", {}).get("Name"):
+                            name_prop = item["properties"]["Name"]
+                            if name_prop.get("title"):
+                                title = "".join([t.get("plain_text", "") for t in name_prop["title"]])
+                        results.append({
+                            "id": item["id"],
+                            "type": item["object"],
+                            "title": title or "(untitled)",
+                            "url": item.get("url", "")
+                        })
+                    return {"answer": f"Notion search results for '{query}':\n{json.dumps(results, indent=2)}", "sources": [{"url": r["url"]} for r in results if r.get("url")]}
+                return {"answer": f"Notion search error: {response.status_code} - {response.text}", "sources": []}
+
+            elif action == "read_page":
+                # Get page blocks (content)
+                response = await client.get(
+                    f"https://api.notion.com/v1/blocks/{query}/children?page_size=100",
+                    headers=headers
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    content = []
+                    for block in data.get("results", []):
+                        block_type = block.get("type", "")
+                        if block_type in ["paragraph", "heading_1", "heading_2", "heading_3", "bulleted_list_item", "numbered_list_item"]:
+                            text_content = block.get(block_type, {}).get("rich_text", [])
+                            text = "".join([t.get("plain_text", "") for t in text_content])
+                            if text:
+                                prefix = "# " if "heading_1" in block_type else "## " if "heading_2" in block_type else "### " if "heading_3" in block_type else "- " if "list" in block_type else ""
+                                content.append(f"{prefix}{text}")
+                    return {"answer": f"Page content:\n\n" + "\n".join(content), "sources": [{"url": f"https://notion.so/{query.replace('-', '')}"}]}
+                return {"answer": f"Error reading page: {response.status_code} - {response.text}", "sources": []}
+
+            elif action == "query_database":
+                response = await client.post(
+                    f"https://api.notion.com/v1/databases/{query}/query",
+                    headers=headers,
+                    json={"page_size": 20}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    entries = []
+                    for item in data.get("results", []):
+                        props = {}
+                        for key, val in item.get("properties", {}).items():
+                            if val.get("title"):
+                                props[key] = "".join([t.get("plain_text", "") for t in val["title"]])
+                            elif val.get("rich_text"):
+                                props[key] = "".join([t.get("plain_text", "") for t in val["rich_text"]])
+                            elif val.get("number") is not None:
+                                props[key] = val["number"]
+                            elif val.get("select"):
+                                props[key] = val["select"].get("name", "")
+                        entries.append(props)
+                    return {"answer": f"Database entries:\n{json.dumps(entries, indent=2)}", "sources": []}
+                return {"answer": f"Error querying database: {response.status_code} - {response.text}", "sources": []}
+
+            else:
+                return {"answer": f"Unknown action: {action}", "sources": []}
+
+    except Exception as e:
+        logger.error(f"Notion tool error: {e}")
+        return {"answer": f"Notion error: {str(e)}", "sources": []}
+
+
 groq_agent.register_tool_handler("web_search", _tool_web_search)
 groq_agent.register_tool_handler("search_listings", _tool_search_listings)
 groq_agent.register_tool_handler("deep_research", _tool_deep_research)
 groq_agent.register_tool_handler("complex_reasoning", _tool_complex_reasoning)
+groq_agent.register_tool_handler("github_search", _tool_github_search)
+groq_agent.register_tool_handler("notion_search", _tool_notion_search)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS

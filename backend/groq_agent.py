@@ -130,6 +130,54 @@ class GroqAgent:
                 }
             }
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "github_search",
+                "description": "Search GitHub repositories for code, files, issues, or PRs. Use for: finding code examples, reading source files, checking issues, exploring repos. Has access to all user's repos.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["search_code", "read_file", "list_repos", "list_issues", "search_issues"],
+                            "description": "Action to perform: search_code (find code), read_file (get file contents), list_repos (show available repos), list_issues (repo issues), search_issues (search across issues)"
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Search query for search_code/search_issues, or file path for read_file"
+                        },
+                        "repo": {
+                            "type": "string",
+                            "description": "Repository name (owner/repo format, e.g., 'faethon63/RAG-Hybrid'). Required for read_file and list_issues."
+                        }
+                    },
+                    "required": ["action"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "notion_search",
+                "description": "Search and read content from Notion workspace. Use for: finding notes, reading pages, querying databases. Has access to pages shared with the RAG-Hybrid integration.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["search", "read_page", "query_database"],
+                            "description": "Action: search (find pages by text), read_page (get page content), query_database (list database entries)"
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Search text for search action, page ID for read_page, or database ID for query_database"
+                        }
+                    },
+                    "required": ["action", "query"]
+                }
+            }
+        },
     ]
 
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
