@@ -1425,23 +1425,30 @@ Assistant:"""
             logger.warning(f"Failed to read chat {chat_id}: {e}")
             return None
 
-    def _generate_chat_title(self, content: str, max_length: int = 45) -> str:
+    def _generate_chat_title(self, content: str, max_length: int = 40) -> str:
         """Generate a short, readable chat title from user message."""
         import re
 
-        # Remove file attachment references
-        content = re.sub(r'\[Attached:.*?\]', '', content).strip()
+        # Remove file attachment references and newlines
+        content = re.sub(r'\[Attached:.*?\]', '', content, flags=re.DOTALL).strip()
+        content = re.sub(r'\n+', ' ', content)
+
+        # Remove question marks and trailing punctuation early
+        content = re.sub(r'\?+$', '', content).strip()
 
         # Common filler phrases to remove from start (applied repeatedly)
         filler_starts = [
             r'^(can you |could you |would you |please |i want to |i need to |i\'d like to )',
-            r'^(help me |tell me about |tell me |show me |find me |get me )',
+            r'^(help me |tell me about |tell me |show me |find me |get me |give me )',
             r'^(search for |look for |look up |find )',
-            r'^(what is |what are |what\'s )',
-            r'^(how do i |how can i |how do you |how to )',
-            r'^(i want to know |i need to know |i\'d like to know )',
+            r'^(what is |what are |what\'s |when is |where is |where are )',
+            r'^(what do i need to |what does |what should i |what time )',
+            r'^(how do i |how can i |how do you |how to |why is |why are )',
+            r'^(i want to know |i need to know |i\'d like to know |i want |i need )',
+            r'^(which time of the year |which time |which is the best |which )',
+            r'^(a |an |the )',
         ]
-        for _ in range(3):  # Apply multiple times to catch nested patterns
+        for _ in range(4):  # Apply multiple times to catch nested patterns
             for pattern in filler_starts:
                 content = re.sub(pattern, '', content, flags=re.IGNORECASE).strip()
 
@@ -1449,12 +1456,19 @@ Assistant:"""
         content = re.sub(r'^compare\s+(.+?)\s+to\s+', r'\1 vs ', content, flags=re.IGNORECASE)
         content = re.sub(r'^compare\s+', '', content, flags=re.IGNORECASE)
 
+        # Remove trailing filler words
+        trailing_fillers = [
+            r'\s+(today|currently|right now|now|please|thanks|thank you)$',
+            r'\s+in (the )?USD$',
+        ]
+        for pattern in trailing_fillers:
+            content = re.sub(pattern, '', content, flags=re.IGNORECASE)
+
         # Abbreviations for common words
         abbreviations = {
             r'\btemperature\b': 'temp',
             r'\btemperatures\b': 'temps',
-            r'\bcomparison\b': 'comparison',
-            r'\bbetween\b': 'btwn',
+            r'\bbetween\b': 'vs',
             r'\binformation\b': 'info',
             r'\bdocument\b': 'doc',
             r'\bdocuments\b': 'docs',
@@ -1462,12 +1476,21 @@ Assistant:"""
             r'\bconfiguration\b': 'config',
             r'\bimplementation\b': 'impl',
             r'\bdescription\b': 'desc',
-            r'\bseawater\b': 'sea',
+            r'\bseawater\b': 'sea water',
+            r'\bapartment\b': 'apt',
+            r'\bapartments\b': 'apts',
+            r'\brental listings\b': 'rentals',
+            r'\bcurrent rentals?\b': 'rentals',
+            r'\blong.?term\b': 'long-term',
+            r'\bBarcelona\b': 'BCN',
+            r'\bminimum\b': 'min',
+            r'\bmaximum\b': 'max',
+            r'\bsalary\b': 'salary',
         }
         for pattern, replacement in abbreviations.items():
             content = re.sub(pattern, replacement, content, flags=re.IGNORECASE)
 
-        # Remove " the " when it appears after vs or at start
+        # Remove "the" after vs or at start
         content = re.sub(r'\bvs the\b', 'vs', content, flags=re.IGNORECASE)
         content = re.sub(r'^the ', '', content, flags=re.IGNORECASE)
 
@@ -1480,10 +1503,9 @@ Assistant:"""
 
         # Truncate if still too long
         if len(content) > max_length:
-            # Try to cut at a word boundary
             truncated = content[:max_length]
             last_space = truncated.rfind(' ')
-            if last_space > max_length * 0.6:  # Don't cut too early
+            if last_space > max_length * 0.6:
                 truncated = truncated[:last_space]
             content = truncated.rstrip('.,!? ') + '...'
 
