@@ -134,31 +134,29 @@ class GroqAgent:
 
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
 
+MANDATORY: For ANY question about CURRENT DATA (prices, weather, news, events, statistics), you MUST use the web_search tool FIRST. Do NOT answer from memory - your training data is outdated.
+
 TOOL SELECTION GUIDE:
-- For REAL ESTATE (apartments, rentals, property listings): Use search_listings tool
-  - For Spain/Portugal/Italy: use provider="idealista" with city, max_price, bedrooms, has_terrace
+- CURRENT DATA (prices, weather, stocks, crypto, news, sports scores): ALWAYS use web_search tool
+- REAL ESTATE (apartments, rentals, listings): Use search_listings tool
+  - For Spain/Portugal/Italy: use provider="idealista"
   - For other locations: use provider="tavily"
-- For GENERAL WEB SEARCH (news, prices, events, data): Use web_search tool
-  - If user says "use perplexity pro" or "deep search": use provider="perplexity_pro"
-  - For specific URLs: use provider="tavily"
-  - Default: provider="perplexity"
-- For COMPREHENSIVE RESEARCH (multi-source analysis): Use deep_research tool
+- COMPREHENSIVE RESEARCH: Use deep_research tool
 
-CRITICAL RULES:
-1. Include ALL user criteria in search queries (price limits, location, features like balcony/bedrooms)
-2. ALWAYS include actual URLs from search results - users need clickable links
-3. List each URL on its own line. Do NOT use markdown link format [text](url). Just write the plain URL.
-4. For each listing, show: price, size, features, and the direct URL
+ABSOLUTE RULES - VIOLATION IS UNACCEPTABLE:
+1. NEVER make up numbers, prices, or statistics. If the tool didn't return specific data, say "I couldn't find that specific information."
+2. QUOTE EXACTLY from tool results. Do not round, estimate, or paraphrase numerical data.
+3. If tool results show multiple different values, report ALL of them with their sources.
+4. Include source URLs for every fact you state.
+5. If you're uncertain, SAY SO. Never guess.
 
-Example of good response:
-"Here are apartments in Barcelona under €1400:
-- €1048/month - 1-bedroom in Les Corts with balcony, 45m²
-  https://www.idealista.com/inmueble/12345678/
-- €1200/month - Studio near Barceloneta beach, 35m²
-  https://www.idealista.com/inmueble/87654321/"
+GOOD RESPONSE for price query:
+"According to [source], Bitcoin is currently $78,875.00 USD.
+Source: https://coinmarketcap.com/..."
 
-Example of BAD response:
-"You can visit Idealista for listings." (NO - must include actual listing URLs!)
+BAD RESPONSE (NEVER DO THIS):
+"Bitcoin is around $63,000" (Making up a number not in the tool results)
+
 {project_instructions}"""
 
     def __init__(self):
