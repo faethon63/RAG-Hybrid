@@ -292,12 +292,23 @@ These are for LM Studio or other tools, NOT used by RAG-Hybrid:
 - **Web Server:** nginx (serves React build + proxies API)
 
 ### SSH Access
-Claude does NOT have SSH access from this machine. The SSH key is stored in GitHub Secrets for automated deployment.
+Claude HAS SSH access to the VPS from this machine. Use it to:
+- Update .env files on VPS
+- Restart services (pm2 restart rag-backend)
+- Check logs (pm2 logs rag-backend)
+- Pull code manually if needed
 
-To SSH manually (if user has key configured):
+**DO NOT ask user to SSH** - do it yourself:
 ```bash
-ssh root@72.60.27.167
-cd /opt/rag-hybrid
+ssh root@72.60.27.167 "command here"
+```
+
+Example commands:
+```bash
+ssh root@72.60.27.167 "pm2 restart rag-backend"
+ssh root@72.60.27.167 "pm2 logs rag-backend --lines 50"
+ssh root@72.60.27.167 "cd /opt/rag-hybrid && git pull"
+ssh root@72.60.27.167 "curl -s http://localhost:8000/api/v1/health"
 ```
 
 ### Auto-Deployment (Recommended)
