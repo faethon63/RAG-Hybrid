@@ -999,7 +999,7 @@ class CreateProjectRequest(BaseModel):
 
 @app.post("/api/v1/projects")
 async def create_project(request: CreateProjectRequest):
-    """Create a new project with optional configuration"""
+    """Create a new project with optional configuration. Auto-syncs to VPS."""
     try:
         config = {
             "description": request.description,
@@ -1008,11 +1008,21 @@ async def create_project(request: CreateProjectRequest):
             "allowed_paths": request.allowed_paths or [],
         }
         result = await rag_core.create_project(request.name, config)
-        return {
+
+        # Auto-sync to VPS
+        response = {
             "status": "success",
             "project": result,
             "timestamp": datetime.utcnow().isoformat()
         }
+        try:
+            await sync_push_to_vps("https://rag.coopeverything.org")
+            response["synced_to_vps"] = True
+        except Exception as sync_err:
+            response["synced_to_vps"] = False
+            response["sync_error"] = str(sync_err)
+
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1033,7 +1043,7 @@ async def get_project_config(name: str):
 
 @app.put("/api/v1/projects/{name}")
 async def update_project_config(name: str, request: ProjectConfigRequest):
-    """Update a project's configuration"""
+    """Update a project's configuration. Auto-syncs to VPS."""
     # Load existing config or create new
     existing = await rag_core.get_project_config(name) or {}
 
@@ -1050,12 +1060,21 @@ async def update_project_config(name: str, request: ProjectConfigRequest):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save project config")
 
-    return {
+    # Auto-sync to VPS
+    response = {
         "status": "success",
         "project": name,
         "config": updated,
         "timestamp": datetime.utcnow().isoformat()
     }
+    try:
+        await sync_push_to_vps("https://rag.coopeverything.org")
+        response["synced_to_vps"] = True
+    except Exception as sync_err:
+        response["synced_to_vps"] = False
+        response["sync_error"] = str(sync_err)
+
+    return response
 
 
 @app.post("/api/v1/projects/{name}/index")
