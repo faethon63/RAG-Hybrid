@@ -898,15 +898,36 @@ async def query_hybrid(request: QueryRequest, global_instructions: str = "", que
 
 async def combine_answers(local_answer: str, web_answer: str, query: str) -> Dict[str, Any]:
     """Intelligently combine local and web answers. Returns {"text": str, "usage": dict}."""
+
+    # Validate sources - don't synthesize if one is empty/error
+    def is_valid_answer(answer: str) -> bool:
+        if not answer or len(answer.strip()) < 20:
+            return False
+        error_indicators = ["error", "failed", "unavailable", "couldn't find", "no results"]
+        answer_lower = answer.lower()
+        return not any(ind in answer_lower for ind in error_indicators)
+
+    local_valid = is_valid_answer(local_answer)
+    web_valid = is_valid_answer(web_answer)
+
+    # If only one source is valid, return it directly (no synthesis)
+    if web_valid and not local_valid:
+        return {"text": web_answer, "usage": {}}
+    if local_valid and not web_valid:
+        return {"text": local_answer, "usage": {}}
+    if not local_valid and not web_valid:
+        return {"text": "I couldn't find reliable information to answer this question.", "usage": {}}
+
+    # Both sources valid - synthesize them
     prompt = f"""Given the query: "{query}"
 
-Local knowledge says:
+Source 1 (Local knowledge):
 {local_answer}
 
-Web search says:
+Source 2 (Web search):
 {web_answer}
 
-Provide a comprehensive answer that synthesizes both sources, noting any agreements or contradictions."""
+Synthesize these into a single comprehensive answer. If they agree, present the unified information. If they contradict, note the discrepancy."""
 
     # Try Claude first, fall back to Ollama
     try:

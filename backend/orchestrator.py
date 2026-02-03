@@ -32,8 +32,9 @@ class QueryOrchestrator:
     MODEL_PERPLEXITY = "perplexity"  # Routes to Perplexity API
     MODEL_DEEP_AGENT = "deep_agent"  # Routes to smolagents multi-step agent
 
-    # Groq model for orchestration (free, fast, excellent at tool use)
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    # Groq model for orchestration (free, fast, good at instruction-following)
+    # Using same model as groq_agent for consistency
+    GROQ_MODEL = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
     GROQ_ROUTING_PROMPT = """You are a query router. Analyze the query and decide which service should handle it.

@@ -326,9 +326,13 @@ BAD RESPONSE (NEVER DO THIS):
 
                             except Exception as e:
                                 logger.error(f"Tool {func_name} failed: {e}")
-                                tool_result = f"Tool error: {str(e)}"
+                                # Give Groq a clear message about the failure
+                                if "perplexity" in str(e).lower() or func_name == "web_search":
+                                    tool_result = "Web search service is temporarily unavailable. Please answer based on your training knowledge, and clearly state that you couldn't verify with current web data."
+                                else:
+                                    tool_result = f"Tool temporarily unavailable: {func_name}. Please proceed without this tool and explain the limitation to the user."
                         else:
-                            tool_result = f"Tool {func_name} not available"
+                            tool_result = f"Tool {func_name} not registered. Please answer based on your knowledge and explain you couldn't use this tool."
 
                         # Add tool result to messages
                         messages.append({
