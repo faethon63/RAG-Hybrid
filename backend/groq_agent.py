@@ -222,6 +222,8 @@ BAD RESPONSE (NEVER DO THIS):
         all_tool_calls = []
         all_sources = []
         total_usage = {"input_tokens": 0, "output_tokens": 0}
+        # Store raw Perplexity answer for direct passthrough (prevents hallucination)
+        perplexity_direct_answer = None
 
         # Agentic loop - Groq may call tools multiple times
         for iteration in range(max_tool_calls + 1):
@@ -305,6 +307,12 @@ BAD RESPONSE (NEVER DO THIS):
                                     for url in citation_urls:
                                         logger.info(f"  - {url}")
 
+                                    # For web_search, store Perplexity's answer for direct passthrough
+                                    # This prevents Groq from hallucinating numbers
+                                    if func_name == "web_search":
+                                        perplexity_direct_answer = result.get("answer", "")
+                                        print(f"[DEBUG] Stored Perplexity answer: {perplexity_direct_answer[:200]}...", flush=True)
+
                                     # Append URLs to the tool result so Groq sees them
                                     links_text = "\n\nSources with URLs (INCLUDE THESE IN YOUR RESPONSE):\n" + "\n".join(
                                         f"- {c.get('url', '')}"
@@ -335,6 +343,24 @@ BAD RESPONSE (NEVER DO THIS):
                 else:
                     # No tool calls or max iterations reached - return response
                     answer = message.get("content", "")
+
+                    # Debug passthrough condition
+                    print(f"[DEBUG] Passthrough check: perplexity_direct_answer={bool(perplexity_direct_answer)}, "
+                          f"tool_calls_count={len(all_tool_calls)}, "
+                          f"first_tool={all_tool_calls[0]['tool'] if all_tool_calls else 'none'}", flush=True)
+
+                    # If web_search was the only tool called, use Perplexity's answer directly
+                    # This prevents Groq from hallucinating numbers/prices
+                    if perplexity_direct_answer and len(all_tool_calls) == 1 and all_tool_calls[0]["tool"] == "web_search":
+                        print("[DEBUG] PASSTHROUGH ACTIVATED!", flush=True)
+                        # Add source URLs to the Perplexity answer
+                        if all_sources:
+                            source_urls = "\n\nSources:\n" + "\n".join(
+                                f"- {s.get('url', '')}" for s in all_sources if s.get('url')
+                            )
+                            answer = perplexity_direct_answer + source_urls
+                        else:
+                            answer = perplexity_direct_answer
 
                     return {
                         "answer": answer,
