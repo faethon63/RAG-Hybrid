@@ -63,10 +63,10 @@ export const useSettingsStore = create<SettingsState>()(
         try {
           const response = await api.getSettings();
           const settings = response.settings;
+          // Only load globalSettings - don't overwrite user's mode/model selection
+          // (those are persisted to localStorage and should be preserved)
           set({
             globalSettings: settings,
-            mode: settings.default_mode || 'auto',
-            model: settings.default_model || 'auto',
             settingsLoading: false,
           });
         } catch (err) {
@@ -123,6 +123,8 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'rag-settings',
       partialize: (state) => ({
+        mode: state.mode,
+        model: state.model,
         showThinking: state.showThinking,
         sidebarOpen: state.sidebarOpen,
         sidebarWidth: state.sidebarWidth,
