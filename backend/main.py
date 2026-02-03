@@ -459,7 +459,7 @@ async def query(request: QueryRequest):
             processing_time=processing_time,
             timestamp=datetime.utcnow().isoformat(),
             confidence=result.get("confidence"),
-            model_used=request.model,
+            model_used=result.get("model_used") or request.model,
             tokens=tokens,
             estimated_cost=estimated_cost
         )
@@ -663,30 +663,52 @@ async def query_research(request: QueryRequest) -> Dict[str, Any]:
 
 
 async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict[str, Any]:
-    """Handle queries with images using Ollama's vision model (qwen2.5vl)"""
+    """Handle queries with images using Claude's vision API for accurate OCR"""
     import httpx
     import base64
+    from config import get_anthropic_api_key
 
     logger = logging.getLogger(__name__)
     logger.info(f"query_vision called with {len(files)} files")
 
     try:
-        # Extract images (base64 data without the data:image/...;base64, prefix)
-        images = []
+        api_key = get_anthropic_api_key()
+        if not api_key:
+            return {
+                "answer": "[Claude API key not configured - cannot process images]",
+                "sources": [],
+                "confidence": 0,
+                "usage": {},
+                "model_used": "none",
+            }
+
+        # Build content blocks for Claude (images + text)
+        content_blocks = []
         file_context = []
 
         for f in files:
             logger.info(f"Processing file: {f.name}, type: {f.type}, isImage: {f.isImage}")
             if f.isImage:
-                # Remove data URL prefix if present
+                # Extract base64 data and media type
                 data = f.data
+                media_type = f.type or "image/jpeg"
                 if data.startswith('data:'):
-                    data = data.split(',', 1)[1]
-                images.append(data)
+                    # Parse data URL: data:image/png;base64,xxxxx
+                    header, data = data.split(',', 1)
+                    if 'image/' in header:
+                        media_type = header.split(';')[0].replace('data:', '')
+
+                content_blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data,
+                    }
+                })
             else:
                 # For PDFs/text, extract content and add to context
                 if f.type == 'application/pdf':
-                    # PDF - try to extract text
                     try:
                         import io
                         from pypdf import PdfReader
@@ -702,14 +724,17 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
                     file_context.append(f"--- Content from {f.name} ---\n{f.data[:5000]}")
 
         # Build the prompt
-        prompt = request.query
+        prompt = request.query or "Please analyze this image and describe what you see."
         if file_context:
-            prompt = f"{request.query}\n\n" + "\n\n".join(file_context)
+            prompt = f"{prompt}\n\n" + "\n\n".join(file_context)
 
-        # Build messages for Ollama chat API
+        # Add text prompt after images
+        content_blocks.append({"type": "text", "text": prompt})
+
+        # Build messages for Claude API
         messages = []
 
-        # Add conversation history (if any)
+        # Add conversation history (if any) - text only for history
         if request.conversation_history:
             for msg in request.conversation_history[-6:]:
                 messages.append({
@@ -718,28 +743,38 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
                 })
 
         # Add current message with images
-        current_msg = {"role": "user", "content": prompt}
-        if images:
-            current_msg["images"] = images
-        messages.append(current_msg)
+        messages.append({"role": "user", "content": content_blocks})
 
-        logger.info(f"Calling Ollama vision with {len(images)} images, prompt length: {len(prompt)}")
+        logger.info(f"Calling Claude vision with {len([b for b in content_blocks if b['type'] == 'image'])} images")
 
-        # Call Ollama vision model
+        # Call Claude API
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                "http://localhost:11434/api/chat",
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
                 json={
-                    "model": "minicpm-v",
+                    "model": "claude-sonnet-4-5-20250929",
+                    "max_tokens": 4096,
                     "messages": messages,
-                    "stream": False,
                 }
             )
             response.raise_for_status()
             result = response.json()
 
-        answer = result.get("message", {}).get("content", "No response from vision model")
-        logger.info(f"Vision model responded with {len(answer)} chars")
+        # Extract answer from Claude response
+        answer = ""
+        for block in result.get("content", []):
+            if block.get("type") == "text":
+                answer += block.get("text", "")
+
+        if not answer:
+            answer = "No response from Claude vision"
+
+        logger.info(f"Claude vision responded with {len(answer)} chars")
 
         # Build sources showing what files were analyzed
         sources = [
@@ -747,22 +782,36 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
                 type="local_doc",
                 title=f"📎 {f.name}",
                 url=None,
-                snippet=f"{'Image' if f.isImage else 'Document'} analyzed by vision model",
+                snippet=f"{'Image' if f.isImage else 'Document'} analyzed by Claude",
             )
             for f in files
         ]
 
+        # Extract usage info
+        usage = result.get("usage", {})
+
         return {
             "answer": answer,
             "sources": sources,
-            "confidence": 0.85,
+            "confidence": 0.95,
             "usage": {
-                "prompt_tokens": result.get("prompt_eval_count", 0),
-                "completion_tokens": result.get("eval_count", 0),
+                "prompt_tokens": usage.get("input_tokens", 0),
+                "completion_tokens": usage.get("output_tokens", 0),
             },
-            "model_used": "minicpm-v (vision)",
+            "model_used": "claude-sonnet-4.5 (vision)",
         }
 
+    except httpx.HTTPStatusError as e:
+        error_text = e.response.text
+        logger.error(f"Claude API error {e.response.status_code}: {error_text}")
+        # Return error message instead of crashing
+        return {
+            "answer": f"Claude vision error: {error_text}",
+            "sources": [],
+            "confidence": 0,
+            "usage": {},
+            "model_used": "claude-sonnet-4.5 (error)",
+        }
     except Exception as e:
         logger.error(f"query_vision failed: {e}", exc_info=True)
         raise

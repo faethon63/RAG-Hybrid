@@ -32,7 +32,8 @@ Switched from Claude Haiku to Groq for cost savings (Groq is FREE) and better to
 - **Frontend:** React + Vite (localhost:5173) at `frontend-react/`
 - **Vector DB:** ChromaDB at `data/chromadb/`
 - **Embeddings:** sentence-transformers/all-MiniLM-L6-v2
-- **Local LLM:** Ollama at `G:\AI-Project\Ollama\` with minicpm-v (vision/OCR) and qwen2.5:14b (text)
+- **Local LLM:** Ollama at `G:\AI-Project\Ollama\` with qwen2.5:14b (text generation)
+- **Vision/OCR:** Claude Sonnet 4 (local models hallucinate document text)
 - **Auth:** Disabled (was JWT + bcrypt)
 - **Python:** 3.12.10, venv at `.venv/`
 - **PDF Support:** Requires `pypdf` package
@@ -254,11 +255,10 @@ cd G:\AI-Project\RAG-Hybrid
 
 ### Ollama Models (G:\AI-Project\Ollama\models\)
 Active models managed by Ollama. Currently installed:
-- `minicpm-v` - Vision/OCR model (~5.4GB) - best for reading document text
-- `qwen2.5:14b` - Text generation model
-- `llava:7b` - Alternate vision model (lower accuracy for documents)
+- `qwen2.5:14b` - Text generation model (9GB)
 
-Note: moondream and llava hallucinate document content. Use minicpm-v for OCR tasks.
+Note: Local vision models (moondream, llava, minicpm-v, qwen2.5vl) all hallucinate document text.
+Vision/OCR is routed to Claude Sonnet 4 for accuracy.
 
 ### Standalone GGUF Files (G:\AI-Project\models\)
 These are for LM Studio or other tools, NOT used by RAG-Hybrid:
