@@ -1368,6 +1368,70 @@ Assistant:"""
             logger.warning(f"Failed to read chat {chat_id}: {e}")
             return None
 
+    def _generate_chat_title(self, content: str, max_length: int = 45) -> str:
+        """Generate a short, readable chat title from user message."""
+        import re
+
+        # Remove file attachment references
+        content = re.sub(r'\[Attached:.*?\]', '', content).strip()
+
+        # Common filler phrases to remove from start (applied repeatedly)
+        filler_starts = [
+            r'^(can you |could you |would you |please |i want to |i need to |i\'d like to )',
+            r'^(help me |tell me about |tell me |show me |find me |get me )',
+            r'^(search for |look for |look up |find )',
+            r'^(what is |what are |what\'s )',
+            r'^(how do i |how can i |how do you |how to )',
+            r'^(i want to know |i need to know |i\'d like to know )',
+        ]
+        for _ in range(3):  # Apply multiple times to catch nested patterns
+            for pattern in filler_starts:
+                content = re.sub(pattern, '', content, flags=re.IGNORECASE).strip()
+
+        # Handle "compare X to Y" -> "X vs Y"
+        content = re.sub(r'^compare\s+(.+?)\s+to\s+', r'\1 vs ', content, flags=re.IGNORECASE)
+        content = re.sub(r'^compare\s+', '', content, flags=re.IGNORECASE)
+
+        # Abbreviations for common words
+        abbreviations = {
+            r'\btemperature\b': 'temp',
+            r'\btemperatures\b': 'temps',
+            r'\bcomparison\b': 'comparison',
+            r'\bbetween\b': 'btwn',
+            r'\binformation\b': 'info',
+            r'\bdocument\b': 'doc',
+            r'\bdocuments\b': 'docs',
+            r'\bapplication\b': 'app',
+            r'\bconfiguration\b': 'config',
+            r'\bimplementation\b': 'impl',
+            r'\bdescription\b': 'desc',
+            r'\bseawater\b': 'sea',
+        }
+        for pattern, replacement in abbreviations.items():
+            content = re.sub(pattern, replacement, content, flags=re.IGNORECASE)
+
+        # Remove " the " when it appears after vs or at start
+        content = re.sub(r'\bvs the\b', 'vs', content, flags=re.IGNORECASE)
+        content = re.sub(r'^the ', '', content, flags=re.IGNORECASE)
+
+        # Clean up multiple spaces
+        content = re.sub(r'\s+', ' ', content).strip()
+
+        # Capitalize first letter
+        if content:
+            content = content[0].upper() + content[1:]
+
+        # Truncate if still too long
+        if len(content) > max_length:
+            # Try to cut at a word boundary
+            truncated = content[:max_length]
+            last_space = truncated.rfind(' ')
+            if last_space > max_length * 0.6:  # Don't cut too early
+                truncated = truncated[:last_space]
+            content = truncated.rstrip('.,!? ') + '...'
+
+        return content if content else "New Chat"
+
     async def save_chat(self, chat: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create or update a chat.
@@ -1398,8 +1462,7 @@ Assistant:"""
             for msg in messages:
                 if msg.get("role") == "user":
                     content = msg.get("content", "")
-                    # Take first 50 chars as name
-                    chat["name"] = content[:50] + ("..." if len(content) > 50 else "")
+                    chat["name"] = self._generate_chat_title(content)
                     break
             if not chat.get("name"):
                 chat["name"] = "New Chat"
