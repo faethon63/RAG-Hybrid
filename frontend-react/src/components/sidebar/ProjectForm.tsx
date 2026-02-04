@@ -105,7 +105,7 @@ export function ProjectForm() {
     try {
       const result = await indexProject(editingProject);
       // Build result message
-      let msg = `Indexed ${result.indexed_chunks} chunks from ${result.files.length} new files`;
+      let msg = `Indexed ${result.indexed_chunks || 0} chunks from ${(result.files || []).length} new files`;
       if (result.skipped && result.skipped > 0) {
         msg += ` (${result.skipped} unchanged)`;
       }
