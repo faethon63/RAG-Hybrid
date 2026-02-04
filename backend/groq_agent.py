@@ -546,6 +546,9 @@ BAD RESPONSE (NEVER DO THIS):
                                     if func_name == "web_search":
                                         perplexity_direct_answer = result.get("answer", "")
                                         print(f"[DEBUG] Stored Perplexity answer: {perplexity_direct_answer[:200]}...", flush=True)
+                                        # Add Perplexity citations to sources
+                                        all_sources.extend(citations)
+                                        logger.info(f"Added {len(citations)} Perplexity citations to all_sources")
 
                                 # For complex_reasoning (Claude), store answer for direct passthrough
                                 # Groq tends to ignore Claude's good answers and make excuses
