@@ -2104,6 +2104,112 @@ async def sync_push_to_vps(vps_url: str = "https://rag.coopeverything.org"):
 
 
 # ============================================================================
+# COLLECTION SYNC (Lightweight - documents only, regenerate embeddings)
+# ============================================================================
+
+@app.get("/api/v1/sync/export-collection")
+async def sync_export_collection(project: str):
+    """
+    Export a project's ChromaDB collection as JSON (documents + metadata, NOT embeddings).
+    Use this to sync indexed documents from local to VPS.
+    Embeddings are regenerated on import using the same embedding model.
+    """
+    try:
+        export_data = await rag_core.export_collection(project)
+        return export_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+class CollectionImportRequest(BaseModel):
+    """Request to import collection data."""
+    project: str
+    collection_name: Optional[str] = None
+    exported_at: Optional[str] = None
+    documents: List[Dict[str, Any]]
+    total_documents: Optional[int] = None
+    overwrite: bool = False  # If True, delete existing collection first
+
+
+@app.post("/api/v1/sync/import-collection")
+async def sync_import_collection(request: CollectionImportRequest):
+    """
+    Import documents into a project's ChromaDB collection.
+    Regenerates embeddings using the local embedding model.
+    This is the lightweight sync method - only documents and metadata are transferred.
+    """
+    try:
+        import_data = {
+            "project": request.project,
+            "documents": request.documents,
+        }
+        result = await rag_core.import_collection(import_data, overwrite=request.overwrite)
+        if result.get("error"):
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
+@app.post("/api/v1/sync/push-collection")
+async def sync_push_collection_to_vps(
+    project: str,
+    vps_url: str = "https://rag.coopeverything.org",
+    overwrite: bool = False
+):
+    """
+    Push a project's collection to VPS. Call this from local machine.
+    Exports documents (not embeddings) and POSTs to VPS import endpoint.
+    VPS regenerates embeddings with its local embedding model.
+    """
+    import httpx
+
+    try:
+        # Get local export
+        export_data = await rag_core.export_collection(project)
+
+        if not export_data.get("documents"):
+            return {
+                "status": "warning",
+                "message": f"No documents to sync for project '{project}'",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        # Push to VPS
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{vps_url}/api/v1/sync/import-collection",
+                json={
+                    "project": export_data["project"],
+                    "documents": export_data["documents"],
+                    "overwrite": overwrite,
+                }
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"VPS import failed: {response.text}"
+                )
+
+            return {
+                "status": "success",
+                "message": f"Collection '{project}' pushed to VPS successfully",
+                "documents_synced": len(export_data["documents"]),
+                "vps_response": response.json(),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="VPS request timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Push failed: {str(e)}")
+
+
+# ============================================================================
 # STARTUP/SHUTDOWN
 # ============================================================================
 

@@ -388,13 +388,20 @@ Answer:"""
         # Tool execution loop
         iteration = 0
         response_text = ""
+        actual_model_used = model
         while iteration < max_tool_iterations:
             if model == "local":
-                response_text = await self._call_ollama(prompt)
-                # Ollama doesn't provide token counts
+                # Use Ollama with Claude Haiku fallback
+                result = await self._call_ollama_with_fallback(prompt)
+                response_text = result["text"]
+                actual_model_used = result.get("model_used", "ollama")
+                usage = result.get("usage", {})
+                total_usage["input_tokens"] += usage.get("input_tokens", 0)
+                total_usage["output_tokens"] += usage.get("output_tokens", 0)
             else:
                 result = await self._call_claude(prompt, model)
                 response_text = result["text"]
+                actual_model_used = model
                 usage = result.get("usage", {})
                 total_usage["input_tokens"] += usage.get("input_tokens", 0)
                 total_usage["output_tokens"] += usage.get("output_tokens", 0)
@@ -403,13 +410,13 @@ Answer:"""
             if not enable_tools or not allowed_paths:
                 # Strip any fake tool output the LLM might have generated
                 response_text = self._strip_fake_tool_output(response_text)
-                return {"text": response_text, "usage": total_usage}
+                return {"text": response_text, "usage": total_usage, "model_used": actual_model_used}
 
             tool_call = parse_tool_call(response_text)
             if not tool_call:
                 # No tool call found - strip any fake tool output and return
                 response_text = self._strip_fake_tool_output(response_text)
-                return {"text": response_text, "usage": total_usage}
+                return {"text": response_text, "usage": total_usage, "model_used": actual_model_used}
 
             # Execute the tool
             logger.info(f"Executing tool: {tool_call.get('tool')} on path: {tool_call.get('path')}")
@@ -448,7 +455,7 @@ Answer:"""
             iteration += 1
 
         # If we hit max iterations, return the last response
-        return {"text": response_text, "usage": total_usage}
+        return {"text": response_text, "usage": total_usage, "model_used": actual_model_used}
 
     def _strip_fake_tool_output(self, text: str) -> str:
         """
@@ -477,8 +484,8 @@ Answer:"""
 
         return cleaned.strip()
 
-    async def _call_ollama(self, prompt: str) -> str:
-        """Call Ollama's generate API."""
+    async def _call_ollama(self, prompt: str) -> Optional[str]:
+        """Call Ollama's generate API. Returns None if Ollama unavailable."""
         if not self._http_client:
             self._http_client = httpx.AsyncClient(timeout=120.0)
 
@@ -500,12 +507,26 @@ Answer:"""
             return data.get("response", "").strip()
         except httpx.HTTPStatusError as e:
             logger.error(f"Ollama HTTP error: {e}")
-            return f"[Ollama error: {e.response.status_code}]"
+            return None  # Signal to fall back to Claude
         except httpx.ConnectError:
-            return "[Ollama is not running. Start it with: ollama serve]"
+            logger.info("Ollama not running, will fall back to Claude Haiku")
+            return None  # Signal to fall back to Claude
         except Exception as e:
             logger.error(f"Ollama error: {e}")
-            return f"[Ollama error: {e}]"
+            return None  # Signal to fall back to Claude
+
+    async def _call_ollama_with_fallback(self, prompt: str) -> Dict[str, Any]:
+        """
+        Try Ollama first, fall back to Claude Haiku if unavailable.
+        Returns {"text": str, "usage": dict, "model_used": str}.
+        """
+        result = await self._call_ollama(prompt)
+        if result is not None:
+            return {"text": result, "usage": {}, "model_used": "ollama"}
+        logger.info("Ollama unavailable, falling back to Claude Haiku")
+        claude_result = await self._call_claude(prompt, model="claude-haiku-4-5-20251001")
+        claude_result["model_used"] = "claude-haiku-4-5-20251001"
+        return claude_result
 
     async def _call_claude(self, prompt: str, model: str) -> Dict[str, Any]:
         """Call Claude API for generation. Returns {"text": str, "usage": dict}."""
@@ -880,6 +901,128 @@ IMPORTANT RULES:
             return False
 
     # ------------------------------------------------------------------
+    # Collection sync (export/import for VPS sync)
+    # ------------------------------------------------------------------
+
+    async def export_collection(self, project_name: str) -> Dict[str, Any]:
+        """
+        Export a project's ChromaDB collection as JSON.
+        Exports documents and metadata (NOT embeddings - they will be regenerated on import).
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        collection = self._get_collection(project_name)
+        count = collection.count()
+
+        if count == 0:
+            return {
+                "project": project_name,
+                "collection_name": collection.name,
+                "exported_at": datetime.now().isoformat() + "Z",
+                "documents": [],
+                "total_documents": 0,
+            }
+
+        # Get all documents from the collection
+        results = collection.get(
+            include=["documents", "metadatas"],
+            limit=count,
+        )
+
+        documents = []
+        if results.get("ids"):
+            for i, doc_id in enumerate(results["ids"]):
+                doc = {
+                    "id": doc_id,
+                    "content": results["documents"][i] if results.get("documents") else "",
+                    "metadata": results["metadatas"][i] if results.get("metadatas") else {},
+                }
+                documents.append(doc)
+
+        return {
+            "project": project_name,
+            "collection_name": collection.name,
+            "exported_at": datetime.now().isoformat() + "Z",
+            "documents": documents,
+            "total_documents": len(documents),
+        }
+
+    async def import_collection(self, export_data: Dict[str, Any], overwrite: bool = False) -> Dict[str, Any]:
+        """
+        Import documents into a project's ChromaDB collection from export JSON.
+        Regenerates embeddings using the local embedding model.
+
+        Args:
+            export_data: JSON data from export_collection
+            overwrite: If True, deletes existing collection first. If False, upserts.
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        project_name = export_data.get("project")
+        if not project_name:
+            return {"error": "Missing project name in export data", "imported": 0}
+
+        documents = export_data.get("documents", [])
+        if not documents:
+            return {"error": "No documents to import", "imported": 0}
+
+        # Optionally delete existing collection first
+        if overwrite:
+            try:
+                col_name = f"{get_chromadb_collection()}_{project_name}"
+                col_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in col_name)[:63]
+                self._chroma_client.delete_collection(col_name)
+                logger.info(f"Deleted existing collection for overwrite: {col_name}")
+            except Exception:
+                pass  # Collection may not exist
+
+        collection = self._get_collection(project_name)
+        imported = 0
+
+        # Process in batches for efficiency
+        batch_size = 100
+        for i in range(0, len(documents), batch_size):
+            batch = documents[i:i + batch_size]
+            ids = []
+            contents = []
+            metadatas = []
+
+            for doc in batch:
+                doc_id = doc.get("id", self._doc_id(doc.get("content", ""), i))
+                content = doc.get("content", "")
+                metadata = doc.get("metadata", {})
+
+                if not content.strip():
+                    continue
+
+                ids.append(doc_id)
+                contents.append(content)
+                metadatas.append(metadata)
+
+            if ids:
+                # Generate embeddings for this batch
+                embeddings = self.embed(contents)
+
+                # Upsert into collection
+                collection.upsert(
+                    ids=ids,
+                    embeddings=embeddings,
+                    documents=contents,
+                    metadatas=metadatas,
+                )
+                imported += len(ids)
+
+        logger.info(f"Imported {imported} documents into collection '{collection.name}'")
+        return {
+            "project": project_name,
+            "collection_name": collection.name,
+            "imported": imported,
+            "total_in_export": len(documents),
+        }
+
+    # ------------------------------------------------------------------
     # Project configuration
     # ------------------------------------------------------------------
 
@@ -1153,13 +1296,18 @@ IMPORTANT RULES:
         project_config: Optional project config with system_prompt and instructions.
         global_instructions: Optional global instructions to prepend to system prompt.
         query_classification: Optional classification result for flexible prompts.
-        Returns {"text": str, "usage": dict}.
+        Returns {"text": str, "usage": dict, "model_used": str}.
         """
         if model == "local":
-            text = await self._chat_ollama(query, conversation_history, project_config, global_instructions, query_classification)
-            return {"text": text, "usage": {}}
+            # Try Ollama with Claude Haiku fallback
+            result = await self._chat_ollama_with_fallback(
+                query, conversation_history, project_config, global_instructions, query_classification
+            )
+            return result
         else:
-            return await self._chat_claude(query, conversation_history, model, project_config, global_instructions, query_classification)
+            result = await self._chat_claude(query, conversation_history, model, project_config, global_instructions, query_classification)
+            result["model_used"] = model
+            return result
 
     async def _chat_ollama(
         self,
@@ -1168,8 +1316,8 @@ IMPORTANT RULES:
         project_config: Optional[Dict[str, Any]] = None,
         global_instructions: Optional[str] = None,
         query_classification: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """Chat using local Ollama with optional project instructions."""
+    ) -> Optional[str]:
+        """Chat using local Ollama with optional project instructions. Returns None if Ollama unavailable."""
         # Determine if we should use flexible mode (for non-task queries)
         use_flexible = False
         if query_classification:
@@ -1223,6 +1371,28 @@ IMPORTANT RULES:
 Assistant:"""
 
         return await self._call_ollama(prompt)
+
+    async def _chat_ollama_with_fallback(
+        self,
+        query: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        project_config: Optional[Dict[str, Any]] = None,
+        global_instructions: Optional[str] = None,
+        query_classification: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Chat using Ollama with Claude Haiku fallback. Returns {"text": str, "usage": dict, "model_used": str}."""
+        # Try Ollama first
+        result = await self._chat_ollama(query, conversation_history, project_config, global_instructions, query_classification)
+        if result is not None:
+            return {"text": result, "usage": {}, "model_used": "ollama"}
+        # Fall back to Claude Haiku
+        logger.info("Ollama unavailable for chat, falling back to Claude Haiku")
+        claude_result = await self._chat_claude(
+            query, conversation_history, "claude-haiku-4-5-20251001",
+            project_config, global_instructions, query_classification
+        )
+        claude_result["model_used"] = "claude-haiku-4-5-20251001"
+        return claude_result
 
     async def _chat_claude(
         self,

@@ -173,17 +173,33 @@ Question: {query}"""
 
 class PerplexitySearch:
     """
-    Search and research via Perplexity API (2025 Sonar models).
-    Features: search_mode (high/medium/low), academic filter, recency filter.
-    Citation tokens are now free (not charged).
+    Search and research via Perplexity API (2026 Sonar models).
+
+    Models available:
+    - sonar: Standard web-grounded search (cheapest)
+    - sonar-pro: More thorough search
+    - sonar-reasoning-pro: Step-by-step reasoning across sources
+    - sonar-deep-research: Exhaustive research (hundreds of sources)
+
+    Parameters:
+    - search_recency_filter: "day", "week", "month", "year"
+    - depth: "medium" (default) or "high" (for deep research)
+    - web_search_options: {"search_mode": "academic"} for scholarly sources
+
+    Citation tokens are free (not charged).
     """
 
     API_URL = "https://api.perplexity.ai/chat/completions"
 
-    # Search modes (March 2025 update)
-    SEARCH_MODE_HIGH = "high"      # Maximum depth for complex queries
-    SEARCH_MODE_MEDIUM = "medium"  # Balanced approach
-    SEARCH_MODE_LOW = "low"        # Cost-efficient for simple queries
+    # Available models
+    MODEL_SONAR = "sonar"                      # Fast, cheap
+    MODEL_SONAR_PRO = "sonar-pro"              # Thorough
+    MODEL_REASONING = "sonar-reasoning-pro"    # Multi-step reasoning
+    MODEL_DEEP_RESEARCH = "sonar-deep-research"  # Exhaustive research
+
+    # Depth levels for deep research model
+    DEPTH_MEDIUM = "medium"  # Default, balanced
+    DEPTH_HIGH = "high"      # More thorough, more tokens
 
     def __init__(self):
         self._client: Optional[httpx.AsyncClient] = None
@@ -252,7 +268,7 @@ class PerplexitySearch:
         api_key = get_perplexity_api_key()
 
         # Use sonar-pro for high mode, sonar for low/medium
-        model = "sonar-pro" if search_mode == "high" else "sonar"
+        model = self.MODEL_SONAR_PRO if search_mode == "high" else self.MODEL_SONAR
 
         # Build messages with conversation history for context
         # Minimal system prompt - let Perplexity Pro do its thing naturally
@@ -279,13 +295,14 @@ class PerplexitySearch:
             "temperature": 0.2,
         }
 
-        # Add recency filter if specified
+        # Build web_search_options
+        web_opts = {}
         if recency:
-            payload["search_recency_filter"] = recency
-
-        # Add academic filter if requested
+            web_opts["search_recency_filter"] = recency
         if academic:
-            payload["web_search_options"] = {"search_mode": "academic"}
+            web_opts["search_mode"] = "academic"
+        if web_opts:
+            payload["web_search_options"] = web_opts
 
         try:
             resp = await client.post(
@@ -302,26 +319,122 @@ class PerplexitySearch:
             logger.error(f"Perplexity search error: {e.response.status_code}")
             return {"answer": f"[Perplexity error: {e.response.status_code}]", "citations": [], "usage": {}}
 
+    async def focused_search(
+        self,
+        query: str,
+        num_results: int = 10,
+        recency: str = "week",
+        exclude_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Focused search optimized for supplier/product queries.
+        Returns direct product page URLs with prices.
+
+        Args:
+            query: Search query
+            num_results: Number of results (5-10 recommended)
+            recency: Time filter - "day", "week", "month", "year"
+            exclude_domains: Domains to exclude (SEO spam, etc.)
+
+        Returns: {"answer": str, "citations": list[dict], "usage": dict}
+        """
+        client = self._get_client()
+        api_key = get_perplexity_api_key()
+
+        # Default domains to exclude (SEO spam, AI content farms)
+        if exclude_domains is None:
+            exclude_domains = ["quora.com", "pinterest.com", "reddit.com"]
+
+        # Format domains for API: prefix with "-" to exclude
+        domain_filter = [f"-{d}" for d in exclude_domains]
+
+        # Simple, direct prompt that works well with Perplexity
+        user_prompt = f"""{query}
+
+Find direct product page URLs with current prices where available.
+List each supplier with their product page link and price.
+Focus on US-based suppliers with active product listings."""
+
+        payload = {
+            "model": self.MODEL_SONAR_PRO,
+            "messages": [
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": get_max_tokens(),
+            "temperature": 0.1,
+            "web_search_options": {
+                "search_recency_filter": recency,
+                "search_domain_filter": domain_filter,
+            },
+        }
+
+        try:
+            resp = await client.post(
+                self.API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Parse response
+            answer = ""
+            if data.get("choices"):
+                answer = data["choices"][0].get("message", {}).get("content", "")
+
+            # Extract citations
+            raw_citations = data.get("citations", [])
+            citations = []
+            for i, url in enumerate(raw_citations):
+                citations.append({
+                    "title": f"Source {i + 1}",
+                    "url": url if isinstance(url, str) else str(url),
+                    "snippet": "",
+                })
+
+            usage = data.get("usage", {})
+
+            logger.info(f"Focused search returned {len(citations)} citations")
+
+            return {
+                "answer": answer,
+                "citations": citations,
+                "table": answer,  # The answer IS the table
+                "usage": usage,
+            }
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Perplexity focused search error: {e.response.status_code}")
+            return {
+                "answer": f"[Perplexity error: {e.response.status_code}]",
+                "citations": [],
+                "table": "",
+                "usage": {},
+            }
+
     async def research(
         self,
         query: str,
-        depth: str = "deep",
+        depth: str = "high",
         recency: Optional[str] = None,
         academic: bool = False,
     ) -> Dict[str, Any]:
         """
-        Deep research via Perplexity Sonar Pro (multi-step reasoning).
+        Deep research via Perplexity Sonar Deep Research model.
 
         Args:
             query: Research query
-            depth: "deep" uses sonar-pro, "standard" uses sonar
+            depth: "high" (exhaustive) or "medium" (balanced) - passed to sonar-deep-research
             recency: Filter by time - "day", "week", "month", "year"
             academic: If True, prioritize academic sources
 
         Returns: {"answer": str, "citations": list[dict], "usage": dict}
         """
-        model = "sonar-pro" if depth == "deep" else "sonar"
-        search_mode = self.SEARCH_MODE_HIGH if depth == "deep" else self.SEARCH_MODE_MEDIUM
+        # Use sonar-deep-research for exhaustive research
+        model = self.MODEL_DEEP_RESEARCH
         api_key = get_perplexity_api_key()
 
         payload = {
@@ -338,14 +451,17 @@ class PerplexitySearch:
             ],
             "max_tokens": get_max_tokens(),
             "temperature": 0.1,
-            "search_mode": search_mode,
+            "depth": depth,  # "high" or "medium" for deep research model
         }
 
+        # Build web_search_options
+        web_opts = {}
         if recency:
-            payload["search_recency_filter"] = recency
-
+            web_opts["search_recency_filter"] = recency
         if academic:
-            payload["web_search_options"] = {"search_mode": "academic"}
+            web_opts["search_mode"] = "academic"
+        if web_opts:
+            payload["web_search_options"] = web_opts
 
         client = self._get_client()
         try:
@@ -358,10 +474,11 @@ class PerplexitySearch:
                 json=payload,
             )
 
-            # Fallback to sonar if sonar-pro unavailable
-            if resp.status_code != 200 and model == "sonar-pro":
-                logger.info("sonar-pro unavailable, falling back to sonar")
-                payload["model"] = "sonar"
+            # Fallback to sonar-pro if sonar-deep-research unavailable
+            if resp.status_code != 200 and model == self.MODEL_DEEP_RESEARCH:
+                logger.info("sonar-deep-research unavailable, falling back to sonar-pro")
+                payload["model"] = self.MODEL_SONAR_PRO
+                payload.pop("depth", None)  # Remove depth param (not valid for sonar-pro)
                 resp = await client.post(
                     self.API_URL,
                     headers={
