@@ -73,11 +73,25 @@ RAG-Hybrid/
 - GitHub repo: github.com/faethon63/RAG-Hybrid (main + dev branches)
 - SSH keys for both `coopeverything` and `faethon63` GitHub accounts
 
+## Local vs VPS Sync
+
+**What DOES sync (via git push to main):**
+- Project configs: name, description, system_prompt, flexible_prompt, instructions
+  - Stored in `config/projects/{name}.json` (tracked in git)
+- Uploaded KB documents (via the file upload UI)
+  - Stored in `config/project-kb/{name}/documents/` (tracked in git)
+
+**What does NOT sync (environment-specific):**
+- `allowed_paths` - External file paths differ between Windows and Linux
+- `indexed_files` - Tracks what's indexed locally (ChromaDB is local)
+- Chat history - Stored in `data/chats/` (gitignored)
+- Ollama - Only available locally (VPS has no GPU)
+
 ## WARNINGS - DO NOT DO THESE
 
 1. **NEVER auto-delete ChromaDB collections on startup** - This caused data loss. The `cleanup_orphaned_collections()` function is disabled for this reason.
 2. **NEVER add cleanup/purge logic that runs automatically** - User data in `data/chromadb/` and `data/project-kb/` must persist.
-3. **Project configs live in `data/project-kb/{name}/config.json`** - Don't delete these.
+3. **Project configs are split:** synced in `config/projects/{name}.json`, local in `data/project-kb/{name}/local.json` - Don't delete either.
 4. **Auth is currently disabled** - Don't re-enable without user request.
 5. **NEVER use Write tool to replace entire files** - Use Edit tool with targeted changes instead. Write tool destroys uncommitted user modifications.
 6. **ALWAYS Read a file before modifying it** - Even for "simple" changes. The file may have local modifications not in git.
@@ -99,6 +113,7 @@ RAG-Hybrid/
 5. **Check logs and errors yourself** instead of asking the user to debug
 6. **Terminal limitations:** Cannot control Windows Terminal tabs or close windows programmatically. Prefer background processes to avoid window clutter.
 7. **ALWAYS start/restart services yourself** - If the backend or frontend needs to be started or restarted, DO IT. Never say "start the backend" and wait for the user. Use PowerShell via Bash tool to start services in background.
+8. **NEVER ask permission for obvious next steps** - If you just changed backend code, restart the backend. If you changed frontend code, the frontend auto-reloads. If a task has an obvious continuation, just do it. Asking "want me to restart?" or "shall I start the frontend?" wastes time and adds no value.
 
 ## Claude Instructions
 

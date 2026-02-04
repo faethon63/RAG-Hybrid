@@ -15,7 +15,7 @@ from pathlib import Path
 # Ensure backend directory is on the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import reload_env, get_log_level, get_fastapi_port, get_project_kb_path, get_chromadb_collection, get_chromadb_path
+from config import reload_env, get_log_level, get_fastapi_port, get_project_kb_path, get_synced_kb_path, get_chromadb_collection, get_chromadb_path
 
 from fastapi import FastAPI, HTTPException, status, UploadFile, File as FastAPIFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -994,8 +994,33 @@ async def query(request: QueryRequest):
             result = await query_local(request, global_instructions, query_classification)
 
         elif request.mode == "research":
-            # Force deep research via Perplexity
-            result = await query_research(request)
+            # Detect supplier queries - use focused format instead of essay
+            query_lower = request.query.lower()
+            supplier_keywords = [
+                "supplier", "vendor", "wholesale", "where to buy",
+                "isolate", "absolute", "terpene", "essential oil",
+                "find ", "looking for ", "source "
+            ]
+            is_supplier_query = any(kw in query_lower for kw in supplier_keywords)
+
+            if is_supplier_query:
+                # Use focused search (table format with URLs) instead of essay
+                logging.getLogger(__name__).info("Research mode: detected supplier query, using focused_search")
+                focused_result = await perplexity_search.focused_search(
+                    query=request.query,
+                    recency="month"
+                )
+                result = {
+                    "answer": focused_result["answer"],
+                    "sources": [
+                        Source(type="research", title=s["title"], url=s["url"], snippet="")
+                        for s in focused_result["citations"]
+                    ],
+                    "usage": focused_result.get("usage", {}),
+                }
+            else:
+                # Regular deep research for non-supplier queries
+                result = await query_research(request)
 
         elif request.mode == "deep_agent":
             # Force multi-step agent research via smolagents
@@ -1305,7 +1330,8 @@ async def query_research(request: QueryRequest) -> Dict[str, Any]:
     """Deep research with Perplexity Pro"""
     result = await perplexity_search.research(
         query=request.query,
-        depth="deep"
+        depth="deep",
+        conversation_history=request.conversation_history,
     )
 
     return {
@@ -1857,8 +1883,8 @@ async def upload_project_files(
     if config is None:
         raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
 
-    # Ensure documents directory exists
-    project_dir = Path(get_project_kb_path()) / name / "documents"
+    # Ensure documents directory exists (synced via git)
+    project_dir = Path(get_synced_kb_path()) / name / "documents"
     project_dir.mkdir(parents=True, exist_ok=True)
 
     uploaded = []
@@ -1920,8 +1946,8 @@ async def delete_project_file(name: str, filename: str):
     if config is None:
         raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
 
-    # Build file path
-    file_path = Path(get_project_kb_path()) / name / "documents" / filename
+    # Build file path (synced via git)
+    file_path = Path(get_synced_kb_path()) / name / "documents" / filename
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"File '{filename}' not found")

@@ -117,6 +117,13 @@ def get_synced_projects_path() -> str:
     return os.getenv("SYNCED_PROJECTS_PATH", default)
 
 
+def get_synced_kb_path() -> str:
+    """Synced KB documents (uploaded files) - tracked in git."""
+    _ensure_env_loaded()
+    default = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb")
+    return os.getenv("SYNCED_KB_PATH", default)
+
+
 def get_rag_config_path() -> str:
     _ensure_env_loaded()
     default = os.path.join(os.path.dirname(__file__), "..", "data", "rag_config.json")

@@ -32,6 +32,7 @@ from config import (
     get_temperature,
     get_project_kb_path,
     get_synced_projects_path,
+    get_synced_kb_path,
     get_rag_config_path,
     get_anthropic_api_key,
     get_chats_path,
@@ -1140,11 +1141,18 @@ IMPORTANT RULES:
             await self.initialize()
 
         collection = self._get_collection(name)
-        # Create filesystem directory for project docs
-        project_kb_path = get_project_kb_path()
-        project_dir = os.path.join(project_kb_path, name)
-        os.makedirs(project_dir, exist_ok=True)
-        os.makedirs(os.path.join(project_dir, "documents"), exist_ok=True)
+
+        # Create local directory for env-specific data
+        local_kb_path = get_project_kb_path()
+        local_dir = os.path.join(local_kb_path, name)
+        os.makedirs(local_dir, exist_ok=True)
+
+        # Create synced directory for KB documents (git-tracked)
+        synced_kb_path = get_synced_kb_path()
+        synced_dir = os.path.join(synced_kb_path, name)
+        os.makedirs(synced_dir, exist_ok=True)
+        documents_dir = os.path.join(synced_dir, "documents")
+        os.makedirs(documents_dir, exist_ok=True)
 
         # Initialize config with defaults
         default_config = {
@@ -1152,7 +1160,7 @@ IMPORTANT RULES:
             "description": "",
             "system_prompt": "",
             "instructions": "",
-            "allowed_paths": [os.path.join(project_dir, "documents")],
+            "allowed_paths": [documents_dir],
         }
         if config:
             default_config.update(config)
@@ -1164,7 +1172,7 @@ IMPORTANT RULES:
             "name": name,
             "collection": collection.name,
             "document_count": 0,
-            "path": project_dir,
+            "path": synced_dir,
             "config": default_config,
         }
 
@@ -1207,6 +1215,12 @@ IMPORTANT RULES:
             return {"error": f"Project '{project_name}' not found", "indexed_chunks": 0}
 
         allowed_paths = config.get("allowed_paths", [])
+
+        # Always include the synced documents folder (git-tracked KB files)
+        synced_docs_path = str(Path(get_synced_kb_path()) / project_name / "documents")
+        if synced_docs_path not in allowed_paths:
+            allowed_paths = [synced_docs_path] + list(allowed_paths)
+
         if not allowed_paths:
             return {"error": "No allowed_paths configured", "indexed_chunks": 0}
 
@@ -1296,14 +1310,15 @@ IMPORTANT RULES:
 
     async def list_project_files(self, project_name: str) -> List[Dict[str, Any]]:
         """
-        List files in a project's documents directory.
+        List files in a project's documents directory (synced via git).
         Returns list of dicts with: name, size, modified, indexed status.
         """
         config = await self.get_project_config(project_name)
         if not config:
             return []
 
-        project_dir = Path(get_project_kb_path()) / project_name / "documents"
+        # Use synced KB path (git-tracked)
+        project_dir = Path(get_synced_kb_path()) / project_name / "documents"
         if not project_dir.exists():
             return []
 
