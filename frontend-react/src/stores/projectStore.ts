@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, ProjectConfig, IndexResponse } from '../types/api';
+import type { Project, ProjectConfig, IndexResponse, ProjectFile, UploadFilesResponse } from '../types/api';
 import { api } from '../api/client';
 
 interface ProjectState {
@@ -19,6 +19,11 @@ interface ProjectState {
   // Recent projects (for quick access)
   recentProjects: string[];
 
+  // Project KB files
+  projectFiles: ProjectFile[];
+  filesLoading: boolean;
+  uploading: boolean;
+
   // Actions
   setCurrentProject: (name: string | null) => void;
   setShowProjectForm: (show: boolean) => void;
@@ -36,6 +41,11 @@ interface ProjectState {
   }) => Promise<void>;
   updateProject: (name: string, config: Partial<ProjectConfig>) => Promise<void>;
   indexProject: (name: string) => Promise<IndexResponse>;
+
+  // Project KB file operations
+  loadProjectFiles: (name: string) => Promise<void>;
+  uploadFiles: (name: string, files: File[]) => Promise<UploadFilesResponse>;
+  deleteFile: (name: string, filename: string) => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -48,6 +58,9 @@ export const useProjectStore = create<ProjectState>()(
       showProjectForm: false,
       editingProject: null,
       recentProjects: [],
+      projectFiles: [],
+      filesLoading: false,
+      uploading: false,
 
       setCurrentProject: (name) => {
         set({ currentProject: name, currentProjectConfig: null });
@@ -111,6 +124,43 @@ export const useProjectStore = create<ProjectState>()(
           return response;
         } catch (err) {
           console.error('Failed to index project:', err);
+          throw err;
+        }
+      },
+
+      loadProjectFiles: async (name) => {
+        set({ filesLoading: true });
+        try {
+          const response = await api.listProjectFiles(name);
+          set({ projectFiles: response.files, filesLoading: false });
+        } catch (err) {
+          console.error('Failed to load project files:', err);
+          set({ projectFiles: [], filesLoading: false });
+        }
+      },
+
+      uploadFiles: async (name, files) => {
+        set({ uploading: true });
+        try {
+          const response = await api.uploadProjectFiles(name, files);
+          // Reload files list after upload
+          await get().loadProjectFiles(name);
+          set({ uploading: false });
+          return response;
+        } catch (err) {
+          console.error('Failed to upload files:', err);
+          set({ uploading: false });
+          throw err;
+        }
+      },
+
+      deleteFile: async (name, filename) => {
+        try {
+          await api.deleteProjectFile(name, filename);
+          // Reload files list after delete
+          await get().loadProjectFiles(name);
+        } catch (err) {
+          console.error('Failed to delete file:', err);
           throw err;
         }
       },

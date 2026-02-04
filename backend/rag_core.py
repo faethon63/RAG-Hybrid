@@ -1235,6 +1235,79 @@ IMPORTANT RULES:
             "message": f"Indexed {indexed_count} chunks from {len(files_indexed)} new/modified files ({len(files_skipped)} unchanged)",
         }
 
+    async def list_project_files(self, project_name: str) -> List[Dict[str, Any]]:
+        """
+        List files in a project's documents directory.
+        Returns list of dicts with: name, size, modified, indexed status.
+        """
+        config = await self.get_project_config(project_name)
+        if not config:
+            return []
+
+        project_dir = Path(get_project_kb_path()) / project_name / "documents"
+        if not project_dir.exists():
+            return []
+
+        indexed_files = config.get("indexed_files", {})
+        files = []
+
+        for file_path in project_dir.iterdir():
+            if file_path.is_file():
+                try:
+                    stat = file_path.stat()
+                    file_str = str(file_path)
+                    # Check if file is indexed by comparing paths
+                    is_indexed = file_str in indexed_files
+                    files.append({
+                        "name": file_path.name,
+                        "size": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat() + "Z",
+                        "indexed": is_indexed,
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to stat file {file_path}: {e}")
+
+        # Sort by modified time, newest first
+        files.sort(key=lambda x: x["modified"], reverse=True)
+        return files
+
+    async def delete_document_by_path(self, project_name: str, file_path: str) -> bool:
+        """
+        Remove documents from ChromaDB by file path metadata.
+        Also removes from indexed_files tracking in config.
+        Returns True if any documents were deleted.
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        collection = self._get_collection(project_name)
+
+        # Find all documents with this file path
+        try:
+            # Get all docs and filter by path metadata
+            all_docs = collection.get(include=["metadatas"])
+            ids_to_delete = []
+            if all_docs.get("ids"):
+                for i, doc_id in enumerate(all_docs["ids"]):
+                    metadata = all_docs["metadatas"][i] if all_docs.get("metadatas") else {}
+                    if metadata.get("path") == file_path:
+                        ids_to_delete.append(doc_id)
+
+            if ids_to_delete:
+                collection.delete(ids=ids_to_delete)
+                logger.info(f"Deleted {len(ids_to_delete)} chunks for file: {file_path}")
+
+            # Update indexed_files in config
+            config = await self.get_project_config(project_name)
+            if config and file_path in config.get("indexed_files", {}):
+                del config["indexed_files"][file_path]
+                await self.save_project_config(project_name, config)
+
+            return len(ids_to_delete) > 0
+        except Exception as e:
+            logger.error(f"Failed to delete documents for path {file_path}: {e}")
+            return False
+
     # ------------------------------------------------------------------
     # Global RAG configuration
     # ------------------------------------------------------------------

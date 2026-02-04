@@ -17,10 +17,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import reload_env, get_log_level, get_fastapi_port, get_project_kb_path, get_chromadb_collection, get_chromadb_path
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, UploadFile, File as FastAPIFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+
+# KB file upload constants
+ALLOWED_KB_EXTENSIONS = {'.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv', '.pdf'}
+MAX_KB_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 from rag_core import RAGCore
 from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch, IdealistaSearch
@@ -1673,6 +1677,27 @@ class CreateProjectRequest(BaseModel):
     allowed_paths: Optional[List[str]] = []
 
 
+class ProjectFileInfo(BaseModel):
+    name: str
+    size: int
+    modified: str
+    indexed: bool
+
+
+class ProjectFilesResponse(BaseModel):
+    project: str
+    files: List[ProjectFileInfo]
+    count: int
+
+
+class UploadFilesResponse(BaseModel):
+    status: str
+    project: str
+    uploaded: List[str]
+    failed: List[dict]
+    indexed_chunks: int
+
+
 @app.post("/api/v1/projects")
 async def create_project(request: CreateProjectRequest):
     """Create a new project with optional configuration. Auto-syncs to VPS."""
@@ -1794,6 +1819,123 @@ async def index_project_files(
             response["sync_error"] = str(e)
 
     return response
+
+
+# ============================================================================
+# PROJECT KB FILE ENDPOINTS
+# ============================================================================
+
+@app.get("/api/v1/projects/{name}/files")
+async def list_project_files(name: str):
+    """
+    List KB files uploaded to a project's documents directory.
+    Returns file metadata including name, size, modified time, and indexed status.
+    """
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+    files = await rag_core.list_project_files(name)
+    return ProjectFilesResponse(
+        project=name,
+        files=[ProjectFileInfo(**f) for f in files],
+        count=len(files)
+    )
+
+
+@app.post("/api/v1/projects/{name}/files")
+async def upload_project_files(
+    name: str,
+    files: List[UploadFile] = FastAPIFile(...),
+    auto_index: bool = True,
+):
+    """
+    Upload KB files to a project's documents directory.
+    Files are validated for extension and size, then optionally auto-indexed.
+    """
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+    # Ensure documents directory exists
+    project_dir = Path(get_project_kb_path()) / name / "documents"
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    uploaded = []
+    failed = []
+
+    for file in files:
+        # Validate extension
+        ext = Path(file.filename).suffix.lower()
+        if ext not in ALLOWED_KB_EXTENSIONS:
+            failed.append({"name": file.filename, "error": f"Extension '{ext}' not allowed"})
+            continue
+
+        # Read file content
+        try:
+            content = await file.read()
+        except Exception as e:
+            failed.append({"name": file.filename, "error": f"Failed to read: {str(e)}"})
+            continue
+
+        # Validate size
+        if len(content) > MAX_KB_FILE_SIZE:
+            failed.append({"name": file.filename, "error": f"File exceeds {MAX_KB_FILE_SIZE // (1024*1024)}MB limit"})
+            continue
+
+        # Save file
+        try:
+            file_path = project_dir / file.filename
+            with open(file_path, "wb") as f:
+                f.write(content)
+            uploaded.append(file.filename)
+        except Exception as e:
+            failed.append({"name": file.filename, "error": f"Failed to save: {str(e)}"})
+
+    # Auto-index if enabled and we uploaded files
+    indexed_chunks = 0
+    if auto_index and uploaded:
+        try:
+            result = await rag_core.index_project_files(name)
+            indexed_chunks = result.get("indexed_chunks", 0)
+        except Exception as e:
+            logger.warning(f"Auto-index failed for project {name}: {e}")
+
+    return UploadFilesResponse(
+        status="success" if uploaded else "failed",
+        project=name,
+        uploaded=uploaded,
+        failed=failed,
+        indexed_chunks=indexed_chunks
+    )
+
+
+@app.delete("/api/v1/projects/{name}/files/{filename}")
+async def delete_project_file(name: str, filename: str):
+    """
+    Delete a KB file from a project's documents directory.
+    Also removes the file's chunks from ChromaDB.
+    """
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+    # Build file path
+    file_path = Path(get_project_kb_path()) / name / "documents" / filename
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+
+    # Delete from ChromaDB first
+    await rag_core.delete_document_by_path(name, str(file_path))
+
+    # Delete the file
+    try:
+        file_path.unlink()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+    return {"status": "success", "project": name, "deleted": filename}
 
 
 # ============================================================================

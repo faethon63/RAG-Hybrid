@@ -167,3 +167,25 @@ export interface IndexResponse {
   sync_error?: string;
   timestamp: string;
 }
+
+// Project KB File types
+export interface ProjectFile {
+  name: string;
+  size: number;
+  modified: string;
+  indexed: boolean;
+}
+
+export interface ProjectFilesResponse {
+  project: string;
+  files: ProjectFile[];
+  count: number;
+}
+
+export interface UploadFilesResponse {
+  status: string;
+  project: string;
+  uploaded: string[];
+  failed: Array<{ name: string; error: string }>;
+  indexed_chunks: number;
+}

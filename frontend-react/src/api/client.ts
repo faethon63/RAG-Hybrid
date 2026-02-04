@@ -111,6 +111,34 @@ export const api = {
       method: 'POST',
     }),
 
+  // Project KB files
+  listProjectFiles: (name: string) =>
+    request<import('../types/api').ProjectFilesResponse>(`/projects/${encodeURIComponent(name)}/files`),
+
+  uploadProjectFiles: async (name: string, files: File[]): Promise<import('../types/api').UploadFilesResponse> => {
+    const formData = new FormData();
+    files.forEach(file => formData.append('files', file));
+    const response = await fetch(`${API_BASE}/projects/${encodeURIComponent(name)}/files`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch {
+        body = await response.text();
+      }
+      throw new ApiError(response.status, response.statusText, body);
+    }
+    return response.json();
+  },
+
+  deleteProjectFile: (name: string, filename: string) =>
+    request<{ status: string; project: string; deleted: string }>(`/projects/${encodeURIComponent(name)}/files/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }),
+
   // Data sync (local <-> VPS)
   syncPushToVps: (vpsUrl: string = 'https://rag.coopeverything.org') =>
     request<{ status: string; message: string; vps_response?: Record<string, unknown> }>(`/sync/push?vps_url=${encodeURIComponent(vpsUrl)}`, {

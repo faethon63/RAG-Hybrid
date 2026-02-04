@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
 import { CloseIcon, LoaderIcon, CheckIcon } from '../common/icons';
+import { FileUploadZone } from './FileUploadZone';
 
 export function ProjectForm() {
   const showProjectForm = useProjectStore((s) => s.showProjectForm);
@@ -236,6 +237,19 @@ export function ProjectForm() {
                   {indexResult}
                 </p>
               )}
+            </div>
+          )}
+
+          {/* KB File Upload (only for editing) */}
+          {isEditing && editingProject && (
+            <div className="border-t border-[var(--color-border)] pt-4 mt-4">
+              <label className="block text-sm mb-2 font-medium">
+                Knowledge Base Documents
+              </label>
+              <p className="text-xs text-[var(--color-text-secondary)] mb-3">
+                Upload files directly to this project's KB. They will be auto-indexed.
+              </p>
+              <FileUploadZone projectName={editingProject} />
             </div>
           )}
 
