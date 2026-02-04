@@ -21,9 +21,10 @@ export function ChatList() {
     loadChats(currentProject);
   }, [currentProject, loadChats]);
 
-  const filteredChats = chats.filter((chat) =>
-    currentProject ? chat.project === currentProject : !chat.project
-  );
+  // Show project chats if project selected, or ALL chats when no project
+  const filteredChats = currentProject
+    ? chats.filter((chat) => chat.project === currentProject)
+    : chats;
 
   const handleDelete = async (e: React.MouseEvent, chatId: string) => {
     e.stopPropagation();

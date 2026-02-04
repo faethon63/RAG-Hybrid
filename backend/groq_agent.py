@@ -316,10 +316,11 @@ BAD RESPONSE (NEVER DO THIS):
 
         # Keywords that indicate a product/supplier search
         search_triggers = [
-            "find ", "search for ", "where to buy", "suppliers of", "providers of",
-            "who sells", "where can i get", "looking for ", "source ", "sourcing ",
-            "buy online", "purchase ", "shop for", "vendor", "supplier", "provider",
-            "isolate", "essential oil", "fragrance", "ingredient",
+            "find ", "search for ", "where to buy", "where can i buy", "where do i buy",
+            "suppliers of", "providers of", "who sells", "where can i get", "where to get",
+            "looking for ", "source ", "sourcing ", "buy online", "purchase ", "shop for",
+            "vendor", "supplier", "provider", "wholesale", "bulk ",
+            "isolate", "essential oil", "fragrance", "ingredient", "aromatic", "aroma chemical",
         ]
 
         # Keywords that indicate they want real-time data, not reasoning
@@ -349,15 +350,27 @@ BAD RESPONSE (NEVER DO THIS):
         """
         # PREPROCESSING: Force web_search for product/supplier queries
         # Groq (Llama 4 Scout) often misroutes these to complex_reasoning
-        if self._should_force_web_search(query) and "web_search" in self._tool_handlers:
+        should_force = self._should_force_web_search(query)
+        has_web_search = "web_search" in self._tool_handlers
+        logger.info(f"BYPASS CHECK: query='{query[:60]}...', should_force={should_force}, has_web_search={has_web_search}")
+        if should_force and has_web_search:
             logger.info(f"FORCE WEB_SEARCH: Query contains product/supplier keywords: {query[:50]}...")
             try:
-                # Use perplexity_pro for supplier queries (better results)
-                provider = "perplexity_pro" if any(kw in query.lower() for kw in ["supplier", "provider", "isolate", "where to buy"]) else "perplexity"
+                query_lower = query.lower()
+
+                # Use FOCUSED mode for supplier/product queries (table output with exact URLs)
+                # Use perplexity_pro for general real-time queries
+                supplier_keywords = [
+                    "supplier", "provider", "vendor", "wholesale", "bulk",
+                    "where to buy", "where can i buy", "where do i buy", "where to get",
+                    "isolate", "aromatic", "aroma chemical", "essential oil",
+                    "source ", "find ", "looking for ",
+                ]
+                is_supplier_query = any(kw in query_lower for kw in supplier_keywords)
+                provider = "perplexity_focused" if is_supplier_query else "perplexity_pro"
 
                 # ENHANCE QUERY with context for better Perplexity results
                 enhanced_query = query
-                query_lower = query.lower()
 
                 # Add project context if available (e.g., "Soap and cosmetics" -> add perfumery context)
                 project_context = ""
@@ -370,18 +383,20 @@ BAD RESPONSE (NEVER DO THIS):
                     elif any(kw in proj_desc for kw in ["craft", "diy", "hobby"]):
                         project_context = "craft supplies hobby"
 
-                # Always request direct product pages for supplier/provider queries
-                needs_product_pages = any(kw in query_lower for kw in ["supplier", "provider", "where to buy", "find ", "source ", "vendor"])
-
                 if project_context and project_context not in query_lower:
                     enhanced_query = f"{query} {project_context}"
                     logger.info(f"Added project context: {enhanced_query}")
 
-                if needs_product_pages and "product page" not in query_lower and "link" not in query_lower:
-                    enhanced_query = f"{enhanced_query} with direct product page links and prices"
-                    logger.info(f"Added product page request: {enhanced_query}")
+                # For focused mode, add specificity about what we want
+                if provider == "perplexity_focused":
+                    # Add industry context for better product matching
+                    if "isolate" in query_lower and "natural" not in query_lower:
+                        enhanced_query = f"{enhanced_query} natural aromachemical"
+                    logger.info(f"Using FOCUSED mode for supplier query: {enhanced_query}")
+                else:
+                    logger.info(f"Using perplexity_pro for general query: {enhanced_query}")
 
-                result = await self._tool_handlers["web_search"](query=enhanced_query, provider=provider)
+                result = await self._tool_handlers["web_search"](query=enhanced_query, provider=provider, recency="month")
                 answer = result.get("answer", "")
                 citations = result.get("citations", [])
 
@@ -635,15 +650,23 @@ BAD RESPONSE (NEVER DO THIS):
 
             except httpx.HTTPStatusError as e:
                 error_body = e.response.text
-                logger.error(f"Groq API error: {e.response.status_code} - {error_body}")
 
                 # Check if error contains a valid response in failed_generation
                 # This happens when Groq's model produces correct content but wrong format
                 try:
                     error_data = json.loads(error_body)
+                    error_code = error_data.get("error", {}).get("code", "")
                     failed_gen = error_data.get("error", {}).get("failed_generation", "")
-                    if failed_gen and len(failed_gen) > 20:
+
+                    # tool_use_failed with valid content is EXPECTED behavior, not an error
+                    if error_code == "tool_use_failed" and failed_gen and len(failed_gen) > 20:
+                        logger.info(f"Groq direct response via tool_use_failed ({len(failed_gen)} chars)")
+                    elif failed_gen and len(failed_gen) > 20:
                         logger.info(f"Recovered answer from failed_generation: {failed_gen[:100]}...")
+                    else:
+                        logger.error(f"Groq API error: {e.response.status_code} - {error_body}")
+
+                    if failed_gen and len(failed_gen) > 20:
 
                         # Check if the recovered answer is TRUNCATED - if so, call Claude to fix it
                         if _detect_incomplete_response(failed_gen, query):

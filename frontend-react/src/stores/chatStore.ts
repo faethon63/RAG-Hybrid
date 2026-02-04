@@ -113,7 +113,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   saveChat: async (project) => {
-    const { messages, currentChatId } = get();
+    const { messages, currentChatId, loadChats } = get();
     if (messages.length === 0) return;
 
     try {
@@ -132,6 +132,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const response = await api.createChat(chatData);
         set({ currentChatId: response.chat.id });
       }
+      // Refresh chat list so sidebar shows the new/updated chat
+      await loadChats(project);
     } catch (err) {
       console.error('Failed to save chat:', err);
     }

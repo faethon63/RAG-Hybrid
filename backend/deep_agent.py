@@ -119,6 +119,16 @@ def search_local_knowledge(query: str, project: Optional[str] = None) -> str:
         return f"Knowledge search failed: {e}"
 
 
+def _check_ollama_available() -> bool:
+    """Check if Ollama is available (running and responsive)."""
+    import httpx
+    try:
+        resp = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 @tool
 def summarize_text(text: str, focus: Optional[str] = None) -> str:
     """
@@ -138,19 +148,47 @@ def summarize_text(text: str, focus: Optional[str] = None) -> str:
         prompt += f", focusing on {focus}"
     prompt += f":\n\n{text[:20000]}"  # Limit input
 
+    # Try Ollama first, fall back to Claude if unavailable (e.g., on VPS)
+    if _check_ollama_available():
+        try:
+            resp = httpx.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "qwen2.5:14b",
+                    "prompt": prompt,
+                    "stream": False,
+                },
+                timeout=60.0,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "Summary failed")
+        except Exception as e:
+            logger.warning(f"Ollama summarize failed, trying Claude: {e}")
+
+    # Fallback to Claude Haiku via Anthropic API
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        return "Summarization unavailable: no Ollama or Anthropic API key"
+
     try:
         resp = httpx.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": "qwen2.5:14b",
-                "prompt": prompt,
-                "stream": False,
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
             },
-            timeout=60.0,
+            json={
+                "model": "claude-3-5-haiku-20241022",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=30.0,
         )
         if resp.status_code == 200:
-            return resp.json().get("response", "Summary failed")
-        return f"Summarization error: {resp.status_code}"
+            data = resp.json()
+            return data["content"][0]["text"]
+        return f"Claude summarization error: {resp.status_code}"
     except Exception as e:
         return f"Summarization failed: {e}"
 
@@ -423,9 +461,22 @@ def is_deep_research_query(query: str) -> bool:
 _deep_agent: Optional[DeepResearchAgent] = None
 
 
-def get_deep_agent(model_id: str = "ollama/qwen2.5:14b") -> DeepResearchAgent:
-    """Get or create the singleton deep agent."""
+def get_deep_agent(model_id: str = None) -> DeepResearchAgent:
+    """Get or create the singleton deep agent.
+
+    Args:
+        model_id: LiteLLM model ID. If None, auto-detects:
+                  - Uses Ollama if available (local GPU)
+                  - Falls back to Claude Haiku if not (VPS)
+    """
     global _deep_agent
+
+    if model_id is None:
+        # Auto-detect: use Ollama if available, otherwise Claude
+        ollama_ok = _check_ollama_available()
+        model_id = "ollama/qwen2.5:14b" if ollama_ok else "anthropic/claude-3-5-haiku-20241022"
+        logger.info(f"Deep agent auto-selected model: {model_id} (ollama_available={ollama_ok})")
+
     if _deep_agent is None or _deep_agent.model_id != model_id:
         _deep_agent = DeepResearchAgent(model_id=model_id)
     return _deep_agent
