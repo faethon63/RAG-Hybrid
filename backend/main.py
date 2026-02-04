@@ -58,25 +58,35 @@ idealista_search = IdealistaSearch()
 query_orchestrator = QueryOrchestrator()
 
 # Register tool handlers for GroqAgent
-async def _tool_web_search(query: str, provider: str = "perplexity") -> Dict[str, Any]:
+async def _tool_web_search(query: str, provider: str = "perplexity", recency: str = None) -> Dict[str, Any]:
     """
     Web search tool with provider selection.
     - perplexity: Fast, default (Sonar)
     - perplexity_pro: Thorough (Sonar Pro) - use when user asks for deep/thorough search
+    - perplexity_focused: Table format with exact URLs (for supplier/product queries)
     - tavily: Better for specific URLs
     """
     logger = logging.getLogger(__name__)
     logger.info(f"web_search called with provider={provider}, query={query[:100]}...")
 
-    if provider == "perplexity_pro":
+    if provider == "perplexity_focused":
+        # Focused search: returns clean table with exact product URLs
+        # Best for supplier/product queries where we need real links, not prose
+        logger.info("Using Perplexity Sonar Pro FOCUSED mode (table output)")
+        return await perplexity_search.focused_search(
+            query=query,
+            num_results=8,
+            recency=recency or "month",
+        )
+    elif provider == "perplexity_pro":
         logger.info("Using Perplexity Sonar Pro (high mode)")
-        return await perplexity_search.search(query=query, search_mode="high")
+        return await perplexity_search.search(query=query, search_mode="high", recency=recency)
     elif provider == "tavily":
         logger.info("Using Tavily for specific URLs")
         return await tavily_search.search(query=query, search_depth="advanced")
     else:
-        # Default: perplexity
-        return await perplexity_search.search(query=query, search_mode="low")
+        # Default: perplexity (Sonar, lower cost)
+        return await perplexity_search.search(query=query, search_mode="low", recency=recency)
 
 
 async def _tool_search_listings(
@@ -1837,7 +1847,7 @@ async def update_global_settings(request: GlobalSettingsRequest):
 class ChatRequest(BaseModel):
     name: Optional[str] = None
     project: Optional[str] = None
-    messages: List[Dict[str, str]] = []
+    messages: List[Dict[str, Any]] = []  # Allow metadata objects in messages
 
 
 class ChatRenameRequest(BaseModel):
