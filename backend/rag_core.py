@@ -31,6 +31,7 @@ from config import (
     get_max_tokens,
     get_temperature,
     get_project_kb_path,
+    get_synced_projects_path,
     get_rag_config_path,
     get_anthropic_api_key,
     get_chats_path,
@@ -818,43 +819,45 @@ IMPORTANT RULES:
     # ------------------------------------------------------------------
 
     async def list_projects(self) -> List[Dict[str, Any]]:
-        """List all projects from project-kb directory.
+        """List all projects from synced configs AND legacy local configs.
 
-        Iterates over project-kb directories with config.json files,
-        and shows document count from ChromaDB if collection exists.
+        Checks both:
+        - config/projects/*.json (synced via git)
+        - data/project-kb/*/config.json (legacy/local)
+        Merges to get all unique projects.
         """
         if not self._initialized:
             await self.initialize()
 
+        project_names = set()
+
+        # 1. Check synced configs (git-tracked)
+        synced_path = Path(get_synced_projects_path())
+        if synced_path.exists():
+            for config_file in synced_path.glob("*.json"):
+                project_names.add(config_file.stem)
+                logger.debug(f"Found synced project: {config_file.stem}")
+
+        # 2. Check legacy/local configs (data/project-kb/*/config.json)
+        project_kb_path = Path(get_project_kb_path())
+        if project_kb_path.exists():
+            for project_dir in project_kb_path.iterdir():
+                if not project_dir.is_dir():
+                    continue
+                # Check for legacy config.json OR local.json
+                if (project_dir / "config.json").exists() or (project_dir / "local.json").exists():
+                    project_names.add(project_dir.name)
+                    logger.debug(f"Found local project: {project_dir.name}")
+
+        logger.info(f"Found {len(project_names)} projects total")
+
+        # 3. Build project list with merged configs
         projects = []
-        project_kb_path = Path(get_project_kb_path()).resolve()
-        logger.info(f"Looking for projects in: {project_kb_path}")
+        for name in sorted(project_names):
+            config = await self.get_project_config(name) or {}
 
-        if not project_kb_path.exists():
-            logger.warning(f"Project KB path does not exist: {project_kb_path}")
-            return projects
-
-        for project_dir in project_kb_path.iterdir():
-            logger.debug(f"Checking: {project_dir}")
-            if not project_dir.is_dir():
-                continue
-            config_path = project_dir / "config.json"
-            if not config_path.exists():
-                logger.debug(f"No config.json in {project_dir}")
-                continue
-            logger.info(f"Found project: {project_dir.name}")
-
-            # Load config for description
-            try:
-                import json
-                with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-            except Exception:
-                config = {}
-
-            # Get document count from ChromaDB (0 if no collection)
-            collection_name = f"{get_chromadb_collection()}_{project_dir.name}"
-            # Sanitize collection name same way as _get_collection does
+            # Get document count from ChromaDB
+            collection_name = f"{get_chromadb_collection()}_{name}"
             collection_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in collection_name)[:63]
             doc_count = 0
             try:
@@ -864,9 +867,10 @@ IMPORTANT RULES:
                 pass
 
             projects.append({
-                "name": project_dir.name,
+                "name": name,
                 "description": config.get("description", ""),
                 "document_count": doc_count,
+                "has_config": bool(config),
             })
 
         return projects
@@ -1023,41 +1027,76 @@ IMPORTANT RULES:
         }
 
     # ------------------------------------------------------------------
-    # Project configuration
+    # Project configuration (split: synced via git + local environment-specific)
     # ------------------------------------------------------------------
 
-    def _get_project_config_path(self, project_name: str) -> Path:
-        """Get the path to a project's config.json file."""
+    # Fields that sync across environments (tracked in git)
+    SYNCED_CONFIG_FIELDS = {
+        "name", "description", "system_prompt", "flexible_prompt",
+        "instructions", "created_at", "updated_at"
+    }
+    # Fields that stay local (gitignored) - environment-specific
+    LOCAL_CONFIG_FIELDS = {"allowed_paths", "indexed_files"}
+
+    def _get_synced_config_path(self, project_name: str) -> Path:
+        """Get path to synced config (tracked in git)."""
+        synced_dir = Path(get_synced_projects_path())
+        synced_dir.mkdir(parents=True, exist_ok=True)
+        return synced_dir / f"{project_name}.json"
+
+    def _get_local_config_path(self, project_name: str) -> Path:
+        """Get path to local config (gitignored, environment-specific)."""
+        return Path(get_project_kb_path()) / project_name / "local.json"
+
+    def _get_legacy_config_path(self, project_name: str) -> Path:
+        """Get path to legacy config.json (for migration)."""
         return Path(get_project_kb_path()) / project_name / "config.json"
 
     async def get_project_config(self, project_name: str) -> Optional[Dict[str, Any]]:
-        """Load a project's configuration from config.json."""
+        """Load project config by merging synced + local configs."""
         if not project_name:
             return None
 
-        config_path = self._get_project_config_path(project_name)
-        if not config_path.exists():
-            return None
+        config = {}
 
-        try:
-            import json
-            with open(config_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.warning(f"Failed to load project config for '{project_name}': {e}")
-            return None
+        # Try synced config first (git-tracked)
+        synced_path = self._get_synced_config_path(project_name)
+        if synced_path.exists():
+            try:
+                with open(synced_path, "r", encoding="utf-8") as f:
+                    config.update(json.load(f))
+            except Exception as e:
+                logger.warning(f"Failed to load synced config for '{project_name}': {e}")
+
+        # Merge local config (environment-specific)
+        local_path = self._get_local_config_path(project_name)
+        if local_path.exists():
+            try:
+                with open(local_path, "r", encoding="utf-8") as f:
+                    config.update(json.load(f))
+            except Exception as e:
+                logger.warning(f"Failed to load local config for '{project_name}': {e}")
+
+        # Migration: check legacy config.json if no synced config exists
+        if not synced_path.exists():
+            legacy_path = self._get_legacy_config_path(project_name)
+            if legacy_path.exists():
+                try:
+                    with open(legacy_path, "r", encoding="utf-8") as f:
+                        legacy_config = json.load(f)
+                    # Migrate: save to new split format
+                    logger.info(f"Migrating legacy config for '{project_name}'")
+                    await self.save_project_config(project_name, legacy_config)
+                    config.update(legacy_config)
+                except Exception as e:
+                    logger.warning(f"Failed to migrate legacy config for '{project_name}': {e}")
+
+        return config if config else None
 
     async def save_project_config(self, project_name: str, config: Dict[str, Any]) -> bool:
-        """Save a project's configuration to config.json."""
+        """Save project config - synced fields to git, local fields to data/."""
         if not project_name:
             return False
-
-        import json
-        from datetime import datetime
-
-        # Ensure project directory exists
-        project_dir = Path(get_project_kb_path()) / project_name
-        project_dir.mkdir(parents=True, exist_ok=True)
 
         # Add/update timestamps
         config["name"] = project_name
@@ -1065,15 +1104,35 @@ IMPORTANT RULES:
         if "created_at" not in config:
             config["created_at"] = config["updated_at"]
 
-        config_path = self._get_project_config_path(project_name)
+        # Split config into synced vs local
+        synced_config = {k: v for k, v in config.items() if k in self.SYNCED_CONFIG_FIELDS}
+        local_config = {k: v for k, v in config.items() if k in self.LOCAL_CONFIG_FIELDS}
+
+        success = True
+
+        # Save synced config (git-tracked)
+        synced_path = self._get_synced_config_path(project_name)
         try:
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2)
-            logger.info(f"Saved config for project '{project_name}'")
-            return True
+            with open(synced_path, "w", encoding="utf-8") as f:
+                json.dump(synced_config, f, indent=2)
+            logger.info(f"Saved synced config for project '{project_name}'")
         except Exception as e:
-            logger.error(f"Failed to save project config for '{project_name}': {e}")
-            return False
+            logger.error(f"Failed to save synced config for '{project_name}': {e}")
+            success = False
+
+        # Save local config (gitignored) - only if there's local data
+        if local_config:
+            local_path = self._get_local_config_path(project_name)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with open(local_path, "w", encoding="utf-8") as f:
+                    json.dump(local_config, f, indent=2)
+                logger.info(f"Saved local config for project '{project_name}'")
+            except Exception as e:
+                logger.error(f"Failed to save local config for '{project_name}': {e}")
+                success = False
+
+        return success
 
     async def create_project(self, name: str, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create a new project knowledge base with optional configuration."""

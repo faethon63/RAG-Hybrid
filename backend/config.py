@@ -104,9 +104,17 @@ def get_temperature() -> float:
 # --- Project Paths ---
 
 def get_project_kb_path() -> str:
+    """Local project data (documents, indexed_files) - gitignored."""
     _ensure_env_loaded()
     default = os.path.join(os.path.dirname(__file__), "..", "data", "project-kb")
     return os.getenv("PROJECT_KB_PATH", default)
+
+
+def get_synced_projects_path() -> str:
+    """Synced project configs (name, description, prompts) - tracked in git."""
+    _ensure_env_loaded()
+    default = os.path.join(os.path.dirname(__file__), "..", "config", "projects")
+    return os.getenv("SYNCED_PROJECTS_PATH", default)
 
 
 def get_rag_config_path() -> str:
