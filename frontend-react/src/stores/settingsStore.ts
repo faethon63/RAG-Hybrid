@@ -135,13 +135,22 @@ export const useSettingsStore = create<SettingsState>()(
 
 // Model options - Groq orchestrates automatically, Claude selection is tiered
 export const MODEL_OPTIONS = [
-  { value: 'auto', label: 'Smart (Groq orchestrates)', description: 'Groq routes queries, uses tiered Claude when needed' },
-  { value: 'local', label: 'Local (Ollama)', description: 'Offline, uses local qwen2.5 model' },
+  { value: 'auto', label: 'Smart (Groq orchestrates)', description: 'Groq routes queries, uses tiered Claude when needed', requiresOllama: false },
+  { value: 'local', label: 'Local (Ollama)', description: 'Offline, uses local qwen2.5 model', requiresOllama: true },
 ];
 
 export const MODE_OPTIONS = [
-  { value: 'auto', label: 'Smart', description: 'Groq + web search + tiered Claude fallback' },
-  { value: 'private', label: 'Private', description: 'Local Ollama only, no external APIs' },
-  { value: 'research', label: 'Research', description: 'Deep Perplexity Pro search' },
-  { value: 'deep_agent', label: 'Deep Agent', description: 'Multi-step research agent' },
+  { value: 'auto', label: 'Smart', description: 'Groq + web search + tiered Claude fallback', requiresOllama: false },
+  { value: 'private', label: 'Private', description: 'Local Ollama only, no external APIs', requiresOllama: true },
+  { value: 'research', label: 'Research', description: 'Deep Perplexity Pro search', requiresOllama: false },
+  { value: 'deep_agent', label: 'Deep Agent', description: 'Multi-step research agent', requiresOllama: false },
 ];
+
+// Helper to get available options based on health
+export function getAvailableModelOptions(ollamaAvailable: boolean) {
+  return MODEL_OPTIONS.filter(opt => !opt.requiresOllama || ollamaAvailable);
+}
+
+export function getAvailableModeOptions(ollamaAvailable: boolean) {
+  return MODE_OPTIONS.filter(opt => !opt.requiresOllama || ollamaAvailable);
+}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSettingsStore, MODEL_OPTIONS, MODE_OPTIONS } from '../../stores/settingsStore';
+import { useSettingsStore, MODEL_OPTIONS, MODE_OPTIONS, getAvailableModelOptions, getAvailableModeOptions } from '../../stores/settingsStore';
 import { CloseIcon, LoaderIcon, CheckIcon } from '../common/icons';
 
 export function SettingsPanel() {
@@ -15,11 +15,18 @@ export function SettingsPanel() {
   const model = useSettingsStore((s) => s.model);
   const setModel = useSettingsStore((s) => s.setModel);
 
+  const health = useSettingsStore((s) => s.health);
+
   const [defaultMode, setDefaultMode] = useState('auto');
   const [defaultModel, setDefaultModel] = useState('auto');
   const [globalInstructions, setGlobalInstructions] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Filter options based on Ollama availability
+  const ollamaAvailable = health?.services?.ollama ?? false;
+  const availableModelOptions = getAvailableModelOptions(ollamaAvailable);
+  const availableModeOptions = getAvailableModeOptions(ollamaAvailable);
 
   useEffect(() => {
     if (globalSettings) {
@@ -34,6 +41,21 @@ export function SettingsPanel() {
       loadSettings();
     }
   }, [showSettings, globalSettings, loadSettings]);
+
+  // Reset to 'auto' if currently selected option requires Ollama but it's unavailable
+  useEffect(() => {
+    if (!ollamaAvailable) {
+      const currentModeOption = MODE_OPTIONS.find(o => o.value === mode);
+      const currentModelOption = MODEL_OPTIONS.find(o => o.value === model);
+
+      if (currentModeOption?.requiresOllama) {
+        setMode('auto');
+      }
+      if (currentModelOption?.requiresOllama) {
+        setModel('auto');
+      }
+    }
+  }, [ollamaAvailable, mode, model, setMode, setModel]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -92,14 +114,14 @@ export function SettingsPanel() {
                   onChange={(e) => setMode(e.target.value)}
                   className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)]"
                 >
-                  {MODE_OPTIONS.map((opt) => (
+                  {availableModeOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
                   ))}
                 </select>
                 <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-                  {MODE_OPTIONS.find((o) => o.value === mode)?.description}
+                  {availableModeOptions.find((o) => o.value === mode)?.description}
                 </p>
               </div>
 
@@ -111,7 +133,7 @@ export function SettingsPanel() {
                   onChange={(e) => setModel(e.target.value)}
                   className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)]"
                 >
-                  {MODEL_OPTIONS.map((opt) => (
+                  {availableModelOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
@@ -157,7 +179,7 @@ export function SettingsPanel() {
                   onChange={(e) => setDefaultMode(e.target.value)}
                   className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)]"
                 >
-                  {MODE_OPTIONS.map((opt) => (
+                  {availableModeOptions.map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
@@ -173,7 +195,7 @@ export function SettingsPanel() {
                   onChange={(e) => setDefaultModel(e.target.value)}
                   className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)]"
                 >
-                  {MODEL_OPTIONS.filter((o) => o.value !== 'auto').map((opt) => (
+                  {availableModelOptions.filter((o) => o.value !== 'auto').map((opt) => (
                     <option key={opt.value} value={opt.value}>
                       {opt.label}
                     </option>
