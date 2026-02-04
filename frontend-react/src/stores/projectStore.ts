@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, ProjectConfig } from '../types/api';
+import type { Project, ProjectConfig, IndexResponse } from '../types/api';
 import { api } from '../api/client';
 
 interface ProjectState {
@@ -35,7 +35,7 @@ interface ProjectState {
     allowed_paths?: string[];
   }) => Promise<void>;
   updateProject: (name: string, config: Partial<ProjectConfig>) => Promise<void>;
-  indexProject: (name: string) => Promise<{ indexed_chunks: number; files: string[] }>;
+  indexProject: (name: string) => Promise<IndexResponse>;
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -108,10 +108,7 @@ export const useProjectStore = create<ProjectState>()(
       indexProject: async (name) => {
         try {
           const response = await api.indexProject(name);
-          return {
-            indexed_chunks: response.indexed_chunks || 0,
-            files: response.files || [],
-          };
+          return response;
         } catch (err) {
           console.error('Failed to index project:', err);
           throw err;
