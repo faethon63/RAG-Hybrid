@@ -14,6 +14,47 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def _detect_incomplete_response(answer: str, query: str) -> bool:
+    """
+    Detect if Groq's response is incomplete and needs Claude fallback.
+    Returns True if the response appears truncated or incomplete.
+    """
+    if not answer or not answer.strip():
+        return True
+
+    answer_stripped = answer.rstrip()
+
+    # Truncated mid-sentence (doesn't end with proper punctuation or code block)
+    valid_endings = ('.', '!', '?', '```', '|', ')', ']', '"', "'", ':', ';')
+    if not any(answer_stripped.endswith(e) for e in valid_endings):
+        # Allow if it ends with a list item marker
+        if not answer_stripped.endswith('-') and not answer_stripped[-1].isdigit():
+            return True
+
+    # Table started but not finished (odd number of | rows suggests incomplete)
+    if '|' in answer:
+        lines_with_pipes = [l for l in answer.split('\n') if '|' in l]
+        # A complete table has header + separator + at least one row = 3+ lines
+        if len(lines_with_pipes) > 0 and len(lines_with_pipes) < 3:
+            return True
+
+    # Suspiciously short for complex query (long query, short answer)
+    if len(query) > 100 and len(answer) < 150:
+        return True
+
+    # Contains truncation indicators
+    truncation_indicators = [
+        '...and more',
+        '(continued)',
+        '[truncated]',
+        'I cannot complete',
+    ]
+    if any(ind.lower() in answer.lower() for ind in truncation_indicators):
+        return True
+
+    return False
+
+
 def get_groq_api_key() -> str:
     return os.getenv("GROQ_API_KEY", "")
 
@@ -36,13 +77,13 @@ class GroqAgent:
             "type": "function",
             "function": {
                 "name": "web_search",
-                "description": "Search the web for current information. Use for: current events, prices, news, real-time data, anything after 2024, travel info, financial data. For real estate listings, use search_listings instead.",
+                "description": "REQUIRED for finding products, suppliers, vendors, providers, or any current data. Use for: product searches, finding where to buy things, supplier lists, vendor comparisons, prices, shopping, current events, news, anything requiring up-to-date information. Returns direct URLs to product pages. ALWAYS use this for 'find', 'where to buy', 'suppliers of', 'providers of' queries.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "The search query. MUST include ALL user criteria: price limits, location, features, etc."
+                            "description": "The search query. For products: include product name + 'buy' or 'supplier' or 'provider'. Example: 'cedar isolate supplier buy online'"
                         },
                         "provider": {
                             "type": "string",
@@ -113,17 +154,22 @@ class GroqAgent:
             "type": "function",
             "function": {
                 "name": "complex_reasoning",
-                "description": "Delegate to Claude for complex reasoning, analysis, coding, or writing tasks that don't need web search.",
+                "description": "Delegate to Claude for complex reasoning, code, or formatting ONLY. DO NOT use for finding products, suppliers, or any web search - use web_search instead. USE ONLY FOR: formatting tables from existing data, code generation, math problems, logic puzzles.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "task": {
                             "type": "string",
-                            "description": "The task requiring complex reasoning"
+                            "description": "The task requiring complex reasoning or formatting"
                         },
                         "context": {
                             "type": "string",
                             "description": "Relevant context from the conversation"
+                        },
+                        "complexity": {
+                            "type": "string",
+                            "enum": ["simple", "medium", "critical"],
+                            "description": "Task complexity: 'simple' for quick formatting/summaries (uses Haiku), 'medium' for code/analysis (uses Sonnet), 'critical' for legal/medical/high-stakes (uses Opus). Default: simple"
                         }
                     },
                     "required": ["task"]
@@ -194,18 +240,38 @@ class GroqAgent:
 
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
 
-MANDATORY: For ANY question about CURRENT DATA (prices, weather, news, events, statistics), you MUST use the web_search tool FIRST. Do NOT answer from memory - your training data is outdated.
+YOU HAVE REAL-TIME WEB ACCESS via the web_search tool (Perplexity API).
+NEVER say "I don't have web access" - this is FALSE. Use web_search.
 
-TOOL SELECTION GUIDE:
-- CURRENT DATA (prices, weather, stocks, crypto, news, sports scores): ALWAYS use web_search tool
-- REAL ESTATE (apartments, rentals, listings): Use search_listings tool
-  - For Spain/Portugal/Italy: use provider="idealista"
-  - For other locations: use provider="tavily"
-- COMPREHENSIVE RESEARCH: Use deep_research tool
-- PERSONAL DATA (user's notes, documents, tax info, AGI, receipts, personal records): Use notion_tool with action="find_info"
-  - This action handles navigation automatically - just pass what the user is looking for
-  - Example: find_info with query="2023 AGI" → tool auto-navigates to tax page and finds it
-- CODE/REPOS (source code, issues, projects): Use github_search tool
+CRITICAL RULE FOR PRODUCT/SUPPLIER QUERIES:
+If user asks to "find", "search for", "where to buy", "suppliers of", "providers of" ANY PRODUCT:
+→ ALWAYS use web_search tool with query like "PRODUCT NAME supplier buy online"
+→ NEVER use complex_reasoning for finding products/suppliers
+→ web_search returns real product pages with URLs
+
+TOOL SELECTION (FOLLOW EXACTLY):
+1. PRODUCTS/SUPPLIERS/PROVIDERS/SHOPPING → web_search (NOT complex_reasoning)
+2. CURRENT DATA (prices, weather, news, stocks) → web_search
+3. REAL ESTATE LISTINGS → search_listings
+4. PERSONAL DATA (tax, AGI, receipts) → notion_tool with action="find_info"
+5. CODE/REPOS → github_search
+6. FORMATTING EXISTING DATA into tables → complex_reasoning
+7. CODE GENERATION/MATH PROBLEMS → complex_reasoning
+
+WRONG: User asks "find cedar isolate providers" → You use complex_reasoning
+RIGHT: User asks "find cedar isolate providers" → You use web_search with query="cedar isolate supplier buy online"
+
+WHEN TO USE complex_reasoning (ONLY these cases):
+- Formatting data YOU ALREADY HAVE into a table
+- Writing/reviewing code
+- Math or logic problems
+- Summarizing long text
+NEVER use complex_reasoning to find or search for anything.
+
+COMPLEXITY LEVELS for complex_reasoning:
+- "simple": Quick formatting, summaries, basic tasks (fast, cheap)
+- "medium": Code, analysis, detailed explanations (balanced)
+- "critical": Legal, medical, financial advice (most thorough)
 
 ABSOLUTE RULES - VIOLATION IS UNACCEPTABLE:
 1. NEVER make up numbers, prices, or statistics. If the tool didn't return specific data, say "I couldn't find that specific information."
@@ -213,6 +279,11 @@ ABSOLUTE RULES - VIOLATION IS UNACCEPTABLE:
 3. If tool results show multiple different values, report ALL of them with their sources.
 4. Include source URLs for every fact you state.
 5. If you're uncertain, SAY SO. Never guess.
+6. NEVER MAKE EXCUSES. If a tool returns data, USE IT. Never say "I can't", "I'm unable to", "beyond my capabilities", or similar. If Claude returns an answer, present that answer.
+7. BE TRANSPARENT. If you delegated to Claude, say so: "I asked Claude to help with this table:"
+8. If you hit a limitation, be HONEST: "My response was cut off" not "I can only show one row".
+9. NEVER claim you lack web access. You DO have web_search (Perplexity). If user asks for real-time data, USE IT.
+10. For SPECIFIC PRODUCTS: Search for the exact product name + supplier to get direct product page URLs.
 
 GOOD RESPONSE for price query:
 "According to [source], Bitcoin is currently $78,875.00 USD.
@@ -236,6 +307,33 @@ BAD RESPONSE (NEVER DO THIS):
             self._http_client = httpx.AsyncClient(timeout=60.0)
         return self._http_client
 
+    def _should_force_web_search(self, query: str) -> bool:
+        """
+        Detect if this query should bypass Groq and go directly to web_search.
+        Returns True for product/supplier/provider queries that need real-time data.
+        """
+        query_lower = query.lower()
+
+        # Keywords that indicate a product/supplier search
+        search_triggers = [
+            "find ", "search for ", "where to buy", "suppliers of", "providers of",
+            "who sells", "where can i get", "looking for ", "source ", "sourcing ",
+            "buy online", "purchase ", "shop for", "vendor", "supplier", "provider",
+            "isolate", "essential oil", "fragrance", "ingredient",
+        ]
+
+        # Keywords that indicate they want real-time data, not reasoning
+        realtime_triggers = [
+            "current price", "live", "real-time", "today", "latest",
+            "perplexity", "web search", "search the web",
+        ]
+
+        for trigger in search_triggers + realtime_triggers:
+            if trigger in query_lower:
+                return True
+
+        return False
+
     async def chat(
         self,
         query: str,
@@ -249,6 +347,57 @@ BAD RESPONSE (NEVER DO THIS):
 
         Returns: {"answer": str, "sources": list, "tool_calls": list, "usage": dict}
         """
+        # PREPROCESSING: Force web_search for product/supplier queries
+        # Groq (Llama 4 Scout) often misroutes these to complex_reasoning
+        if self._should_force_web_search(query) and "web_search" in self._tool_handlers:
+            logger.info(f"FORCE WEB_SEARCH: Query contains product/supplier keywords: {query[:50]}...")
+            try:
+                # Use perplexity_pro for supplier queries (better results)
+                provider = "perplexity_pro" if any(kw in query.lower() for kw in ["supplier", "provider", "isolate", "where to buy"]) else "perplexity"
+
+                # ENHANCE QUERY with context for better Perplexity results
+                enhanced_query = query
+                query_lower = query.lower()
+
+                # Add project context if available (e.g., "Soap and cosmetics" -> add perfumery context)
+                project_context = ""
+                if project_config:
+                    proj_desc = (project_config.get("description", "") + " " + project_config.get("system_prompt", "")).lower()
+                    if any(kw in proj_desc for kw in ["soap", "cosmetic", "perfum", "fragrance", "lotion", "candle"]):
+                        project_context = "for cosmetics perfumery formulation"
+                    elif any(kw in proj_desc for kw in ["cook", "food", "recipe", "kitchen"]):
+                        project_context = "food grade culinary"
+                    elif any(kw in proj_desc for kw in ["craft", "diy", "hobby"]):
+                        project_context = "craft supplies hobby"
+
+                # Always request direct product pages for supplier/provider queries
+                needs_product_pages = any(kw in query_lower for kw in ["supplier", "provider", "where to buy", "find ", "source ", "vendor"])
+
+                if project_context and project_context not in query_lower:
+                    enhanced_query = f"{query} {project_context}"
+                    logger.info(f"Added project context: {enhanced_query}")
+
+                if needs_product_pages and "product page" not in query_lower and "link" not in query_lower:
+                    enhanced_query = f"{enhanced_query} with direct product page links and prices"
+                    logger.info(f"Added product page request: {enhanced_query}")
+
+                result = await self._tool_handlers["web_search"](query=enhanced_query, provider=provider)
+                answer = result.get("answer", "")
+                citations = result.get("citations", [])
+
+                # Don't add sources section - Perplexity's answer already has inline citations
+                # The answer contains [1], [2] references with source names already
+
+                return {
+                    "answer": answer,
+                    "sources": citations,
+                    "tool_calls": [{"tool": "web_search", "args": {"query": enhanced_query, "provider": provider, "forced": True, "original_query": query}}],
+                    "usage": result.get("usage", {}),
+                }
+            except Exception as e:
+                logger.error(f"Forced web_search failed: {e}, falling back to Groq")
+                # Fall through to normal Groq processing
+
         api_key = get_groq_api_key()
         if not api_key:
             logger.warning("No Groq API key, falling back to direct response")
@@ -288,6 +437,8 @@ BAD RESPONSE (NEVER DO THIS):
         total_usage = {"input_tokens": 0, "output_tokens": 0}
         # Store raw Perplexity answer for direct passthrough (prevents hallucination)
         perplexity_direct_answer = None
+        # Store Claude answer for direct passthrough (Groq ignores Claude's good answers)
+        claude_direct_answer = None
 
         # Agentic loop - Groq may call tools multiple times
         for iteration in range(max_tool_calls + 1):
@@ -303,7 +454,7 @@ BAD RESPONSE (NEVER DO THIS):
                     "messages": messages,
                     "tools": self.TOOLS,
                     "tool_choice": tool_choice,
-                    "max_tokens": 2000,
+                    "max_tokens": 8000,  # Increased from 2000 to prevent truncation (max 8192 for Llama 4 Scout)
                     "temperature": 0.3,
                 }
 
@@ -337,6 +488,10 @@ BAD RESPONSE (NEVER DO THIS):
                 choice = choices[0]
                 message = choice.get("message", {})
                 finish_reason = choice.get("finish_reason")
+
+                # Debug: log response details
+                content_preview = (message.get("content", "") or "")[:100]
+                print(f"[DEBUG] Groq response: finish_reason={finish_reason}, content_len={len(message.get('content', '') or '')}, preview={content_preview}...", flush=True)
 
                 # Check if Groq wants to call tools
                 tool_calls = message.get("tool_calls", [])
@@ -376,6 +531,12 @@ BAD RESPONSE (NEVER DO THIS):
                                     if func_name == "web_search":
                                         perplexity_direct_answer = result.get("answer", "")
                                         print(f"[DEBUG] Stored Perplexity answer: {perplexity_direct_answer[:200]}...", flush=True)
+
+                                # For complex_reasoning (Claude), store answer for direct passthrough
+                                # Groq tends to ignore Claude's good answers and make excuses
+                                if func_name == "complex_reasoning":
+                                    claude_direct_answer = result.get("answer", "")
+                                    logger.info(f"Stored Claude answer for passthrough: {len(claude_direct_answer)} chars")
 
                                     # Append URLs to the tool result so Groq sees them
                                     links_text = "\n\nSources with URLs (INCLUDE THESE IN YOUR RESPONSE):\n" + "\n".join(
@@ -420,7 +581,7 @@ BAD RESPONSE (NEVER DO THIS):
                     # If web_search was the only tool called, use Perplexity's answer directly
                     # This prevents Groq from hallucinating numbers/prices
                     if perplexity_direct_answer and len(all_tool_calls) == 1 and all_tool_calls[0]["tool"] == "web_search":
-                        print("[DEBUG] PASSTHROUGH ACTIVATED!", flush=True)
+                        print("[DEBUG] PERPLEXITY PASSTHROUGH ACTIVATED!", flush=True)
                         # Add source URLs to the Perplexity answer
                         if all_sources:
                             source_urls = "\n\nSources:\n" + "\n".join(
@@ -429,6 +590,41 @@ BAD RESPONSE (NEVER DO THIS):
                             answer = perplexity_direct_answer + source_urls
                         else:
                             answer = perplexity_direct_answer
+
+                    # If complex_reasoning (Claude) was called, use Claude's answer directly
+                    # Groq often ignores Claude's good answers and makes excuses
+                    elif claude_direct_answer:
+                        # Check if Groq's answer looks like an excuse or is incomplete
+                        groq_is_excuse = any(phrase in answer.lower() for phrase in [
+                            "i can't", "i cannot", "beyond", "additional functionality",
+                            "not available", "unable to", "i don't have"
+                        ])
+                        groq_is_incomplete = _detect_incomplete_response(answer, query)
+
+                        if groq_is_excuse or groq_is_incomplete:
+                            print(f"[DEBUG] CLAUDE PASSTHROUGH: groq_excuse={groq_is_excuse}, groq_incomplete={groq_is_incomplete}", flush=True)
+                            answer = claude_direct_answer
+
+                    # AUTOMATIC FALLBACK: If Groq's answer is truncated and no tools were called,
+                    # call Claude Haiku to fix it
+                    is_truncated = _detect_incomplete_response(answer, query)
+                    logger.warning(f"FALLBACK CHECK: truncated={is_truncated}, claude_answer={bool(claude_direct_answer)}, answer_len={len(answer)}")
+                    if is_truncated and not claude_direct_answer:
+                        logger.warning(f"TRIGGERING FALLBACK: Groq response truncated ({len(answer)} chars)")
+                        try:
+                            # Call Claude directly via the registered handler
+                            if "complex_reasoning" in self._tool_handlers:
+                                fallback_result = await self._tool_handlers["complex_reasoning"](
+                                    task=f"Complete this response that was cut off:\n\n{answer}\n\nOriginal question: {query}",
+                                    context="The previous response was truncated. Please provide a complete answer.",
+                                    complexity="simple"
+                                )
+                                if fallback_result and fallback_result.get("answer"):
+                                    answer = fallback_result["answer"]
+                                    all_tool_calls.append({"tool": "complex_reasoning", "args": {"complexity": "simple", "reason": "auto-fallback"}})
+                                    logger.info(f"Fallback successful, new answer: {len(answer)} chars")
+                        except Exception as e:
+                            logger.error(f"Fallback to Claude failed: {e}")
 
                     return {
                         "answer": answer,
@@ -447,8 +643,30 @@ BAD RESPONSE (NEVER DO THIS):
                     error_data = json.loads(error_body)
                     failed_gen = error_data.get("error", {}).get("failed_generation", "")
                     if failed_gen and len(failed_gen) > 20:
-                        # Model had a valid answer, just formatting issue
                         logger.info(f"Recovered answer from failed_generation: {failed_gen[:100]}...")
+
+                        # Check if the recovered answer is TRUNCATED - if so, call Claude to fix it
+                        if _detect_incomplete_response(failed_gen, query):
+                            logger.warning(f"failed_generation is TRUNCATED ({len(failed_gen)} chars), calling Claude to complete")
+                            try:
+                                if "complex_reasoning" in self._tool_handlers:
+                                    fallback_result = await self._tool_handlers["complex_reasoning"](
+                                        task=f"Complete this response that was cut off:\n\n{failed_gen}\n\nOriginal question: {query}",
+                                        context="The previous response was truncated mid-sentence. Provide a COMPLETE answer.",
+                                        complexity="simple"
+                                    )
+                                    if fallback_result and fallback_result.get("answer"):
+                                        logger.info(f"Claude completed the truncated response: {len(fallback_result['answer'])} chars")
+                                        return {
+                                            "answer": fallback_result["answer"],
+                                            "sources": all_sources,
+                                            "tool_calls": [{"tool": "complex_reasoning", "args": {"reason": "completed-truncated-response"}}],
+                                            "usage": total_usage,
+                                        }
+                            except Exception as fallback_err:
+                                logger.error(f"Claude fallback failed: {fallback_err}")
+
+                        # Not truncated, use as-is
                         return {
                             "answer": failed_gen,
                             "sources": all_sources,

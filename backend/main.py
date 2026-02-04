@@ -132,10 +132,35 @@ async def _tool_deep_research(query: str) -> Dict[str, Any]:
     return await perplexity_search.research(query=query, depth="deep")
 
 
-async def _tool_complex_reasoning(task: str, context: str = "") -> Dict[str, Any]:
-    """Delegate complex reasoning to Claude."""
+async def _tool_complex_reasoning(task: str, context: str = "", complexity: str = "simple") -> Dict[str, Any]:
+    """
+    Delegate complex reasoning to Claude with tiered model selection.
+
+    Complexity levels:
+    - simple: Quick formatting, summaries, basic questions → Haiku ($1/$5 per 1M tokens)
+    - medium: Code generation, analysis, detailed explanations → Sonnet ($3/$15 per 1M tokens)
+    - critical: Legal, medical, high-stakes decisions → Opus ($15/$75 per 1M tokens)
+    """
+    logger = logging.getLogger(__name__)
+
+    # Map complexity to Claude model
+    model_map = {
+        "simple": "claude-haiku-4-5-20251001",
+        "medium": "claude-sonnet-4-5-20250929",
+        "critical": "claude-opus-4-5-20251101",
+    }
+    model = model_map.get(complexity, "claude-haiku-4-5-20251001")
+
+    logger.info(f"complex_reasoning: complexity={complexity} → model={model}")
+
     full_query = f"{task}\n\nContext: {context}" if context else task
-    return await claude_search.search(full_query)
+    result = await claude_search.search(full_query, model=model)
+
+    # Add model info to result for transparency
+    result["claude_model"] = model
+    result["complexity"] = complexity
+
+    return result
 
 
 async def _tool_github_search(action: str, query: str = None, repo: str = None) -> Dict[str, Any]:
@@ -745,6 +770,14 @@ class Source(BaseModel):
     score: Optional[float] = None
 
 
+class RoutingInfo(BaseModel):
+    """Transparency info showing how the query was routed."""
+    orchestrator: str  # e.g., "groq", "direct"
+    tools_used: List[str] = []  # e.g., ["web_search", "complex_reasoning"]
+    claude_model: Optional[str] = None  # e.g., "haiku", "sonnet", "opus" if Claude was used
+    reasoning: Optional[str] = None  # Brief explanation of routing decision
+
+
 class QueryResponse(BaseModel):
     query: str
     answer: str
@@ -757,6 +790,7 @@ class QueryResponse(BaseModel):
     tokens: Optional[Dict[str, int]] = None  # {"input": X, "output": Y}
     estimated_cost: Optional[float] = None
     agent_steps: Optional[List[Dict[str, Any]]] = None  # For deep_agent mode
+    routing_info: Optional[RoutingInfo] = None  # Shows orchestrator, tools used, Claude model if any
 
 
 class IndexRequest(BaseModel):
@@ -986,10 +1020,49 @@ async def query(request: QueryRequest):
                         snippet=s.get("snippet", ""),
                     ))
 
+            # Build routing info for transparency
+            tools_used = []
+            claude_model = None
+            routing_reasoning = "Groq handled directly"
+
+            # Parse tool calls to show actual providers used
+            for tc in agent_result.get("tool_calls", []):
+                tool_name = tc["tool"]
+                args = tc.get("args", {})
+
+                # Show actual provider for web_search
+                if tool_name == "web_search":
+                    provider = args.get("provider", "perplexity")
+                    if provider == "perplexity_pro":
+                        tools_used.append("perplexity_pro")
+                    else:
+                        tools_used.append("perplexity")
+                    if args.get("forced"):
+                        routing_reasoning = f"Forced Perplexity search (bypassed Groq routing)"
+                elif tool_name == "complex_reasoning":
+                    tools_used.append("claude")
+                    complexity = args.get("complexity", "simple")
+                    model_names = {"simple": "haiku", "medium": "sonnet", "critical": "opus"}
+                    claude_model = model_names.get(complexity, "haiku")
+                    routing_reasoning = f"Delegated to Claude {claude_model.title()} for {complexity} task"
+                elif tool_name == "deep_research":
+                    tools_used.append("perplexity_pro")
+                else:
+                    tools_used.append(tool_name)
+
+            if tools_used and "Delegated" not in routing_reasoning and "Forced" not in routing_reasoning:
+                routing_reasoning = f"Groq used: {', '.join(tools_used)}"
+
             result = {
                 "answer": agent_result["answer"],
                 "sources": sources,
                 "usage": agent_result.get("usage", {}),
+                "routing_info": {
+                    "orchestrator": "groq",
+                    "tools_used": tools_used,
+                    "claude_model": claude_model,
+                    "reasoning": routing_reasoning,
+                },
             }
             request.model = "groq"  # For response metadata
         
@@ -1013,6 +1086,17 @@ async def query(request: QueryRequest):
                 tokens["output"]
             )
 
+        # Build routing_info if available
+        routing_info = None
+        if result.get("routing_info"):
+            ri = result["routing_info"]
+            routing_info = RoutingInfo(
+                orchestrator=ri.get("orchestrator", "unknown"),
+                tools_used=ri.get("tools_used", []),
+                claude_model=ri.get("claude_model"),
+                reasoning=ri.get("reasoning"),
+            )
+
         return QueryResponse(
             query=request.query,
             answer=result["answer"],
@@ -1023,7 +1107,8 @@ async def query(request: QueryRequest):
             confidence=result.get("confidence"),
             model_used=result.get("model_used") or request.model,
             tokens=tokens,
-            estimated_cost=estimated_cost
+            estimated_cost=estimated_cost,
+            routing_info=routing_info,
         )
         
     except Exception as e:

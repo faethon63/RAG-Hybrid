@@ -188,6 +188,45 @@ export function MessageItem({ message }: MessageItemProps) {
             </div>
           )}
 
+          {/* Routing Info */}
+          {meta?.routing_info && !isUser && (
+            <div className="mt-2 p-2 bg-[var(--color-surface)]/50 rounded text-xs text-[var(--color-text-secondary)] border border-[var(--color-border)]/50">
+              <div className="flex flex-wrap items-center gap-2">
+                {meta.routing_info.tools_used && meta.routing_info.tools_used.length > 0 ? (
+                  <>
+                    {meta.routing_info.tools_used.map((tool, idx) => {
+                      // Color code by provider type
+                      const isPerplexity = tool.includes('perplexity');
+                      const isClaude = tool.includes('claude');
+                      const bgClass = isPerplexity
+                        ? 'bg-purple-500/20 text-purple-400'
+                        : isClaude
+                          ? 'bg-amber-500/20 text-amber-400'
+                          : 'bg-[var(--color-surface)]';
+                      return (
+                        <span key={idx} className={`px-1.5 py-0.5 rounded ${bgClass}`}>
+                          {tool === 'perplexity_pro' ? 'Perplexity Pro' : tool === 'perplexity' ? 'Perplexity' : tool}
+                        </span>
+                      );
+                    })}
+                    {meta.routing_info.claude_model && (
+                      <>
+                        <span>→</span>
+                        <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded">
+                          Claude {meta.routing_info.claude_model}
+                        </span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <span className="px-1.5 py-0.5 bg-[var(--color-primary)]/20 rounded text-[var(--color-primary)]">
+                    groq (direct)
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Copy button */}
           {!isUser && (
             <div className="mt-3">

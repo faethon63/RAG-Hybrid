@@ -133,18 +133,15 @@ export const useSettingsStore = create<SettingsState>()(
   )
 );
 
-// Model and mode options
+// Model options - Groq orchestrates automatically, Claude selection is tiered
 export const MODEL_OPTIONS = [
-  { value: 'auto', label: 'Auto (Recommended)' },
-  { value: 'local', label: 'Local (Ollama)' },
-  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  { value: 'auto', label: 'Smart (Groq orchestrates)', description: 'Groq routes queries, uses tiered Claude when needed' },
+  { value: 'local', label: 'Local (Ollama)', description: 'Offline, uses local qwen2.5 model' },
 ];
 
 export const MODE_OPTIONS = [
-  { value: 'auto', label: 'Auto', description: 'Smart routing to best model' },
-  { value: 'private', label: 'Private', description: 'Local only, no external APIs' },
-  { value: 'research', label: 'Research', description: 'Deep Perplexity search' },
+  { value: 'auto', label: 'Smart', description: 'Groq + web search + tiered Claude fallback' },
+  { value: 'private', label: 'Private', description: 'Local Ollama only, no external APIs' },
+  { value: 'research', label: 'Research', description: 'Deep Perplexity Pro search' },
   { value: 'deep_agent', label: 'Deep Agent', description: 'Multi-step research agent' },
 ];

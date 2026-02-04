@@ -119,7 +119,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const chatData = {
         project,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          metadata: m.metadata,
+        })),
       };
 
       if (currentChatId) {
@@ -238,6 +242,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           estimated_cost: response.estimated_cost,
           sources: response.sources,
           agent_steps: response.agent_steps,
+          routing_info: response.routing_info,
         },
       };
 

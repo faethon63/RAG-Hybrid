@@ -19,6 +19,13 @@ export interface AgentStep {
   output?: string;
 }
 
+export interface RoutingInfo {
+  orchestrator: string;
+  tools_used: string[];
+  claude_model?: string | null;
+  reasoning?: string;
+}
+
 export interface AttachedFile {
   name: string;
   type: string;
@@ -49,6 +56,7 @@ export interface QueryResponse {
   tokens?: TokenUsage;
   estimated_cost?: number;
   agent_steps?: AgentStep[];
+  routing_info?: RoutingInfo;
 }
 
 export interface Message {
@@ -65,6 +73,7 @@ export interface Message {
     estimated_cost?: number;
     sources?: Source[];
     agent_steps?: AgentStep[];
+    routing_info?: RoutingInfo;
   };
 }
 

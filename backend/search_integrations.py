@@ -255,10 +255,11 @@ class PerplexitySearch:
         model = "sonar-pro" if search_mode == "high" else "sonar"
 
         # Build messages with conversation history for context
+        # Minimal system prompt - let Perplexity Pro do its thing naturally
         messages = [
             {
                 "role": "system",
-                "content": "Answer concisely with citations where possible. Maintain context from the conversation.",
+                "content": "Be helpful and accurate. Include direct links to sources.",
             },
         ]
 
