@@ -930,3 +930,97 @@ class IdealistaSearch:
                 "citations": [],
                 "listings": [],
             }
+
+
+# ======================================================================
+# Crawl4AI Search (URL Scraping with Playwright JS Rendering)
+# ======================================================================
+
+class Crawl4AISearch:
+    """
+    URL scraper using Crawl4AI + Playwright for JS rendering and clean markdown output.
+    Better than Tavily for:
+    - JavaScript-heavy SPAs
+    - Clean markdown output (not raw HTML)
+    - Free (no per-request cost)
+    """
+
+    def __init__(self):
+        self._crawler = None
+
+    async def is_healthy(self) -> bool:
+        """Check if Crawl4AI is available."""
+        try:
+            from crawl4ai import AsyncWebCrawler
+            return True
+        except ImportError:
+            logger.warning("Crawl4AI not installed - run: pip install crawl4ai")
+            return False
+
+    async def extract(self, url: str, timeout: int = 30) -> Dict[str, Any]:
+        """
+        Extract clean content from URL using Playwright for JS rendering.
+
+        Args:
+            url: URL to scrape
+            timeout: Request timeout in seconds
+
+        Returns: {"success": bool, "answer": str, "raw_content": dict, "metadata": dict}
+        """
+        try:
+            from crawl4ai import AsyncWebCrawler
+
+            async with AsyncWebCrawler() as crawler:
+                result = await crawler.arun(url=url)
+
+                if not result.success:
+                    logger.warning(f"Crawl4AI failed for {url}: extraction unsuccessful")
+                    return {
+                        "success": False,
+                        "error": "Extraction failed",
+                        "answer": "",
+                        "raw_content": {},
+                        "citations": [],
+                    }
+
+                # Get clean markdown (preferred) or cleaned HTML
+                content = result.markdown or result.cleaned_html or ""
+
+                # Truncate for answer but keep full in raw_content
+                answer = content[:4000] if content else ""
+
+                logger.info(f"Crawl4AI extracted {len(content)} chars from {url}")
+
+                return {
+                    "success": True,
+                    "answer": answer,
+                    "raw_content": {url: content},
+                    "citations": [{
+                        "title": result.metadata.get("title", url) if result.metadata else url,
+                        "url": url,
+                        "snippet": answer[:300] if answer else "",
+                    }],
+                    "metadata": {
+                        "title": result.metadata.get("title", "") if result.metadata else "",
+                        "description": result.metadata.get("description", "") if result.metadata else "",
+                    },
+                }
+
+        except ImportError:
+            logger.error("Crawl4AI not installed")
+            return {
+                "success": False,
+                "error": "Crawl4AI not installed - run: pip install crawl4ai",
+                "answer": "",
+                "raw_content": {},
+                "citations": [],
+            }
+        except Exception as e:
+            logger.error(f"Crawl4AI extraction failed for {url}: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "answer": "",
+                "raw_content": {},
+                "citations": [],
+            }

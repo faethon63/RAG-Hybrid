@@ -27,7 +27,7 @@ ALLOWED_KB_EXTENSIONS = {'.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '
 MAX_KB_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 from rag_core import RAGCore
-from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch, IdealistaSearch
+from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch, IdealistaSearch, Crawl4AISearch
 from orchestrator import QueryOrchestrator
 from groq_agent import groq_agent, GroqAgent
 from deep_agent import get_deep_agent, is_deep_research_query
@@ -58,6 +58,7 @@ rag_core = RAGCore()
 claude_search = ClaudeSearch()
 perplexity_search = PerplexitySearch()
 tavily_search = TavilySearch()
+crawl4ai_search = Crawl4AISearch()
 idealista_search = IdealistaSearch()
 query_orchestrator = QueryOrchestrator()
 
@@ -99,7 +100,23 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
                 logger.info(f"URL from known scraper-blocked site, using Perplexity: {url}")
                 return await perplexity_search.search(query=query, search_mode="high", recency="week")
 
-            # Try Tavily extract first
+            question_part = query.replace(url, "").strip()
+
+            # 1. Try Crawl4AI first (best quality, JS rendering, clean markdown)
+            logger.info(f"Trying Crawl4AI for URL: {url}")
+            try:
+                crawl_result = await crawl4ai_search.extract(url)
+                if crawl_result.get("success") and len(crawl_result.get("answer", "")) > 200:
+                    logger.info(f"Crawl4AI succeeded for {url} - {len(crawl_result.get('answer', ''))} chars")
+                    if question_part:
+                        crawl_result["answer"] = f"Page content:\n\n{crawl_result['answer']}\n\nUser question: {question_part}"
+                    return crawl_result
+                else:
+                    logger.info(f"Crawl4AI returned insufficient content, trying Tavily")
+            except Exception as e:
+                logger.warning(f"Crawl4AI failed for {url}: {e}")
+
+            # 2. Try Tavily extract as fallback
             logger.info(f"Using Tavily EXTRACT to fetch specific URL: {url}")
             result = await tavily_search.extract(urls=[url])
 
@@ -117,7 +134,6 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
                 return await perplexity_search.search(query=query, search_mode="high", recency="week")
 
             # Extraction worked - add question context
-            question_part = query.replace(url, "").strip()
             if question_part:
                 result["answer"] = f"Based on the page content:\n\n{result['answer']}\n\nUser question: {question_part}"
             return result
@@ -809,12 +825,63 @@ async def _tool_notion(action: str, query: str = None, parent_id: str = None, ti
         return {"answer": f"Notion error: {str(e)}", "sources": []}
 
 
+async def _tool_find_suppliers(
+    product: str,
+    max_suppliers: int = 5,
+) -> Dict[str, Any]:
+    """
+    Advanced supplier research using Playwright browser automation.
+    Navigates to supplier sites, uses their search, extracts prices.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info(f"find_suppliers called for product={product}, max_suppliers={max_suppliers}")
+
+    try:
+        from procurement_agent import get_procurement_agent
+        from supplier_db import get_supplier_db
+
+        # Get/create procurement agent with dependencies
+        supplier_db = get_supplier_db()
+        agent = get_procurement_agent(
+            perplexity_search=perplexity_search,
+            supplier_db=supplier_db,
+        )
+
+        # Run the research
+        result = await agent.research_product(
+            query=product,
+            max_suppliers=min(max_suppliers, 10),  # Cap at 10
+        )
+
+        return {
+            "answer": result.get("answer", "No results found"),
+            "sources": result.get("sources", []),
+            "products": result.get("products", []),
+        }
+
+    except ImportError as e:
+        logger.error(f"Procurement agent import error: {e}")
+        # Fallback to web_search if procurement agent not available
+        logger.info("Falling back to web_search for supplier research")
+        return await _tool_web_search(
+            query=f"{product} supplier buy online",
+            provider="perplexity_pro",
+        )
+    except Exception as e:
+        logger.error(f"find_suppliers error: {e}")
+        return {
+            "answer": f"Supplier research failed: {str(e)}. Try using web_search instead.",
+            "sources": [],
+        }
+
+
 groq_agent.register_tool_handler("web_search", _tool_web_search)
 groq_agent.register_tool_handler("search_listings", _tool_search_listings)
 groq_agent.register_tool_handler("deep_research", _tool_deep_research)
 groq_agent.register_tool_handler("complex_reasoning", _tool_complex_reasoning)
 groq_agent.register_tool_handler("github_search", _tool_github_search)
 groq_agent.register_tool_handler("notion_tool", _tool_notion)
+groq_agent.register_tool_handler("find_suppliers", _tool_find_suppliers)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS

@@ -265,6 +265,27 @@ class GroqAgent:
                 }
             }
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "find_suppliers",
+                "description": "ADVANCED supplier research with Playwright browser automation. Use for 'where can I buy X', 'find suppliers for X', 'compare prices for X'. Navigates to supplier websites, uses their search, extracts prices/sizes. Returns comparison table with $/oz calculations. More thorough than web_search but slower.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "product": {
+                            "type": "string",
+                            "description": "The product/ingredient to search for (e.g., 'alpha cedrene', 'rose absolute', 'shea butter')"
+                        },
+                        "max_suppliers": {
+                            "type": "integer",
+                            "description": "Maximum number of suppliers to research (default: 5, max: 10)"
+                        }
+                    },
+                    "required": ["product"]
+                }
+            }
+        },
     ]
 
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
@@ -291,13 +312,14 @@ If user asks to "find", "search for", "where to buy", "suppliers of", "providers
 → IMPORTANT: Never include [1], [2] citation markers anywhere. Write clean text and URLs.
 
 TOOL SELECTION (FOLLOW EXACTLY):
-1. PRODUCTS/SUPPLIERS/PROVIDERS/SHOPPING → web_search (NOT complex_reasoning)
-2. CURRENT DATA (prices, weather, news, stocks) → web_search
-3. REAL ESTATE LISTINGS → search_listings
-4. PERSONAL DATA (tax, AGI, receipts) → notion_tool with action="find_info"
-5. CODE/REPOS → github_search
-6. FORMATTING EXISTING DATA into tables → complex_reasoning
-7. CODE GENERATION/MATH PROBLEMS → complex_reasoning
+1. SUPPLIER RESEARCH with prices → find_suppliers (navigates sites, extracts prices, returns $/oz comparison)
+2. QUICK PRODUCT SEARCH → web_search (faster but less detailed than find_suppliers)
+3. CURRENT DATA (weather, news, stocks) → web_search
+4. REAL ESTATE LISTINGS → search_listings
+5. PERSONAL DATA (tax, AGI, receipts) → notion_tool with action="find_info"
+6. CODE/REPOS → github_search
+7. FORMATTING EXISTING DATA into tables → complex_reasoning
+8. CODE GENERATION/MATH PROBLEMS → complex_reasoning
 
 WRONG: User asks "find cedar isolate providers" → You use complex_reasoning
 RIGHT: User asks "find cedar isolate providers" → You use web_search with query="cedar isolate supplier buy online"
@@ -708,7 +730,16 @@ BAD RESPONSE (NEVER DO THIS):
 
                     # If web_search was the only tool called, use Perplexity's answer directly
                     # This prevents Groq from hallucinating numbers/prices
-                    if perplexity_direct_answer and len(all_tool_calls) == 1 and all_tool_calls[0]["tool"] == "web_search":
+                    # BUT: Don't passthrough raw content dumps (from Tavily extract)
+                    is_raw_content_dump = perplexity_direct_answer and (
+                        "Content from http" in perplexity_direct_answer[:150] or
+                        perplexity_direct_answer.strip().startswith("![") or  # SVG/image markdown
+                        "```html" in perplexity_direct_answer[:200] or
+                        "<svg" in perplexity_direct_answer[:500].lower() or
+                        "<html" in perplexity_direct_answer[:500].lower()
+                    )
+
+                    if perplexity_direct_answer and len(all_tool_calls) == 1 and all_tool_calls[0]["tool"] == "web_search" and not is_raw_content_dump:
                         print("[DEBUG] PERPLEXITY PASSTHROUGH ACTIVATED!", flush=True)
                         # Strip citation markers [1], [2], etc. - sources shown separately in UI
                         clean_answer = _strip_citation_markers(perplexity_direct_answer)
@@ -720,6 +751,8 @@ BAD RESPONSE (NEVER DO THIS):
                             answer = clean_answer + source_urls
                         else:
                             answer = clean_answer
+                    elif is_raw_content_dump:
+                        print("[DEBUG] RAW CONTENT DUMP DETECTED - skipping passthrough, letting model process", flush=True)
 
                     # If complex_reasoning (Claude) was called, use Claude's answer directly
                     # Groq often ignores Claude's good answers and makes excuses

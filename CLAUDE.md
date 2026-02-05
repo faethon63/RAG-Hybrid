@@ -84,8 +84,13 @@ RAG-Hybrid/
 **What does NOT sync (environment-specific):**
 - `allowed_paths` - External file paths differ between Windows and Linux
 - `indexed_files` - Tracks what's indexed locally (ChromaDB is local)
-- Chat history - Stored in `data/chats/` (gitignored)
 - Ollama - Only available locally (VPS has no GPU)
+
+**Chat Storage (DOES sync via PostgreSQL):**
+- Chats are stored in PostgreSQL database on VPS (`DATABASE_URL` in .env)
+- Both local and VPS connect to the same database, so chats sync automatically
+- JSON files in `data/chats/` are fallback only (if DATABASE_URL not set)
+- To query chats: `ssh root@72.60.27.167 "sudo -u postgres psql -d rag_hybrid -c 'SELECT id, title FROM chats ORDER BY updated_at DESC LIMIT 10'"`
 
 ## WARNINGS - DO NOT DO THESE
 
