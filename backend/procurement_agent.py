@@ -541,6 +541,116 @@ class ProcurementAgent:
 
         return "\n".join(lines)
 
+    async def browse_page(
+        self,
+        url: str,
+        action: str = "read",
+        search_term: str = None,
+        link_filter: str = None,
+    ) -> Dict[str, Any]:
+        """
+        General-purpose browser automation using Playwright.
+
+        Args:
+            url: URL to navigate to
+            action: "read" (get page text), "search" (use site search), "extract_links" (list links)
+            search_term: Search term (required for action="search")
+            link_filter: Filter string for links (for action="extract_links")
+
+        Returns:
+            {"answer": str, "sources": list}
+        """
+        try:
+            from playwright.async_api import async_playwright
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                )
+                page = await context.new_page()
+
+                logger.info(f"browse_page: navigating to {url} (action={action})")
+                await page.goto(url, wait_until="networkidle", timeout=20000)
+                await page.wait_for_timeout(1000)
+
+                if action == "search" and search_term:
+                    # Try to find and use search box
+                    search_used = False
+                    for selector in self.SEARCH_SELECTORS:
+                        try:
+                            search_box = page.locator(selector).first
+                            if await search_box.is_visible(timeout=1000):
+                                await search_box.fill(search_term)
+                                await search_box.press("Enter")
+                                await page.wait_for_load_state("networkidle", timeout=10000)
+                                search_used = True
+                                logger.info(f"Search submitted using {selector}")
+                                break
+                        except Exception:
+                            continue
+
+                    if not search_used:
+                        # Try URL-based search
+                        from urllib.parse import urlencode
+                        search_url = f"{url.rstrip('/')}/search?q={search_term.replace(' ', '+')}"
+                        try:
+                            await page.goto(search_url, wait_until="networkidle", timeout=10000)
+                        except Exception:
+                            pass
+
+                if action == "extract_links":
+                    # Extract all links from the page
+                    links = await page.evaluate("""() => {
+                        return Array.from(document.querySelectorAll('a[href]')).map(a => ({
+                            text: a.innerText.trim().substring(0, 100),
+                            href: a.href
+                        })).filter(l => l.text && l.href.startsWith('http'));
+                    }""")
+
+                    if link_filter:
+                        filter_lower = link_filter.lower()
+                        links = [l for l in links if filter_lower in l["text"].lower() or filter_lower in l["href"].lower()]
+
+                    lines = [f"Links from {url} ({len(links)} found):"]
+                    for l in links[:50]:
+                        lines.append(f"  - {l['text']}: {l['href']}")
+
+                    await browser.close()
+                    return {
+                        "answer": "\n".join(lines),
+                        "sources": [{"title": l["text"], "url": l["href"], "snippet": ""} for l in links[:20]],
+                    }
+
+                # Default: read page content
+                try:
+                    title = await page.title()
+                except Exception:
+                    title = url
+
+                text = await page.inner_text("body")
+                # Truncate very long pages
+                if len(text) > 8000:
+                    text = text[:8000] + "\n\n[... page truncated]"
+
+                await browser.close()
+                return {
+                    "answer": f"Page: {title}\nURL: {page.url}\n\n{text}",
+                    "sources": [{"title": title, "url": page.url, "snippet": text[:200]}],
+                }
+
+        except ImportError:
+            return {
+                "answer": "Browser automation (Playwright) is not available on this server. Try using web_search instead.",
+                "sources": [],
+            }
+        except Exception as e:
+            logger.error(f"browse_page failed: {e}")
+            return {
+                "answer": f"Browser automation failed: {e}. Try using web_search instead.",
+                "sources": [],
+            }
+
     def _product_to_dict(self, product: ProductData) -> Dict[str, Any]:
         """Convert ProductData to dict for JSON serialization."""
         return {

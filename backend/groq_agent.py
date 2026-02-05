@@ -198,7 +198,7 @@ class GroqAgent:
                         "complexity": {
                             "type": "string",
                             "enum": ["simple", "medium", "critical"],
-                            "description": "ALWAYS USE 'simple' unless explicitly required otherwise. 'simple' = Haiku (cheap, fast, good for 95% of tasks). Only use 'medium' for complex multi-file code generation. Only use 'critical' for legal/medical advice. When in doubt, use 'simple'."
+                            "description": "Use 'simple' for basic formatting, summaries, short answers. Use 'medium' for code generation, detailed analysis, or domain-specific questions. Use 'critical' for legal/medical/financial advice. System may auto-bump for specialized domains."
                         }
                     },
                     "required": ["task"]
@@ -286,6 +286,117 @@ class GroqAgent:
                 }
             }
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "browse_website",
+                "description": "Browse a website using a real browser (Playwright). Can read page content, use site search, or extract links. Use for: reading specific web pages, navigating sites that block simple scrapers, or interacting with website search. Slower than web_search but can handle JavaScript-heavy sites.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "The URL to browse (must start with http:// or https://)"
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": ["read", "search", "extract_links"],
+                            "description": "Action: 'read' (get page text), 'search' (use site's search box), 'extract_links' (list all links). Default: read"
+                        },
+                        "search_term": {
+                            "type": "string",
+                            "description": "Search term (required when action='search')"
+                        },
+                        "link_filter": {
+                            "type": "string",
+                            "description": "Filter text for links (only for action='extract_links')"
+                        }
+                    },
+                    "required": ["url"]
+                }
+            }
+        },
+    ]
+
+    # Dynamic tool definitions - added when project has KB or allowed_paths
+    KB_SEARCH_TOOL = {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge_base",
+            "description": "Search the project's indexed knowledge base (documents, PDFs, notes). Use this FIRST for any question about project-specific information before using web search. Returns relevant document chunks with source info.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query to find relevant documents in the knowledge base"
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of results to return (default: 5, max: 10)"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    }
+
+    FILE_TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "list_directory",
+                "description": "List files and folders in a directory. Use to see what files exist in a project folder.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Directory path to list (must be within allowed project paths)"
+                        }
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read the contents of a file. Use to examine specific documents or files in the project.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "File path to read (must be within allowed project paths)"
+                        }
+                    },
+                    "required": ["path"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_files",
+                "description": "Search for files matching a pattern in a directory. Use to find specific file types or names.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Base directory to search in (must be within allowed project paths)"
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob pattern (e.g., '*.pdf', '**/*.txt', 'form*')"
+                        }
+                    },
+                    "required": ["path", "pattern"]
+                }
+            }
+        },
     ]
 
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
@@ -363,12 +474,16 @@ Source: https://coinmarketcap.com/..."
 BAD RESPONSE (NEVER DO THIS):
 "Bitcoin is around $63,000" (Making up a number not in the tool results)
 
+{kb_instructions}
+
 {project_instructions}"""
 
     def __init__(self):
         self._http_client = None
         self._tool_handlers = {}
         self._current_conversation_history = None  # Store history for tool handlers
+        self._current_project = None  # Store current project name
+        self._current_project_config = None  # Store current project config for tool handlers
 
     def register_tool_handler(self, name: str, handler):
         """Register a function to handle tool calls."""
@@ -444,8 +559,10 @@ BAD RESPONSE (NEVER DO THIS):
 
         Returns: {"answer": str, "sources": list, "tool_calls": list, "usage": dict}
         """
-        # Store conversation history for tool handlers (e.g., complex_reasoning needs context)
+        # Store conversation history and project config for tool handlers
         self._current_conversation_history = conversation_history
+        self._current_project = project_config.get("name") if project_config else None
+        self._current_project_config = project_config
 
         # PREPROCESSING: Force web_search for product/supplier queries
         # Groq (Llama 4 Scout) often misroutes these to complex_reasoning
@@ -644,10 +761,26 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
             if project_config.get("system_prompt"):
                 project_instructions = f"\nProject context: {project_config['system_prompt']}"
 
+        # Build KB/file instructions based on project capabilities
+        kb_instructions = ""
+        if project_config and project_config.get("name"):
+            kb_instructions += "\nYou have access to search_knowledge_base tool. Use it FIRST for project-specific questions before using web search."
+        if project_config and project_config.get("allowed_paths"):
+            paths_str = ", ".join(project_config["allowed_paths"])
+            kb_instructions += f"\nYou have file tools (list_directory, read_file, search_files). Use them to check actual files. Allowed paths: {paths_str}"
+
         system_prompt = self.SYSTEM_PROMPT.format(
             current_date=current_date,
+            kb_instructions=kb_instructions,
             project_instructions=project_instructions,
         )
+
+        # Build dynamic tool list based on project capabilities
+        tools = list(self.TOOLS)  # Base tools (always available)
+        if project_config and project_config.get("name"):
+            tools.append(self.KB_SEARCH_TOOL)
+        if project_config and project_config.get("allowed_paths"):
+            tools.extend(self.FILE_TOOLS)
 
         # Build messages
         messages = [{"role": "system", "content": system_prompt}]
@@ -681,14 +814,15 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                 payload = {
                     "model": self.GROQ_MODEL,
                     "messages": messages,
-                    "tools": self.TOOLS,
+                    "tools": tools,
                     "tool_choice": tool_choice,
                     "max_tokens": 8000,  # Increased from 2000 to prevent truncation (max 8192 for Llama 4 Scout)
                     "temperature": 0.3,
                 }
 
                 # Debug: log the payload
-                logger.info(f"Groq request - model: {payload['model']}, messages: {len(payload['messages'])}, tools: {len(payload['tools'])}, tool_choice: {payload.get('tool_choice', 'not set')}")
+                tool_names = [t["function"]["name"] for t in tools]
+                logger.info(f"Groq request - model: {payload['model']}, messages: {len(payload['messages'])}, tools: {tool_names}, tool_choice: {payload.get('tool_choice', 'not set')}")
                 logger.info(f"Groq last message: {messages[-1]['content'][:100]}...")
 
                 response = await client.post(

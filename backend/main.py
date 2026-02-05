@@ -209,6 +209,22 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
     """
     logger = logging.getLogger(__name__)
 
+    # Auto-bump complexity for specialized domains
+    original_complexity = complexity
+    if complexity == "simple" and groq_agent._current_project_config:
+        project_prompt = (
+            groq_agent._current_project_config.get("system_prompt", "") + " " +
+            groq_agent._current_project_config.get("description", "")
+        ).lower()
+        domain_keywords = [
+            "bankruptcy", "legal", "court", "compliance", "attorney", "law",
+            "medical", "clinical", "diagnosis", "patient",
+            "financial", "tax", "accounting", "audit", "fiduciary",
+        ]
+        if any(kw in project_prompt for kw in domain_keywords):
+            complexity = "medium"
+            logger.info(f"AUTO-BUMP: complexity simple→medium (specialized domain detected in project)")
+
     # Map complexity to Claude model
     model_map = {
         "simple": "claude-haiku-4-5-20251001",
@@ -217,7 +233,7 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
     }
     model = model_map.get(complexity, "claude-haiku-4-5-20251001")
 
-    logger.info(f"complex_reasoning: complexity={complexity} → model={model}")
+    logger.info(f"complex_reasoning: complexity={original_complexity}→{complexity} → model={model}")
 
     # Include conversation history from groq_agent for context
     conversation_context = ""
@@ -231,6 +247,21 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
             conversation_context = "\n\nPREVIOUS CONVERSATION:\n" + "\n".join(history_lines)
             logger.info(f"Including {len(history_lines)} messages of conversation history")
 
+    # Inject KB context: search project knowledge base for relevant docs
+    kb_context = ""
+    if groq_agent._current_project:
+        try:
+            kb_results = await rag_core.search(query=task, project=groq_agent._current_project, top_k=3)
+            if kb_results:
+                kb_chunks = []
+                for r in kb_results:
+                    source = r.get("metadata", {}).get("source", "unknown")
+                    kb_chunks.append(f"[{source}]: {r.get('content', '')[:500]}")
+                kb_context = "\n\nPROJECT KNOWLEDGE BASE (relevant documents):\n" + "\n---\n".join(kb_chunks)
+                logger.info(f"Injected {len(kb_results)} KB docs into complex_reasoning context")
+        except Exception as e:
+            logger.warning(f"KB search for complex_reasoning context failed: {e}")
+
     # Add instructions to prevent unhelpful responses
     instructions = """IMPORTANT RULES:
 - NEVER say "I cannot search", "search directly", or "I don't have access". You have web search data provided in the context.
@@ -243,6 +274,8 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
     full_query = instructions + task
     if context:
         full_query += f"\n\nContext: {context}"
+    if kb_context:
+        full_query += kb_context
     if conversation_context:
         full_query += conversation_context
 
@@ -875,6 +908,141 @@ async def _tool_find_suppliers(
         }
 
 
+async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, Any]:
+    """Search project's indexed knowledge base (ChromaDB)."""
+    logger = logging.getLogger(__name__)
+    project_name = groq_agent._current_project
+    if not project_name:
+        return {"answer": "No project selected. Select a project to search its knowledge base.", "sources": []}
+
+    top_k = min(top_k or 5, 10)
+    logger.info(f"KB search: project={project_name}, query={query[:80]}, top_k={top_k}")
+
+    try:
+        results = await rag_core.search(query=query, project=project_name, top_k=top_k)
+        if not results:
+            return {"answer": f"No documents found in {project_name} knowledge base for: {query}", "sources": []}
+
+        # Format results for Groq
+        chunks = []
+        sources = []
+        for i, r in enumerate(results, 1):
+            content = r.get("content", "")
+            metadata = r.get("metadata", {})
+            score = r.get("score", 0)
+            source_file = metadata.get("source", metadata.get("filename", "unknown"))
+            chunks.append(f"[Doc {i}] (source: {source_file}, relevance: {score:.2f})\n{content}")
+            sources.append({"title": source_file, "url": "", "snippet": content[:200]})
+
+        answer = f"Found {len(results)} relevant documents in {project_name} KB:\n\n" + "\n\n---\n\n".join(chunks)
+        logger.info(f"KB search returned {len(results)} results")
+        return {"answer": answer, "sources": sources}
+    except Exception as e:
+        logger.error(f"KB search error: {e}")
+        return {"answer": f"Knowledge base search failed: {e}", "sources": []}
+
+
+async def _tool_list_directory(path: str) -> Dict[str, Any]:
+    """List directory contents within allowed project paths."""
+    logger = logging.getLogger(__name__)
+    config = groq_agent._current_project_config or {}
+    allowed_paths = config.get("allowed_paths", [])
+    if not allowed_paths:
+        return {"answer": "No file access configured for this project. Add allowed paths in project settings.", "sources": []}
+
+    from file_tools import FileTools
+    result = FileTools.list_dir(path, allowed_paths)
+    if result.get("success"):
+        entries = result["entries"]
+        lines = [f"Directory: {result['path']} ({result['count']} items)"]
+        for e in entries:
+            type_icon = "DIR " if e["type"] == "directory" else "FILE"
+            size_str = f" ({e['size']} bytes)" if e.get("size") else ""
+            lines.append(f"  {type_icon} {e['name']}{size_str}")
+        return {"answer": "\n".join(lines), "sources": []}
+    else:
+        return {"answer": f"Error: {result.get('error', 'Unknown error')}", "sources": []}
+
+
+async def _tool_read_file(path: str) -> Dict[str, Any]:
+    """Read file contents from allowed project paths."""
+    logger = logging.getLogger(__name__)
+    config = groq_agent._current_project_config or {}
+    allowed_paths = config.get("allowed_paths", [])
+    if not allowed_paths:
+        return {"answer": "No file access configured for this project.", "sources": []}
+
+    from file_tools import FileTools
+    result = FileTools.read_file(path, allowed_paths)
+    if result.get("success"):
+        content = result["content"]
+        # Truncate very long files for Groq context
+        if len(content) > 8000:
+            content = content[:8000] + f"\n\n[... truncated, {result['size']} chars total]"
+        return {"answer": f"File: {result['path']}\n\n{content}", "sources": []}
+    else:
+        return {"answer": f"Error: {result.get('error', 'Unknown error')}", "sources": []}
+
+
+async def _tool_search_files(path: str, pattern: str) -> Dict[str, Any]:
+    """Search for files matching a pattern in allowed project paths."""
+    logger = logging.getLogger(__name__)
+    config = groq_agent._current_project_config or {}
+    allowed_paths = config.get("allowed_paths", [])
+    if not allowed_paths:
+        return {"answer": "No file access configured for this project.", "sources": []}
+
+    from file_tools import FileTools
+    result = FileTools.search_files(path, pattern, allowed_paths)
+    if result.get("success"):
+        matches = result["matches"]
+        if not matches:
+            return {"answer": f"No files matching '{pattern}' in {path}", "sources": []}
+        lines = [f"Found {result['count']} files matching '{pattern}' in {result['base_path']}:"]
+        for m in matches:
+            lines.append(f"  {m['type'].upper()} {m['path']}")
+        if result.get("truncated"):
+            lines.append("  [... more results truncated]")
+        return {"answer": "\n".join(lines), "sources": []}
+    else:
+        return {"answer": f"Error: {result.get('error', 'Unknown error')}", "sources": []}
+
+
+async def _tool_browse_website(url: str, action: str = "read", search_term: str = None, link_filter: str = None) -> Dict[str, Any]:
+    """Browse a website using Playwright browser automation."""
+    logger = logging.getLogger(__name__)
+    logger.info(f"browse_website: url={url}, action={action}, search_term={search_term}")
+
+    try:
+        from procurement_agent import get_procurement_agent
+        from supplier_db import get_supplier_db
+
+        supplier_db = get_supplier_db()
+        agent = get_procurement_agent(
+            perplexity_search=perplexity_search,
+            supplier_db=supplier_db,
+        )
+
+        return await agent.browse_page(
+            url=url,
+            action=action,
+            search_term=search_term,
+            link_filter=link_filter,
+        )
+    except ImportError as e:
+        logger.error(f"browse_website import error: {e}")
+        return {
+            "answer": "Browser automation not available. Try web_search instead.",
+            "sources": [],
+        }
+    except Exception as e:
+        logger.error(f"browse_website error: {e}")
+        return {
+            "answer": f"Browser automation failed: {e}. Try web_search instead.",
+            "sources": [],
+        }
+
+
 groq_agent.register_tool_handler("web_search", _tool_web_search)
 groq_agent.register_tool_handler("search_listings", _tool_search_listings)
 groq_agent.register_tool_handler("deep_research", _tool_deep_research)
@@ -882,6 +1050,11 @@ groq_agent.register_tool_handler("complex_reasoning", _tool_complex_reasoning)
 groq_agent.register_tool_handler("github_search", _tool_github_search)
 groq_agent.register_tool_handler("notion_tool", _tool_notion)
 groq_agent.register_tool_handler("find_suppliers", _tool_find_suppliers)
+groq_agent.register_tool_handler("browse_website", _tool_browse_website)
+groq_agent.register_tool_handler("search_knowledge_base", _tool_search_knowledge_base)
+groq_agent.register_tool_handler("list_directory", _tool_list_directory)
+groq_agent.register_tool_handler("read_file", _tool_read_file)
+groq_agent.register_tool_handler("search_files", _tool_search_files)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
@@ -1212,6 +1385,10 @@ async def query(request: QueryRequest):
                     routing_reasoning = f"Delegated to Claude {claude_model.title()} for {complexity} task"
                 elif tool_name == "deep_research":
                     tools_used.append("perplexity_pro")
+                elif tool_name == "browse_website":
+                    tools_used.append("browser")
+                elif tool_name in ("search_knowledge_base", "list_directory", "read_file", "search_files"):
+                    tools_used.append(tool_name.replace("search_knowledge_base", "knowledge_base"))
                 else:
                     tools_used.append(tool_name)
 

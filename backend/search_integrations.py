@@ -331,8 +331,9 @@ CRITICAL RULES:
             resp.raise_for_status()
             return self._parse_response(resp.json())
         except httpx.HTTPStatusError as e:
-            logger.error(f"Perplexity search error: {e.response.status_code}")
-            return {"answer": f"[Perplexity error: {e.response.status_code}]", "citations": [], "usage": {}}
+            error_body = e.response.text
+            logger.error(f"Perplexity search error {e.response.status_code}: {error_body}")
+            return {"answer": f"[Perplexity error {e.response.status_code}: {error_body}]", "citations": [], "usage": {}}
 
     async def focused_search(
         self,
@@ -431,9 +432,10 @@ List at least 5 suppliers. Include the full clickable URL in the URL column."""
             }
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"Perplexity focused search error: {e.response.status_code}")
+            error_body = e.response.text
+            logger.error(f"Perplexity focused search error {e.response.status_code}: {error_body}")
             return {
-                "answer": f"[Perplexity error: {e.response.status_code}]",
+                "answer": f"[Perplexity error {e.response.status_code}: {error_body}]",
                 "citations": [],
                 "table": "",
                 "usage": {},
@@ -524,8 +526,9 @@ List at least 5 suppliers. Include the full clickable URL in the URL column."""
             resp.raise_for_status()
             return self._parse_response(resp.json())
         except httpx.HTTPStatusError as e:
-            logger.error(f"Perplexity research error: {e.response.status_code}")
-            return {"answer": f"[Perplexity error: {e.response.status_code}]", "citations": [], "usage": {}}
+            error_body = e.response.text
+            logger.error(f"Perplexity research error {e.response.status_code}: {error_body}")
+            return {"answer": f"[Perplexity error {e.response.status_code}: {error_body}]", "citations": [], "usage": {}}
 
 
 # ======================================================================

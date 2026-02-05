@@ -38,3 +38,12 @@ jobs:
             # Health check (wait for startup)
             sleep 5
             curl -sf http://localhost:8000/api/v1/health || echo "Health check failed"
+
+            # Auto-index project KB documents (if any exist)
+            for project_dir in /opt/rag-hybrid/config/project-kb/*/; do
+              if [ -d "$project_dir/documents" ] && [ "$(ls -A "$project_dir/documents" 2>/dev/null)" ]; then
+                project_name=$(basename "$project_dir")
+                echo "Auto-indexing KB for project: $project_name"
+                curl -sf -X POST "http://localhost:8000/api/v1/projects/$project_name/index" || echo "  Index failed for $project_name"
+              fi
+            done
