@@ -202,9 +202,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content: m.content,
       }));
 
-      // If images attached, force local model (vision)
-      const effectiveModel = hasImages ? 'local' : model;
-
       // Build files payload from effective files (new or persisted)
       const filesPayload = effectiveFiles?.length > 0 ? effectiveFiles.map(f => ({
         name: f.name,
@@ -221,7 +218,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const response = await api.query({
         query: query || 'Analyze the attached file(s)',
         mode: mode as 'auto' | 'private' | 'research' | 'deep_agent',
-        model: effectiveModel,
+        model,
         project,
         max_results: 5,
         include_sources: true,

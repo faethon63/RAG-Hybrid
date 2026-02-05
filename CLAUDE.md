@@ -4,7 +4,7 @@
 
 A hybrid Retrieval-Augmented Generation system with **smart auto-routing**:
 
-- **GROQ ORCHESTRATOR** - Groq Llama 3.3 70B routes queries (FREE)
+- **GROQ ORCHESTRATOR** - Groq Llama 4 Scout 17B routes queries (FREE)
 - **LOCAL (Ollama)** - Free, private, fast. Used for text generation
 - **PERPLEXITY** - Real-time web search. Used for current events, prices, news
 - **CLAUDE (Sonnet/Opus)** - Paid. Only used for complex reasoning
@@ -141,16 +141,23 @@ When telling user to run PowerShell commands:
 When making backend changes, follow this exact sequence:
 
 1. **Make the code change** using Edit tool
-2. **Delete pycache** - `rm -rf backend/__pycache__`
-3. **Restart backend** - Stop Python, start again
-4. **Test via API** - Use PowerShell to call the endpoint directly
-5. **Verify the fix** - Check logs and response for the expected behavior
-6. **ONLY THEN report success** to the user
+2. **Wait for watchfiles reload** - Check health endpoint passes
+3. **Delete pycache** - `rm -rf backend/__pycache__`
+4. **Test via API** - Run test query, save results to user's active project (so tests are VISIBLE in UI)
+5. **CHECK LOGS** - Verify new code path executed (look for expected log messages)
+   - If logs confirm new code ran → proceed
+   - If logs show old behavior or no new messages → restart cleanly, retest
+6. **User reviews visible test results** - Don't ask user to "test it yourself", they see the test chats you created
 
-**Why pycache matters:** Python compiles `.py` files to `.pyc` bytecode in `__pycache__`. Even with FastAPI's auto-reload (watchfiles), sometimes the cache isn't invalidated. If your changes aren't taking effect:
+**Why log verification matters:** Watchfiles auto-reload can fail silently or have race conditions. Always check logs to confirm the new code path actually executed. If expected log messages are missing, the fix didn't deploy.
+
+**When to force restart:** Only if logs show the new code didn't run:
 - Delete `backend/__pycache__/`
 - Kill Python completely: `Stop-Process -Name python -Force`
 - Start fresh
+- Retest
+
+**Test chat visibility:** When saving test chats via API, ALWAYS include the `project` field matching the user's current view. Chats with `project: null` won't appear if user has a project filter active. Verify chats appear via API before telling user to look.
 
 **Testing from WSL:** Use PowerShell for API calls since WSL curl can't reach Windows localhost:
 ```bash

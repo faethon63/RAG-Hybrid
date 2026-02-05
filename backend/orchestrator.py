@@ -1,6 +1,6 @@
 """
 Query Orchestrator Module
-Uses Groq (Llama 3.3 70B) for FREE orchestration - better than Haiku at tool use.
+Uses Groq (Llama 4 Scout 17B) for FREE orchestration - better than Haiku at tool use.
 Updated 2026-01-31: Switched from Haiku to Groq for cost savings and better tool routing.
 """
 

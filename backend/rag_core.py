@@ -3,7 +3,7 @@ RAG Core Module
 ChromaDB vector store, sentence-transformer embeddings, Ollama LLM calls,
 document indexing, and project management.
 
-Updated 2026-01-31: Added Claude Haiku orchestration for reliable tool use.
+Updated 2026-01-31: Uses Groq for orchestration, Haiku as fallback when Ollama unavailable.
 """
 
 import os

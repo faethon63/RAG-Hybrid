@@ -38,7 +38,7 @@ logging.basicConfig(level=get_log_level())
 
 # Initialize FastAPI
 app = FastAPI(
-    title="TogetherOS RAG System",
+    title="RAG-Hybrid System",
     description="Hybrid RAG system with Claude, Perplexity, and local knowledge",
     version="1.0.0"
 )
@@ -123,7 +123,7 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             # Check if extraction failed (got nav/header instead of content)
             raw = result.get("raw_content", {})
             content = raw.get(url, "") if isinstance(raw, dict) else ""
-            content_seems_valid = len(content) > 500 and not all(
+            content_seems_valid = len(content) > 500 and not any(
                 nav_indicator in content.lower()
                 for nav_indicator in ["sign in", "cart", "menu", "navigation"]
             )
@@ -954,7 +954,7 @@ class HealthResponse(BaseModel):
 async def root():
     """Root endpoint"""
     return {
-        "name": "TogetherOS RAG System",
+        "name": "RAG-Hybrid System",
         "version": "1.0.0",
         "status": "operational",
         "endpoints": {
@@ -1062,10 +1062,10 @@ async def query(request: QueryRequest):
     Main query endpoint - orchestrates search across all sources
 
     Modes:
-    - local: Search only local documents (fast, private)
-    - web: Web search only (Claude/Perplexity)
-    - research: Deep research with Perplexity
-    - hybrid: Combine local + web (default)
+    - auto: Groq orchestrates, routes to cheapest capable model (default)
+    - private: Local only (Ollama), no external APIs
+    - research: Deep Perplexity search
+    - deep_agent: Multi-step smolagents for complex tasks
     """
     start_time = datetime.utcnow()
 

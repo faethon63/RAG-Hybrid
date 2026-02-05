@@ -179,7 +179,7 @@ def summarize_text(text: str, focus: Optional[str] = None) -> str:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "claude-3-5-haiku-20241022",
+                "model": "claude-haiku-4-5-20251001",
                 "max_tokens": 1024,
                 "messages": [{"role": "user", "content": prompt}],
             },

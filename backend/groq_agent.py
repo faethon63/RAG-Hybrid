@@ -532,6 +532,88 @@ BAD RESPONSE (NEVER DO THIS):
                 answer = _strip_access_disclaimers(answer)  # Remove "I cannot access" disclaimers
                 citations = result.get("citations", [])
 
+                # Detect raw content dumps that need LLM analysis
+                # This happens when Crawl4AI returns raw page content instead of an answer
+                is_raw_dump = (
+                    answer.startswith("Page content:") or
+                    answer.startswith("Based on the page content:") or
+                    "User question:" in answer
+                )
+
+                if is_raw_dump:
+                    logger.info("Raw content dump detected in bypass path - sending to LLM for analysis")
+                    llm_prompt = f"""Analyze this web page content and answer the user's question.
+
+{answer}
+
+Provide a direct, helpful answer based on the page content. Do not say you cannot access URLs - the content is provided above."""
+
+                    analyzed = None
+                    # Try Ollama first (free, local)
+                    try:
+                        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+                        ollama_model = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b")
+
+                        client = await self._get_client()
+                        resp = await client.post(
+                            f"{ollama_host}/api/generate",
+                            json={
+                                "model": ollama_model,
+                                "prompt": llm_prompt,
+                                "stream": False,
+                                "options": {
+                                    "num_predict": 1024,
+                                    "temperature": 0.3,
+                                },
+                            },
+                            timeout=120.0
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        analyzed = data.get("response", "").strip()
+                        if analyzed and len(analyzed) > 50:
+                            logger.info(f"Ollama analyzed raw content successfully ({len(analyzed)} chars)")
+                        else:
+                            analyzed = None
+                    except Exception as e:
+                        logger.warning(f"Ollama analysis failed: {e}, trying Claude Haiku fallback")
+
+                    # Fallback to Claude Haiku if Ollama failed (VPS has no Ollama)
+                    if not analyzed:
+                        try:
+                            from config import get_anthropic_api_key
+                            api_key = get_anthropic_api_key()
+                            if api_key and not api_key.startswith("your_"):
+                                client = await self._get_client()
+                                resp = await client.post(
+                                    "https://api.anthropic.com/v1/messages",
+                                    headers={
+                                        "x-api-key": api_key,
+                                        "anthropic-version": "2023-06-01",
+                                        "content-type": "application/json",
+                                    },
+                                    json={
+                                        "model": "claude-haiku-4-5-20251001",
+                                        "max_tokens": 1024,
+                                        "temperature": 0.3,
+                                        "messages": [{"role": "user", "content": llm_prompt}],
+                                    },
+                                    timeout=60.0
+                                )
+                                resp.raise_for_status()
+                                data = resp.json()
+                                if data.get("content"):
+                                    analyzed = data["content"][0].get("text", "").strip()
+                                    if analyzed and len(analyzed) > 50:
+                                        logger.info(f"Claude Haiku analyzed raw content successfully ({len(analyzed)} chars)")
+                                    else:
+                                        analyzed = None
+                        except Exception as e:
+                            logger.warning(f"Claude Haiku fallback also failed: {e}, returning raw content")
+
+                    if analyzed:
+                        answer = analyzed
+
                 # Don't add sources section - Perplexity's answer already has inline citations
                 # The answer contains [1], [2] references with source names already
 
