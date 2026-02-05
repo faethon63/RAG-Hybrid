@@ -129,6 +129,28 @@ When telling user to run PowerShell commands:
 8. **Check chat history for errors** - When something goes wrong, check the last chat via API instead of asking user to debug
 9. **ALWAYS test after making changes** - Verify the change works before reporting completion
 10. **NEVER spam PowerShell windows** - Each `powershell.exe -Command` from bash opens a new window. Combine multiple checks into single commands, or use background processes. Don't run dozens of separate PS commands that leave windows open.
+11. **Delete pycache when changes don't work** - Python caches bytecode in `__pycache__` folders. If code changes aren't taking effect despite restarts, delete `backend/__pycache__` first.
+
+## Development Workflow (CRITICAL)
+
+When making backend changes, follow this exact sequence:
+
+1. **Make the code change** using Edit tool
+2. **Delete pycache** - `rm -rf backend/__pycache__`
+3. **Restart backend** - Stop Python, start again
+4. **Test via API** - Use PowerShell to call the endpoint directly
+5. **Verify the fix** - Check logs and response for the expected behavior
+6. **ONLY THEN report success** to the user
+
+**Why pycache matters:** Python compiles `.py` files to `.pyc` bytecode in `__pycache__`. Even with FastAPI's auto-reload (watchfiles), sometimes the cache isn't invalidated. If your changes aren't taking effect:
+- Delete `backend/__pycache__/`
+- Kill Python completely: `Stop-Process -Name python -Force`
+- Start fresh
+
+**Testing from WSL:** Use PowerShell for API calls since WSL curl can't reach Windows localhost:
+```bash
+powershell.exe -Command 'Invoke-RestMethod -Uri "http://localhost:8000/api/v1/query" -Method POST -Body $body -ContentType "application/json"'
+```
 
 ## Running (Windows)
 

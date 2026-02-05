@@ -74,6 +74,14 @@ Question: {query}"""
         actual_model = model if model != "local" else "claude-sonnet-4-5-20250929"
         api_key = get_anthropic_api_key()
 
+        # System message to prevent unhelpful "I can't browse" responses
+        system_msg = """You are a helpful assistant integrated with web search tools.
+CRITICAL RULES:
+- NEVER say "I cannot visit links", "I cannot browse", or "I don't have web access". Web data has been fetched FOR you.
+- NEVER tell the user to "search directly" or "copy and paste". Answer their question using available data.
+- If data is limited, give the best answer possible. Do not refuse or redirect.
+- Never include citation markers like [1], [2] in your response."""
+
         try:
             resp = await client.post(
                 self.API_URL,
@@ -86,6 +94,7 @@ Question: {query}"""
                     "model": actual_model,
                     "max_tokens": get_max_tokens(),
                     "temperature": get_temperature(),
+                    "system": system_msg,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
@@ -352,8 +361,17 @@ class PerplexitySearch:
         user_prompt = f"""{query}
 
 Find direct product page URLs with current prices where available.
-List each supplier with their product page link and price.
-Focus on US-based suppliers with active product listings."""
+Focus on US-based suppliers with active product listings.
+
+FORMAT YOUR RESPONSE AS A MARKDOWN TABLE with these columns:
+| Supplier | Product | Price | URL |
+
+Example:
+| Supplier | Product | Price | URL |
+|----------|---------|-------|-----|
+| Eden Botanicals | Rose Absolute | $45/5ml | https://edenbotanicals.com/rose |
+
+List at least 5 suppliers. Include the full clickable URL in the URL column."""
 
         payload = {
             "model": self.MODEL_SONAR_PRO,
@@ -421,6 +439,7 @@ Focus on US-based suppliers with active product listings."""
         depth: str = "high",
         recency: Optional[str] = None,
         academic: bool = False,
+        conversation_history: List[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         Deep research via Perplexity Sonar Deep Research model.
@@ -430,6 +449,7 @@ Focus on US-based suppliers with active product listings."""
             depth: "high" (exhaustive) or "medium" (balanced) - passed to sonar-deep-research
             recency: Filter by time - "day", "week", "month", "year"
             academic: If True, prioritize academic sources
+            conversation_history: Previous messages for context in follow-ups
 
         Returns: {"answer": str, "citations": list[dict], "usage": dict}
         """
@@ -437,18 +457,25 @@ Focus on US-based suppliers with active product listings."""
         model = self.MODEL_DEEP_RESEARCH
         api_key = get_perplexity_api_key()
 
+        # Build messages with conversation history for follow-ups
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "Provide a thorough, well-researched answer. "
+                    "Include specific details, data, and cite all sources."
+                ),
+            }
+        ]
+        # Add recent conversation history (last 6 messages)
+        if conversation_history:
+            for msg in conversation_history[-6:]:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": query})
+
         payload = {
             "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "Provide a thorough, well-researched answer. "
-                        "Include specific details, data, and cite all sources."
-                    ),
-                },
-                {"role": "user", "content": query},
-            ],
+            "messages": messages,
             "max_tokens": get_max_tokens(),
             "temperature": 0.1,
             "depth": depth,  # "high" or "medium" for deep research model

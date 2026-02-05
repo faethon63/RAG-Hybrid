@@ -167,7 +167,33 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 
     logger.info(f"complex_reasoning: complexity={complexity} → model={model}")
 
-    full_query = f"{task}\n\nContext: {context}" if context else task
+    # Include conversation history from groq_agent for context
+    conversation_context = ""
+    if groq_agent._current_conversation_history:
+        history_lines = []
+        for msg in groq_agent._current_conversation_history[-6:]:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")[:500]  # Truncate long messages
+            history_lines.append(f"{role.upper()}: {content}")
+        if history_lines:
+            conversation_context = "\n\nPREVIOUS CONVERSATION:\n" + "\n".join(history_lines)
+            logger.info(f"Including {len(history_lines)} messages of conversation history")
+
+    # Add instructions to prevent unhelpful responses
+    instructions = """IMPORTANT RULES:
+- NEVER say "I cannot search", "search directly", or "I don't have access". You have web search data provided in the context.
+- Use the information provided to answer the question directly.
+- If the data is limited, give the best answer you can with what's available.
+- Do not redirect the user to search elsewhere - answer their question.
+- Never include citation markers like [1], [2] in your response.
+
+"""
+    full_query = instructions + task
+    if context:
+        full_query += f"\n\nContext: {context}"
+    if conversation_context:
+        full_query += conversation_context
+
     result = await claude_search.search(full_query, model=model)
 
     # Add model info to result for transparency
@@ -1072,12 +1098,9 @@ async def query(request: QueryRequest):
                 # Show actual provider for web_search
                 if tool_name == "web_search":
                     provider = args.get("provider", "perplexity")
-                    if provider == "perplexity_pro":
-                        tools_used.append("perplexity_pro")
-                    else:
-                        tools_used.append("perplexity")
+                    tools_used.append(provider)  # Show actual provider: tavily, perplexity, perplexity_pro, etc.
                     if args.get("forced"):
-                        routing_reasoning = f"Forced Perplexity search (bypassed Groq routing)"
+                        routing_reasoning = f"Forced {provider} search (bypassed Groq routing)"
                 elif tool_name == "complex_reasoning":
                     tools_used.append("claude")
                     complexity = args.get("complexity", "simple")
@@ -1092,10 +1115,20 @@ async def query(request: QueryRequest):
             if tools_used and "Delegated" not in routing_reasoning and "Forced" not in routing_reasoning:
                 routing_reasoning = f"Groq used: {', '.join(tools_used)}"
 
+            # Determine pricing model based on tools used (first tool takes priority)
+            pricing_model = "groq"  # Default free
+            if tools_used:
+                first_tool = tools_used[0]
+                if first_tool in ["tavily", "perplexity", "perplexity_pro", "perplexity_focused"]:
+                    pricing_model = first_tool
+                elif first_tool == "claude" and claude_model:
+                    pricing_model = f"claude-{claude_model}-4-5-20251001" if claude_model == "haiku" else f"claude-{claude_model}-4-5-20250929"
+
             result = {
                 "answer": agent_result["answer"],
                 "sources": sources,
                 "usage": agent_result.get("usage", {}),
+                "pricing_model": pricing_model,
                 "routing_info": {
                     "orchestrator": "groq",
                     "tools_used": tools_used,
@@ -1634,10 +1667,20 @@ def calculate_confidence(results: List[Dict]) -> float:
 
 
 # Pricing per 1M tokens: (input, output)
+# Note: Perplexity/Tavily use per-request pricing, these are approximations
 PRICING = {
+    # Claude models
     "claude-opus-4-5-20251101": (15.0, 75.0),
     "claude-sonnet-4-5-20250929": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
+    # Perplexity (per-request pricing ~$1/1000 req, approximated to tokens)
+    "perplexity": (0.2, 0.2),
+    "perplexity_pro": (1.0, 5.0),
+    "perplexity_focused": (1.0, 5.0),  # Uses sonar-pro
+    # Tavily (~$0.01/search, approximated)
+    "tavily": (0.5, 0.5),
+    # Free
+    "groq": (0, 0),
     "local": (0, 0),
 }
 

@@ -8,10 +8,17 @@ import logging
 import httpx
 import json
 import os
+import re
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_citation_markers(text: str) -> str:
+    """Remove citation markers like [1], [2], [1][2][3] from text."""
+    # Remove patterns like [1], [2], [12], and consecutive like [1][2][3]
+    return re.sub(r'\[\d+\]', '', text)
 
 
 def _detect_incomplete_response(answer: str, query: str) -> bool:
@@ -241,13 +248,25 @@ class GroqAgent:
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
 
 YOU HAVE REAL-TIME WEB ACCESS via the web_search tool (Perplexity API).
-NEVER say "I don't have web access" - this is FALSE. Use web_search.
+NEVER say "I don't have web access" or "I cannot visit URLs" - this is FALSE. Use web_search.
+
+WHEN USER PROVIDES A URL:
+If user gives you a URL (like https://amazon.com/...) and asks about it:
+→ ALWAYS use web_search with the EXACT URL in the query
+→ Example: User asks "is this natural? https://amazon.com/product/123" → web_search query="https://amazon.com/product/123 product details natural ingredients"
+→ Perplexity WILL fetch and read that specific page
+→ NEVER say "I cannot visit links" - YOU CAN via web_search
 
 CRITICAL RULE FOR PRODUCT/SUPPLIER QUERIES:
 If user asks to "find", "search for", "where to buy", "suppliers of", "providers of" ANY PRODUCT:
 → ALWAYS use web_search tool with query like "PRODUCT NAME supplier buy online"
 → NEVER use complex_reasoning for finding products/suppliers
 → web_search returns real product pages with URLs
+→ FORMAT supplier results as a MARKDOWN TABLE:
+| Supplier | Product | Price | URL |
+|----------|---------|-------|-----|
+| Company Name | Product Name | $XX | https://... |
+→ IMPORTANT: Never include [1], [2] citation markers anywhere. Write clean text and URLs.
 
 TOOL SELECTION (FOLLOW EXACTLY):
 1. PRODUCTS/SUPPLIERS/PROVIDERS/SHOPPING → web_search (NOT complex_reasoning)
@@ -273,17 +292,25 @@ COMPLEXITY LEVELS for complex_reasoning:
 - "medium": Code, analysis, detailed explanations (balanced)
 - "critical": Legal, medical, financial advice (most thorough)
 
+FOLLOW-UP QUERIES:
+If user says "again", "more", "continue", or asks a short follow-up:
+→ LOOK AT THE PREVIOUS MESSAGES to understand what they're asking about
+→ When calling complex_reasoning, ALWAYS include the previous topic in the context parameter
+→ Example: User previously asked about "cedar isolate suppliers", then says "more" → context should include "The user was asking about cedar isolate suppliers and wants more results"
+
 ABSOLUTE RULES - VIOLATION IS UNACCEPTABLE:
 1. NEVER make up numbers, prices, or statistics. If the tool didn't return specific data, say "I couldn't find that specific information."
 2. QUOTE EXACTLY from tool results. Do not round, estimate, or paraphrase numerical data.
 3. If tool results show multiple different values, report ALL of them with their sources.
-4. Include source URLs for every fact you state.
+4. NEVER include citation markers like [1], [2], [3] in your response text. These are useless without links. Sources are shown separately in the UI. Write clean prose without bracketed numbers.
 5. If you're uncertain, SAY SO. Never guess.
 6. NEVER MAKE EXCUSES. If a tool returns data, USE IT. Never say "I can't", "I'm unable to", "beyond my capabilities", or similar. If Claude returns an answer, present that answer.
 7. BE TRANSPARENT. If you delegated to Claude, say so: "I asked Claude to help with this table:"
 8. If you hit a limitation, be HONEST: "My response was cut off" not "I can only show one row".
 9. NEVER claim you lack web access. You DO have web_search (Perplexity). If user asks for real-time data, USE IT.
 10. For SPECIFIC PRODUCTS: Search for the exact product name + supplier to get direct product page URLs.
+11. NEVER say "I cannot visit URLs" or "I cannot browse links". When user provides a URL, use web_search with that URL to fetch its content.
+12. NEVER include bracketed citation numbers like [1], [2], [3] in your text. These are fake references that don't link anywhere. Sources are displayed separately. Write clean text without these markers.
 
 GOOD RESPONSE for price query:
 "According to [source], Bitcoin is currently $78,875.00 USD.
@@ -297,6 +324,7 @@ BAD RESPONSE (NEVER DO THIS):
     def __init__(self):
         self._http_client = None
         self._tool_handlers = {}
+        self._current_conversation_history = None  # Store history for tool handlers
 
     def register_tool_handler(self, name: str, handler):
         """Register a function to handle tool calls."""
@@ -313,6 +341,11 @@ BAD RESPONSE (NEVER DO THIS):
         Returns True for product/supplier/provider queries that need real-time data.
         """
         query_lower = query.lower()
+
+        # If query contains a URL, ALWAYS force web search to fetch that page
+        if "https://" in query_lower or "http://" in query_lower or "www." in query_lower:
+            logger.info("URL detected in query - forcing web_search")
+            return True
 
         # Keywords that indicate a product/supplier search
         search_triggers = [
@@ -348,6 +381,9 @@ BAD RESPONSE (NEVER DO THIS):
 
         Returns: {"answer": str, "sources": list, "tool_calls": list, "usage": dict}
         """
+        # Store conversation history for tool handlers (e.g., complex_reasoning needs context)
+        self._current_conversation_history = conversation_history
+
         # PREPROCESSING: Force web_search for product/supplier queries
         # Groq (Llama 4 Scout) often misroutes these to complex_reasoning
         should_force = self._should_force_web_search(query)
@@ -358,16 +394,24 @@ BAD RESPONSE (NEVER DO THIS):
             try:
                 query_lower = query.lower()
 
-                # Use FOCUSED mode for supplier/product queries (table output with exact URLs)
-                # Use perplexity_pro for general real-time queries
-                supplier_keywords = [
-                    "supplier", "provider", "vendor", "wholesale", "bulk",
-                    "where to buy", "where can i buy", "where do i buy", "where to get",
-                    "isolate", "aromatic", "aroma chemical", "essential oil",
-                    "source ", "find ", "looking for ",
-                ]
-                is_supplier_query = any(kw in query_lower for kw in supplier_keywords)
-                provider = "perplexity_focused" if is_supplier_query else "perplexity_pro"
+                # Check if query contains a URL - use Tavily to fetch the specific page (cheaper)
+                has_url = "https://" in query_lower or "http://" in query_lower or "www." in query_lower
+
+                if has_url:
+                    # URL query - use Tavily to fetch the specific page
+                    provider = "tavily"
+                    logger.info("URL in query - using Tavily to fetch page")
+                else:
+                    # Use FOCUSED mode for supplier/product queries (table output with exact URLs)
+                    # Use regular perplexity for general real-time queries
+                    supplier_keywords = [
+                        "supplier", "provider", "vendor", "wholesale", "bulk",
+                        "where to buy", "where can i buy", "where do i buy", "where to get",
+                        "isolate", "aromatic", "aroma chemical", "essential oil",
+                        "source ", "find ", "looking for ",
+                    ]
+                    is_supplier_query = any(kw in query_lower for kw in supplier_keywords)
+                    provider = "perplexity_focused" if is_supplier_query else "perplexity"
 
                 # ENHANCE QUERY with context for better Perplexity results
                 enhanced_query = query
@@ -398,6 +442,7 @@ BAD RESPONSE (NEVER DO THIS):
 
                 result = await self._tool_handlers["web_search"](query=enhanced_query, provider=provider, recency="month")
                 answer = result.get("answer", "")
+                answer = _strip_citation_markers(answer)  # Remove [1][2] markers
                 citations = result.get("citations", [])
 
                 # Don't add sources section - Perplexity's answer already has inline citations
@@ -600,14 +645,16 @@ BAD RESPONSE (NEVER DO THIS):
                     # This prevents Groq from hallucinating numbers/prices
                     if perplexity_direct_answer and len(all_tool_calls) == 1 and all_tool_calls[0]["tool"] == "web_search":
                         print("[DEBUG] PERPLEXITY PASSTHROUGH ACTIVATED!", flush=True)
+                        # Strip citation markers [1], [2], etc. - sources shown separately in UI
+                        clean_answer = _strip_citation_markers(perplexity_direct_answer)
                         # Add source URLs to the Perplexity answer
                         if all_sources:
                             source_urls = "\n\nSources:\n" + "\n".join(
                                 f"- {s.get('url', '')}" for s in all_sources if s.get('url')
                             )
-                            answer = perplexity_direct_answer + source_urls
+                            answer = clean_answer + source_urls
                         else:
-                            answer = perplexity_direct_answer
+                            answer = clean_answer
 
                     # If complex_reasoning (Claude) was called, use Claude's answer directly
                     # Groq often ignores Claude's good answers and makes excuses
@@ -643,6 +690,9 @@ BAD RESPONSE (NEVER DO THIS):
                                     logger.info(f"Fallback successful, new answer: {len(answer)} chars")
                         except Exception as e:
                             logger.error(f"Fallback to Claude failed: {e}")
+
+                    # Always strip citation markers from final answer
+                    answer = _strip_citation_markers(answer)
 
                     return {
                         "answer": answer,
