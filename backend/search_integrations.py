@@ -59,7 +59,7 @@ class ClaudeSearch:
         # Key is configured - assume healthy (actual errors caught on query)
         return True
 
-    async def search(self, query: str, model: str = "claude-sonnet-4-5-20250929") -> Dict[str, Any]:
+    async def search(self, query: str, model: str = "claude-haiku-4-5-20251001") -> Dict[str, Any]:
         """
         Ask Claude to answer a question.
         Returns {"answer": str, "sources": list[dict], "usage": dict}.
@@ -71,7 +71,7 @@ If you cite any sources, list them at the end.
 Question: {query}"""
 
         # Use local model fallback if specified
-        actual_model = model if model != "local" else "claude-sonnet-4-5-20250929"
+        actual_model = model if model != "local" else "claude-haiku-4-5-20251001"
         api_key = get_anthropic_api_key()
 
         # System message to prevent unhelpful "I can't browse" responses
@@ -130,14 +130,14 @@ CRITICAL RULES:
                 "usage": {},
             }
 
-    async def generate(self, prompt: str, model: str = "claude-sonnet-4-5-20250929") -> Dict[str, Any]:
+    async def generate(self, prompt: str, model: str = "claude-haiku-4-5-20251001") -> Dict[str, Any]:
         """
         General-purpose generation with Claude.
         Used for synthesizing hybrid answers.
         Returns {"text": str, "usage": dict}.
         """
         client = self._get_client()
-        actual_model = model if model != "local" else "claude-sonnet-4-5-20250929"
+        actual_model = model if model != "local" else "claude-haiku-4-5-20251001"
         api_key = get_anthropic_api_key()
         try:
             resp = await client.post(

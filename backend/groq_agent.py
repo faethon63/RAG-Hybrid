@@ -176,7 +176,7 @@ class GroqAgent:
                         "complexity": {
                             "type": "string",
                             "enum": ["simple", "medium", "critical"],
-                            "description": "Task complexity: 'simple' for quick formatting/summaries (uses Haiku), 'medium' for code/analysis (uses Sonnet), 'critical' for legal/medical/high-stakes (uses Opus). Default: simple"
+                            "description": "ALWAYS USE 'simple' unless explicitly required otherwise. 'simple' = Haiku (cheap, fast, good for 95% of tasks). Only use 'medium' for complex multi-file code generation. Only use 'critical' for legal/medical advice. When in doubt, use 'simple'."
                         }
                     },
                     "required": ["task"]

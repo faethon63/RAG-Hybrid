@@ -782,7 +782,7 @@ IMPORTANT RULES:
                         "reason": reason,
                     }
                 else:
-                    # Use Claude Sonnet for complex reasoning
+                    # Use Claude Haiku for synthesis (cheap, fast, good enough for most tasks)
                     context = "\n\n".join([
                         f"### {tr.get('tool')} result:\n{tr.get('result', '')}"
                         for tr in tool_results
@@ -794,7 +794,7 @@ IMPORTANT RULES:
                         conversation_history=conversation_history,
                         project_config=project_config,
                         enable_tools=False,
-                        model="claude-sonnet-4-5-20250929",
+                        model="claude-haiku-4-5-20251001",
                         global_instructions=global_instructions,
                     )
 
@@ -1394,7 +1394,7 @@ IMPORTANT RULES:
         if not config_path.exists():
             # Return defaults
             return {
-                "default_model": "claude-sonnet-4-5-20250929",
+                "default_model": "claude-haiku-4-5-20251001",
                 "default_mode": "auto",
             }
 
@@ -1404,7 +1404,7 @@ IMPORTANT RULES:
         except Exception as e:
             logger.warning(f"Failed to load global config: {e}")
             return {
-                "default_model": "claude-sonnet-4-5-20250929",
+                "default_model": "claude-haiku-4-5-20251001",
                 "default_mode": "auto",
             }
 
@@ -1545,7 +1545,7 @@ Assistant:"""
         self,
         query: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
-        model: str = "claude-sonnet-4-5-20250929",
+        model: str = "claude-haiku-4-5-20251001",
         project_config: Optional[Dict[str, Any]] = None,
         global_instructions: Optional[str] = None,
         query_classification: Optional[Dict[str, Any]] = None,
