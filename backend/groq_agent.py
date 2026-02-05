@@ -21,6 +21,28 @@ def _strip_citation_markers(text: str) -> str:
     return re.sub(r'\[\d+\]', '', text)
 
 
+def _strip_access_disclaimers(text: str) -> str:
+    """Remove 'I cannot access URLs' disclaimers that models sometimes add despite instructions."""
+    # Common disclaimer patterns to remove
+    disclaimers = [
+        r"I cannot access external URLs[^.]*\.",
+        r"I cannot browse[^.]*\.",
+        r"I'm unable to visit[^.]*\.",
+        r"I cannot directly access[^.]*\.",
+        r"I don't have the ability to browse[^.]*\.",
+        r"I cannot view the specific[^.]*\.",
+        r"I'm unable to access[^.]*\.",
+        r"I cannot access or browse[^.]*\.",
+    ]
+    result = text
+    for pattern in disclaimers:
+        result = re.sub(pattern, '', result, flags=re.IGNORECASE)
+    # Clean up double newlines/spaces left behind
+    result = re.sub(r'\n\n\n+', '\n\n', result)
+    result = re.sub(r'  +', ' ', result)
+    return result.strip()
+
+
 def _detect_incomplete_response(answer: str, query: str) -> bool:
     """
     Detect if Groq's response is incomplete and needs Claude fallback.
@@ -485,6 +507,7 @@ BAD RESPONSE (NEVER DO THIS):
                 result = await self._tool_handlers["web_search"](query=enhanced_query, provider=provider, recency="month")
                 answer = result.get("answer", "")
                 answer = _strip_citation_markers(answer)  # Remove [1][2] markers
+                answer = _strip_access_disclaimers(answer)  # Remove "I cannot access" disclaimers
                 citations = result.get("citations", [])
 
                 # Don't add sources section - Perplexity's answer already has inline citations

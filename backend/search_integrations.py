@@ -280,11 +280,17 @@ class PerplexitySearch:
         model = self.MODEL_SONAR_PRO if search_mode == "high" else self.MODEL_SONAR
 
         # Build messages with conversation history for context
-        # Minimal system prompt - let Perplexity Pro do its thing naturally
         messages = [
             {
                 "role": "system",
-                "content": "Be helpful and accurate. Include direct links to sources.",
+                "content": """You are a web-enabled research assistant with FULL access to browse any URL.
+
+CRITICAL RULES:
+- NEVER say "I cannot access", "I cannot browse", "I'm unable to visit", or similar disclaimers
+- When given a URL, you CAN and DO access it. Report what you find on that page.
+- If a specific page doesn't contain certain information, say "The page doesn't mention X" not "I can't access the page"
+- Be direct and factual. Answer the user's specific question about the URL content.
+- Include direct links to sources.""",
             },
         ]
 
