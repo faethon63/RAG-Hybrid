@@ -86,8 +86,44 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
         logger.info("Using Perplexity Sonar Pro (high mode)")
         return await perplexity_search.search(query=query, search_mode="high", recency=recency)
     elif provider == "tavily":
-        logger.info("Using Tavily for specific URLs")
-        return await tavily_search.search(query=query, search_depth="advanced")
+        # Check if query contains a specific URL
+        import re
+        url_match = re.search(r'(https?://[^\s]+)', query)
+        if url_match:
+            url = url_match.group(1)
+            url = url.rstrip('.,;:!?"\')')
+
+            # Sites known to block scrapers - go straight to Perplexity
+            scraper_blocked_domains = ["amazon.com", "amazon.", "ebay.com", "walmart.com", "linkedin.com"]
+            if any(domain in url.lower() for domain in scraper_blocked_domains):
+                logger.info(f"URL from known scraper-blocked site, using Perplexity: {url}")
+                return await perplexity_search.search(query=query, search_mode="high", recency="week")
+
+            # Try Tavily extract first
+            logger.info(f"Using Tavily EXTRACT to fetch specific URL: {url}")
+            result = await tavily_search.extract(urls=[url])
+
+            # Check if extraction failed (got nav/header instead of content)
+            raw = result.get("raw_content", {})
+            content = raw.get(url, "") if isinstance(raw, dict) else ""
+            content_seems_valid = len(content) > 500 and not all(
+                nav_indicator in content.lower()
+                for nav_indicator in ["sign in", "cart", "menu", "navigation"]
+            )
+
+            if not content_seems_valid:
+                # Extraction failed - fallback to Perplexity
+                logger.info(f"Tavily extract returned insufficient content, falling back to Perplexity")
+                return await perplexity_search.search(query=query, search_mode="high", recency="week")
+
+            # Extraction worked - add question context
+            question_part = query.replace(url, "").strip()
+            if question_part:
+                result["answer"] = f"Based on the page content:\n\n{result['answer']}\n\nUser question: {question_part}"
+            return result
+        else:
+            logger.info("Using Tavily search (no specific URL)")
+            return await tavily_search.search(query=query, search_depth="advanced")
     else:
         # Default: perplexity (Sonar, lower cost)
         return await perplexity_search.search(query=query, search_mode="low", recency=recency)

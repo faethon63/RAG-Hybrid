@@ -625,6 +625,70 @@ class TavilySearch:
             logger.error(f"Tavily error: {e.response.status_code}")
             return {"answer": f"[Tavily error: {e.response.status_code}]", "citations": []}
 
+    async def extract(
+        self,
+        urls: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Extract content from specific URLs using Tavily Extract API.
+        This fetches the actual page content, not search results.
+
+        Args:
+            urls: List of URLs to extract content from
+
+        Returns: {"answer": str, "citations": list, "raw_content": dict}
+        """
+        client = self._get_client()
+        api_key = get_tavily_api_key()
+
+        if not api_key or api_key.startswith("your_"):
+            return {"answer": "Tavily API key not configured", "citations": [], "raw_content": {}}
+
+        payload = {
+            "api_key": api_key,
+            "urls": urls,
+        }
+
+        try:
+            resp = await client.post("https://api.tavily.com/extract", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+            # Build answer from extracted content
+            raw_content = {}
+            citations = []
+            answer_parts = []
+
+            for result in data.get("results", []):
+                url = result.get("url", "")
+                content = result.get("raw_content", "")
+                raw_content[url] = content
+
+                # Summarize for answer
+                if content:
+                    # Take first 2000 chars for the answer
+                    answer_parts.append(f"Content from {url}:\n{content[:2000]}")
+
+                citations.append({
+                    "title": result.get("title", url),
+                    "url": url,
+                    "snippet": content[:500] if content else "",
+                })
+
+            answer = "\n\n".join(answer_parts) if answer_parts else "No content extracted"
+            logger.info(f"Tavily extract: fetched {len(citations)} URLs")
+            for c in citations:
+                logger.info(f"  - {c['url']} ({len(raw_content.get(c['url'], ''))} chars)")
+
+            return {"answer": answer, "citations": citations, "raw_content": raw_content}
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Tavily extract error: {e.response.status_code}")
+            return {"answer": f"[Tavily extract error: {e.response.status_code}]", "citations": [], "raw_content": {}}
+        except Exception as e:
+            logger.error(f"Tavily extract failed: {e}")
+            return {"answer": f"[Tavily extract failed: {e}]", "citations": [], "raw_content": {}}
+
     async def search_real_estate(
         self,
         query: str,
