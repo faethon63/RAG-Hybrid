@@ -347,23 +347,42 @@ BAD RESPONSE (NEVER DO THIS):
             logger.info("URL detected in query - forcing web_search")
             return True
 
-        # Keywords that indicate a product/supplier search
+        # Check for follow-up questions - these should NOT force web search
+        # They should be handled by Groq using conversation context
+        followup_indicators = [
+            "did you", "do you", "can you", "could you", "would you",
+            "was it", "was that", "is it", "is that", "is this",
+            "the page", "the link", "the product", "that product", "this product",
+            "what about", "how about", "tell me more", "more details",
+        ]
+        if any(ind in query_lower for ind in followup_indicators):
+            logger.info("Follow-up question detected - not forcing web search")
+            return False
+
+        # Keywords that indicate a NEW product/supplier search (must start with action)
+        # Removed generic "find " - too many false positives with "did you find"
         search_triggers = [
-            "find ", "search for ", "where to buy", "where can i buy", "where do i buy",
+            "search for ", "where to buy", "where can i buy", "where do i buy",
             "suppliers of", "providers of", "who sells", "where can i get", "where to get",
-            "looking for ", "source ", "sourcing ", "buy online", "purchase ", "shop for",
-            "vendor", "supplier", "provider", "wholesale", "bulk ",
-            "isolate", "essential oil", "fragrance", "ingredient", "aromatic", "aroma chemical",
+            "looking for ", "sourcing ", "buy online", "purchase online", "shop for",
+            "vendor", "supplier", "provider", "wholesale",
         ]
 
         # Keywords that indicate they want real-time data, not reasoning
         realtime_triggers = [
-            "current price", "live", "real-time", "today", "latest",
+            "current price", "live", "real-time", "today's", "latest news",
             "perplexity", "web search", "search the web",
         ]
 
         for trigger in search_triggers + realtime_triggers:
             if trigger in query_lower:
+                return True
+
+        # Check if query STARTS with an action word + product keyword
+        action_starts = ("find ", "get ", "source ", "buy ")
+        product_keywords = ["isolate", "absolute", "terpene", "essential oil", "fragrance oil"]
+        if query_lower.startswith(action_starts):
+            if any(pk in query_lower for pk in product_keywords):
                 return True
 
         return False
@@ -402,16 +421,39 @@ BAD RESPONSE (NEVER DO THIS):
                     provider = "tavily"
                     logger.info("URL in query - using Tavily to fetch page")
                 else:
-                    # Use FOCUSED mode for supplier/product queries (table output with exact URLs)
-                    # Use regular perplexity for general real-time queries
-                    supplier_keywords = [
-                        "supplier", "provider", "vendor", "wholesale", "bulk",
-                        "where to buy", "where can i buy", "where do i buy", "where to get",
-                        "isolate", "aromatic", "aroma chemical", "essential oil",
-                        "source ", "find ", "looking for ",
+                    # Check for follow-up questions - don't trigger supplier search
+                    followup_indicators = [
+                        "did you", "do you", "can you", "could you", "would you",
+                        "is it", "is this", "was it", "the page", "the link",
+                        "that product", "this product", "the product"
                     ]
-                    is_supplier_query = any(kw in query_lower for kw in supplier_keywords)
+                    is_followup = any(ind in query_lower for ind in followup_indicators)
+
+                    # Use FOCUSED mode for supplier/product queries (table output with exact URLs)
+                    # Require explicit supplier intent, not just incidental keywords
+                    supplier_phrases = [
+                        "supplier", "suppliers", "vendor", "vendors", "wholesale",
+                        "where to buy", "where can i buy", "where do i buy", "where to get",
+                        "find supplier", "find vendors", "looking for supplier",
+                        "source for", "sources for", "sources of",
+                    ]
+                    product_keywords = [
+                        "isolate", "absolute", "terpene", "essential oil",
+                        "aroma chemical", "aromachemical", "fragrance oil"
+                    ]
+
+                    # Only trigger supplier mode if:
+                    # 1. Not a follow-up question AND
+                    # 2. Contains supplier phrase OR (contains product keyword AND starts with action word)
+                    has_supplier_phrase = any(p in query_lower for p in supplier_phrases)
+                    has_product_keyword = any(k in query_lower for k in product_keywords)
+                    starts_with_action = query_lower.startswith(("find ", "get ", "source ", "looking for ", "search "))
+
+                    is_supplier_query = not is_followup and (has_supplier_phrase or (has_product_keyword and starts_with_action))
                     provider = "perplexity_focused" if is_supplier_query else "perplexity"
+
+                    if is_followup:
+                        logger.info(f"Detected follow-up question, using regular perplexity")
 
                 # ENHANCE QUERY with context for better Perplexity results
                 enhanced_query = query
