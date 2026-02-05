@@ -36,7 +36,7 @@ jobs:
             pm2 restart rag-backend
 
             # Health check (wait for startup)
-            sleep 5
+            sleep 15
             curl -sf http://localhost:8000/api/v1/health || echo "Health check failed"
 
             # Auto-index project KB documents (if any exist)
