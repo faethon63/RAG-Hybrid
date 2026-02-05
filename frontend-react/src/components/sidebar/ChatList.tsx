@@ -91,7 +91,7 @@ export function ChatList() {
                 ? 'border-l-2 border-[var(--color-primary)] font-medium'
                 : 'hover:bg-[var(--color-surface-hover)]'
             )}
-            style={chat.id === currentChatId ? { backgroundColor: 'rgba(16, 163, 127, 0.2)' } : undefined}
+            style={chat.id === currentChatId ? { backgroundColor: '#ff0000', color: '#ffffff' } : undefined}
           >
             <ChatIcon className="w-4 h-4 text-[var(--color-text-secondary)] flex-shrink-0" />
             {editingId === chat.id ? (
