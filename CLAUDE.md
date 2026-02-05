@@ -96,6 +96,7 @@ RAG-Hybrid/
 5. **NEVER use Write tool to replace entire files** - Use Edit tool with targeted changes instead. Write tool destroys uncommitted user modifications.
 6. **ALWAYS Read a file before modifying it** - Even for "simple" changes. The file may have local modifications not in git.
 7. **When making large changes, use multiple small Edits** - Not one big Write. This preserves existing code the user may have customized.
+8. **ALWAYS push changes to deploy to VPS** - After making frontend or backend changes, commit and push to main. GitHub Actions auto-deploys to VPS. Local-only changes are useless if the user expects them on VPS too.
 
 ## User Profile
 
@@ -127,6 +128,7 @@ When telling user to run PowerShell commands:
 7. **DO NOT ask user to restart services** - Start/restart backend and frontend yourself using Bash tool
 8. **Check chat history for errors** - When something goes wrong, check the last chat via API instead of asking user to debug
 9. **ALWAYS test after making changes** - Verify the change works before reporting completion
+10. **NEVER spam PowerShell windows** - Each `powershell.exe -Command` from bash opens a new window. Combine multiple checks into single commands, or use background processes. Don't run dozens of separate PS commands that leave windows open.
 
 ## Running (Windows)
 
@@ -245,6 +247,34 @@ Then start backend and frontend as shown above.
 - **Full restart**: If you see old UI elements or "nothing changed" after code updates
 
 Both services need `.env` configured (copy from `config/.env.example`).
+
+### Auto-Start on Windows Login
+
+RAG-Hybrid automatically starts when you log into Windows - no manual startup needed.
+
+**How it works:**
+- Windows Task Scheduler runs `start-hidden.vbs` at login
+- This launches `start-background.ps1` completely hidden (no windows)
+- Ollama, backend, and frontend all start in the background
+- Logs are written to `logs/` directory for debugging
+
+**To disable auto-start:**
+1. Open Task Scheduler (search "Task Scheduler" in Start menu)
+2. Find "RAG-Hybrid-Startup" in the list
+3. Right-click > Disable
+
+**To re-enable:**
+1. Open Task Scheduler
+2. Find "RAG-Hybrid-Startup"
+3. Right-click > Enable
+
+**To manually trigger (without reboot):**
+Double-click `start-hidden.vbs` - services will start with no visible windows.
+
+**Debug logs location:**
+- `logs/startup.log` - Startup sequence log
+- `logs/backend-stdout.log` / `logs/backend-stderr.log` - Backend output
+- `logs/frontend-stdout.log` / `logs/frontend-stderr.log` - Frontend output
 
 ## Troubleshooting
 

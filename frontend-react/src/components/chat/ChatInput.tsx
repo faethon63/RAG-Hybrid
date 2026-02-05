@@ -1,9 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatStore } from '../../stores/chatStore';
-import { useSettingsStore } from '../../stores/settingsStore';
+import { useSettingsStore, MODE_OPTIONS } from '../../stores/settingsStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { SendIcon, LoaderIcon, UploadIcon, CloseIcon, FileIcon } from '../common/icons';
 import clsx from 'clsx';
+
+// Color mapping for each mode
+const MODE_COLORS: Record<string, string> = {
+  auto: '#3b82f6',      // Blue - smart/balanced
+  private: '#22c55e',   // Green - privacy/security
+  research: '#a855f7',  // Purple - deep knowledge
+  deep_agent: '#f97316', // Orange - AI agent
+};
 
 interface AttachedFile {
   id: string;
@@ -25,8 +33,15 @@ export function ChatInput() {
   const sendQuery = useChatStore((s) => s.sendQuery);
   const lastAttachedFiles = useChatStore((s) => s.lastAttachedFiles);
   const mode = useSettingsStore((s) => s.mode);
+  const setMode = useSettingsStore((s) => s.setMode);
   const model = useSettingsStore((s) => s.model);
+  const health = useSettingsStore((s) => s.health);
   const currentProject = useProjectStore((s) => s.currentProject);
+
+  const ollamaAvailable = health?.services?.ollama ?? false;
+  const availableModes = MODE_OPTIONS.filter(
+    opt => !opt.requiresOllama || ollamaAvailable
+  );
 
   // Check if we have context files from previous messages
   const hasContextFiles = lastAttachedFiles.length > 0 && attachments.length === 0;
@@ -271,9 +286,38 @@ export function ChatInput() {
         {/* Status bar */}
         <div className="mt-2 flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
           <div className="flex items-center gap-3">
-            <span className="capitalize">{mode}</span>
-            <span>|</span>
-            <span>{model === 'auto' ? 'Auto' : model}</span>
+            {/* Mode selector dots */}
+            <div className="flex items-center gap-3">
+              {availableModes.map((opt) => {
+                const isActive = mode === opt.value;
+                const color = MODE_COLORS[opt.value] || '#6b7280';
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setMode(opt.value)}
+                    className="flex flex-col items-center gap-0.5"
+                    title={opt.description}
+                  >
+                    <span
+                      className="block rounded-full transition-all duration-200"
+                      style={{
+                        backgroundColor: color,
+                        width: isActive ? '10px' : '6px',
+                        height: isActive ? '10px' : '6px',
+                        boxShadow: isActive ? `0 0 6px ${color}` : 'none',
+                        opacity: isActive ? 1 : 0.4,
+                      }}
+                    />
+                    <span
+                      className="text-[9px] leading-none transition-opacity"
+                      style={{ opacity: isActive ? 0.8 : 0.4 }}
+                    >
+                      {opt.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             {attachments.length > 0 && (
               <>
                 <span>|</span>
@@ -286,7 +330,7 @@ export function ChatInput() {
               <>
                 <span>|</span>
                 <span className="text-green-500" title="Previous image/files available for follow-up questions">
-                  📎 Context ({lastAttachedFiles.length})
+                  Context ({lastAttachedFiles.length})
                 </span>
               </>
             )}
@@ -298,7 +342,7 @@ export function ChatInput() {
             )}
           </div>
           <div>
-            <span className="opacity-50">Paste images • Drop files • Enter to send</span>
+            <span className="opacity-50">Enter to send</span>
           </div>
         </div>
       </div>
