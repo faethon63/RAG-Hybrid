@@ -88,9 +88,10 @@ export function ChatList() {
             className={clsx(
               'group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
               chat.id === currentChatId
-                ? 'bg-[var(--color-surface)]'
+                ? 'border-l-2 border-[var(--color-primary)] font-medium'
                 : 'hover:bg-[var(--color-surface-hover)]'
             )}
+            style={chat.id === currentChatId ? { backgroundColor: 'rgba(16, 163, 127, 0.2)' } : undefined}
           >
             <ChatIcon className="w-4 h-4 text-[var(--color-text-secondary)] flex-shrink-0" />
             {editingId === chat.id ? (
