@@ -146,9 +146,10 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             try:
                 crawl_result = await crawl4ai_search.extract(url)
                 if crawl_result.get("success") and len(crawl_result.get("answer", "")) > 200:
-                    logger.info(f"Crawl4AI succeeded for {url} - {len(crawl_result.get('answer', ''))} chars")
+                    answer_text = crawl_result["answer"]
+                    logger.info(f"Crawl4AI succeeded for {url} - {len(answer_text)} chars")
                     if question_part:
-                        crawl_result["answer"] = f"Page content:\n\n{crawl_result['answer']}\n\nUser question: {question_part}"
+                        crawl_result["answer"] = f"Page content:\n\n{answer_text}\n\nUser question: {question_part}"
                     return crawl_result
                 else:
                     logger.info(f"Crawl4AI returned insufficient content, trying Tavily")

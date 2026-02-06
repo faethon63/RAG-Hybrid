@@ -1007,10 +1007,40 @@ class Crawl4AISearch:
                 # Get clean markdown (preferred) or cleaned HTML
                 content = result.markdown or result.cleaned_html or ""
 
-                # Truncate for answer but keep full in raw_content
-                answer = content[:4000] if content else ""
-
                 logger.info(f"Crawl4AI extracted {len(content)} chars from {url}")
+
+                # Smart truncation: skip nav/header boilerplate, find product content
+                # Amazon and e-commerce pages have ~50K+ of nav before actual content
+                useful_content = content
+                if len(content) > 10000:
+                    # Look for product-content markers that indicate where real content starts
+                    content_markers = [
+                        "## About this item", "About this item",
+                        "## Product Description", "Product Description",
+                        "## Product details", "Product details",
+                        "## Product information", "Product information",
+                        "## Features", "## Specifications",
+                        "## Description", "100% Pure",
+                    ]
+                    best_start = None
+                    for marker in content_markers:
+                        idx = content.find(marker)
+                        if idx != -1 and (best_start is None or idx < best_start):
+                            best_start = idx
+
+                    if best_start is not None:
+                        # Start from the first content marker, include some context before it
+                        start = max(0, best_start - 500)
+                        useful_content = content[start:]
+                        logger.info(f"Crawl4AI: found content marker at char {best_start}, using from {start}")
+                    else:
+                        # No markers found -- skip first 30% (usually nav) and take middle
+                        skip = len(content) // 3
+                        useful_content = content[skip:]
+                        logger.info(f"Crawl4AI: no content markers, skipping first {skip} chars")
+
+                # Allow up to 15K chars for the answer (Groq has 128K context)
+                answer = useful_content[:15000] if useful_content else ""
 
                 return {
                     "success": True,
