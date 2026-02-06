@@ -139,12 +139,6 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             url = url_match.group(1)
             url = url.rstrip('.,;:!?"\')')
 
-            # Sites known to block scrapers - go straight to Perplexity
-            scraper_blocked_domains = ["amazon.com", "amazon.", "ebay.com", "walmart.com", "linkedin.com"]
-            if any(domain in url.lower() for domain in scraper_blocked_domains):
-                logger.info(f"URL from known scraper-blocked site, using Perplexity: {url}")
-                return await perplexity_search.search(query=query, search_mode="high", recency="week")
-
             question_part = query.replace(url, "").strip()
 
             # 1. Try Crawl4AI first (best quality, JS rendering, clean markdown)
@@ -165,13 +159,11 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             logger.info(f"Using Tavily EXTRACT to fetch specific URL: {url}")
             result = await tavily_search.extract(urls=[url])
 
-            # Check if extraction failed (got nav/header instead of content)
+            # Check if extraction returned meaningful content (not just nav chrome)
             raw = result.get("raw_content", {})
             content = raw.get(url, "") if isinstance(raw, dict) else ""
-            content_seems_valid = len(content) > 500 and not any(
-                nav_indicator in content.lower()
-                for nav_indicator in ["sign in", "cart", "menu", "navigation"]
-            )
+            answer_text = result.get("answer", "")
+            content_seems_valid = len(content) > 500 or len(answer_text) > 200
 
             if not content_seems_valid:
                 # Extraction failed - fallback to Perplexity
