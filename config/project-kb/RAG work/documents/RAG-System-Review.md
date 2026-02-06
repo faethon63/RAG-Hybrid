@@ -491,94 +491,163 @@ Model IDs are hardcoded across multiple files:
 
 ### 6.1 Framework Comparisons
 
-The current system is a **custom-built orchestration framework**. Industry alternatives include:
+The current system is a **custom-built orchestration framework**. Industry alternatives (2025-2026):
 
-| Framework | Pros | Cons | Relevance |
-|-----------|------|------|-----------|
-| **LangChain** | Mature ecosystem, many integrations, structured chains | Heavy dependency, over-abstracted for simple cases, vendor lock-in | Could replace tool-calling loop |
-| **LlamaIndex** | Strong RAG focus, advanced indexing strategies | Less flexible for multi-model routing | Could improve KB/chunking |
-| **Semantic Kernel** | Microsoft-backed, good multi-model support | .NET-centric, Python support newer | Not ideal fit |
-| **Custom (current)** | Full control, no dependencies, tailored to needs | Maintenance burden, no community testing | Already in place |
+| Framework | Architecture | RAG-Hybrid Gap | Relevance |
+|-----------|-------------|----------------|-----------|
+| **LangChain/LangGraph** | Cyclic state machines with persistent memory across steps. Orchestrator-worker patterns. | No persistent state between tool loops. Flow is stateless per-query. | Could adopt state persistence pattern |
+| **LlamaIndex** | Router Query Engine with metadata-based choices. Multiple index types (vector, tree, keyword). Field-aware retrievers. | Only vector search (no keyword/BM25). No field-aware boosting. | Should adopt hybrid retrieval |
+| **Haystack** | Typed, reusable pipeline components with explicit I/O. First-class per-step instrumentation. 99.9% uptime benchmark. Lowest token usage (~1.57k) and ~5.9ms framework overhead. | Ad-hoc Python flow. No per-step instrumentation or observability. | Best architecture model for refactor |
+| **OpenRouter** | Auto-router: simple queries to cheap models, complex to premium. `:floor` routing for lowest price. | **RAG-Hybrid already comparable** -- Groq-based routing to cheapest-capable model is similar and actually cheaper (Groq is free). | Current strength |
 
-**Recommendation**: Keep custom approach but adopt specific patterns from frameworks:
-- LlamaIndex's hierarchical chunking for legal documents (Chapter 7)
-- LangChain's tool-calling protocol for standardized tool interfaces
+**Recommendation**: Keep custom approach but adopt specific patterns:
+- Haystack's typed pipeline components for better architecture (long-term refactor)
+- LlamaIndex's hybrid retrieval (vector + keyword) for better KB search
 - Circuit breaker pattern from resilience libraries (tenacity, circuitbreaker)
+
+**What RAG-Hybrid already does well**:
+- Cost-optimized routing via free Groq orchestration (comparable to OpenRouter)
+- Multi-model fallback chain (Ollama -> Claude Haiku)
+- Incremental document indexing with mtime tracking (industry best practice)
+- Citation constraints in system prompt (basic but effective)
+- Tool loop safety with max_iterations (follows best practices)
+- Query intent classification for flexible prompt selection (uncommon and useful)
 
 ### 6.2 Routing Best Practices
 
 **Current problem**: Three overlapping routing systems with hardcoded heuristics.
 
-**Industry best practices**:
-1. **Single routing decision point**: One classifier that produces a structured routing plan
-2. **Configurable routing rules**: Per-project routing preferences in config, not code
-3. **Fallback chain with clear priority**: PRIMARY -> SECONDARY -> FALLBACK with explicit conditions
-4. **Routing telemetry**: Log every routing decision with reasoning for debugging
+**Industry approaches (2025-2026)**:
+
+| Approach | How It Works | Pros | Cons |
+|----------|-------------|------|------|
+| **Classifier-based** | Lightweight ML classifier (logistic regression) routes queries | Fastest, cheapest | Requires training data, misclassifies edge cases |
+| **LLM-based** | LLM analyzes query and decides route | Most flexible | Adds latency (free with Groq) |
+| **Semantic routing** | Embed query, compare against prototype embeddings per route | Very fast after setup, no LLM call needed | Requires upfront embedding work |
+| **Hybrid (best practice)** | Combine heuristic rules + LLM routing | Balance of speed and intelligence | Current RAG-Hybrid approach |
+
+**RAG-Hybrid already does**: LLM-based routing via Groq (free) + heuristic fast-path for greetings + QueryClassifier for intent. This is a **good hybrid approach**.
+
+**Key missing capabilities**:
+1. **Semantic routing as first tier**: Pre-compute embeddings for 10 prototype queries per route (greeting, web search, reasoning, etc.). Compare incoming query embedding against these before calling Groq. Would eliminate Groq API call for ~60% of queries. **Effort: Low-Medium**
+2. **Semantic caching**: Cache query embeddings + responses. If new query is >0.95 similar to cached query, return cached response. Can cut costs 20-73% and latency up to 65x. **Effort: Medium**
 
 **Recommended architecture**:
 ```
-Query → Single Router (config-driven)
-  ├─> Rules engine (project config defines preferred providers)
-  ├─> LLM classifier (Groq) for ambiguous queries
-  └─> Fallback chain: Groq → Ollama → Claude Haiku
+Query → Semantic Route Check (embedding comparison, no API call)
+  ├─> If matched: route directly (greeting → Ollama, etc.)
+  └─> If ambiguous: Groq LLM classifier
+      ├─> Rules engine (project config defines preferred providers)
+      └─> Fallback chain: Groq → Ollama → Claude Haiku
 ```
 
 ### 6.3 KB Management Recommendations
 
-**Current issues**:
-- Fixed 500-char chunks too small for legal docs
-- No per-project chunk size configuration
-- No hybrid search (semantic + keyword)
+#### Chunking Strategy
 
-**Recommendations**:
-1. **Per-project chunking strategy**: Legal docs (1000-1500 chars), general docs (500 chars), code (function-level)
-2. **Hybrid search**: Combine ChromaDB vector search with BM25 keyword search for better recall
-3. **Metadata enrichment**: Store document type, date, section headings in chunk metadata
-4. **Re-ranking**: Add a lightweight re-ranker (cross-encoder) before returning top results
+| Approach | Current (RAG-Hybrid) | Best Practice (2025-2026) |
+|----------|----------------------|---------------------------|
+| **Method** | Fixed-size 500 chars, 50 char overlap | Recursive character splitting (paragraph -> sentence) |
+| **Size** | 500 characters (all docs) | 400-512 tokens with 10-20% overlap |
+| **Per-project** | No | Yes -- legal docs larger, code function-level |
+| **Semantic** | No | Groups sentences by embedding similarity (70% accuracy improvement) |
+
+**Recommendation**: Switch from fixed-character to recursive splitting. This alone significantly improves retrieval quality. **Effort: Low**
+
+#### Embedding Model
+
+| Model | MTEB Score | Dimensions | Status |
+|-------|-----------|------------|--------|
+| `all-MiniLM-L6-v2` (current) | 56.3 | 384 | Adequate but dated |
+| `all-mpnet-base-v2` | ~59 | 768 | Drop-in upgrade, same family |
+| `BGE-M3` | ~63.0 | 1024 | Best open-source, multilingual |
+| `e5-base-instruct` | ~62 | 768 | Best speed/accuracy tradeoff, 100% Top-5 accuracy, <30ms |
+| `Cohere embed-v4` | 65.2 | -- | Best overall but paid API |
+
+**Recommendation**: Upgrade to `BGE-M3` (best open-source) or `e5-base-instruct` (best speed/accuracy). Requires re-indexing all documents. **Effort: Medium**
+
+#### Vector DB Patterns
+
+- **Hybrid search**: ChromaDB now supports BM25 + vector via Reciprocal Rank Fusion (RRF). Significantly improves retrieval for exact-match queries (names, form numbers, specific terms).
+- **Reranking**: Add cross-encoder reranker to re-order top-k results before sending to LLM. Reduces irrelevant context.
+- **Metadata filtering**: RAG-Hybrid stores metadata but doesn't expose filtering to the query path. Should filter by file type, date, section for better precision.
 
 ### 6.4 Hallucination Prevention
 
-**Current mitigations**: Perplexity passthrough, Claude passthrough on excuses.
+**Current mitigations**: Perplexity passthrough, Claude passthrough on excuses, citation constraints in system prompt, fake tool output stripping.
 
-**Additional techniques**:
-1. **Grounding verification**: After Groq summarizes tool results, verify key facts (numbers, names, dates) appear verbatim in tool output
-2. **Citation enforcement**: Require inline citations [1], [2] in responses; validate they reference actual sources
-3. **Confidence scoring**: Have the model self-assess confidence; flag low-confidence answers for user review
-4. **Fact extraction + comparison**: Extract claims from response, compare against tool results
+**Industry best practices (2025-2026)**:
+
+| Technique | Description | Impact | Effort |
+|-----------|-------------|--------|--------|
+| **Context grading** | Before sending retrieved docs to LLM, validate relevance. Filter out irrelevant docs. | Combining 5 quality techniques reduces hallucinations from 20% to 2-5% | Low |
+| **Confidence scoring** | Return score based on: chunk count, avg similarity, domain match | Helps users gauge reliability | Low-Medium |
+| **Self-evaluation** | After generating response, lightweight check: "Does this only cite from provided context?" | Further reduction | Medium (adds latency) |
+| **Grounding verification** | Verify key facts (numbers, names, dates) appear verbatim in tool output | Catches Groq paraphrasing | Medium |
+| **Similarity threshold raise** | Increase from current threshold to 0.65-0.7 | Reduces irrelevant context fed to LLM | Low |
+
+**Specific recommendations**:
+1. **Raise similarity threshold** to 0.65-0.7 (from current) -- reduces irrelevant context. **Effort: Low**
+2. **Add context grading** -- use Groq to quickly validate chunk relevance before sending to LLM. **Effort: Low**
+3. **Add confidence scoring** -- display in UI based on retrieval quality metrics. **Effort: Low-Medium**
+4. **Add self-evaluation** for high-stakes projects (Chapter 7) -- verify citations exist in KB. **Effort: Medium**
 
 ### 6.5 Resilience Patterns
 
-**Current gaps**: No circuit breakers, no retry with backoff, no health-aware routing.
+**Current state**: Ollama -> Claude Haiku fallback chain exists. Per-provider health checks. Groq -> Perplexity fallback for routing.
+
+**Missing**: No circuit breaker, no retry with backoff, no jitter, no rate limit awareness, no per-provider failure tracking over time.
 
 **Recommended patterns**:
 
-1. **Circuit Breaker** (for each external API):
+1. **Circuit Breaker** (per API provider):
    ```
-   States: CLOSED (normal) → OPEN (failing, skip calls) → HALF-OPEN (test one call)
-   Track: failure count, last failure time, consecutive successes
+   States: CLOSED (normal) → OPEN (>50% of last 10 calls fail, skip for 30-60s) → HALF-OPEN (probe one call)
+   Libraries: resilient-llm, tenacity, or custom ~50 lines
    ```
 
-2. **Retry with Exponential Backoff** (for transient failures):
+2. **Retry with Exponential Backoff + Jitter** (AWS SDK v3 pattern):
    ```
    Attempt 1: immediate
-   Attempt 2: 1s delay
-   Attempt 3: 4s delay
-   Max: 3 attempts
-   Only retry: 429, 503, 502
+   Attempt 2: 1s + random(0-500ms)
+   Attempt 3: 4s + random(0-1000ms)
+   Max: 3 attempts. Only retry: 429, 502, 503
    ```
 
-3. **Health-Aware Routing**:
+3. **Per-Iteration Timeout** in tool loops:
    ```
-   Before routing to a provider, check circuit breaker state
-   If OPEN, skip to next provider in fallback chain
+   If single tool call takes >30s, abort that iteration
+   Prevents one slow file read from blocking entire response
    ```
 
-4. **Timeout Budgets**:
+4. **Token Budget Tracking**:
    ```
-   Total query timeout: 30s
-   Per-tool timeout: 15s
-   If tool exceeds budget, cancel and use fallback
+   Track cumulative tokens across tool loop iterations
+   If approaching budget (e.g., 4000 tokens), force respond with current data
    ```
+
+5. **Tool Output Validation**:
+   ```
+   Before passing tool results back to LLM:
+   - Was file actually read? Is content non-empty?
+   - Did list_dir return results?
+   - Did web_search get a response?
+   Prevents LLM confusion from empty/error results
+   ```
+
+### 6.6 Tool-Calling Architecture
+
+**Current state**: Tool loop with `max_tool_iterations=3` (good safety). Groq JSON function calling + Ollama text-based `<tool>` tag parsing (dual approach works).
+
+**Missing capabilities**:
+
+| Gap | Description | Effort |
+|-----|-------------|--------|
+| Per-iteration timeout | Single slow tool call blocks everything | Low |
+| Tool output validation | Empty/error results confuse LLM | Low |
+| Token budget tracking | No cumulative tracking across iterations | Low-Medium |
+| Structured step logging | Tool calls logged as text, not queryable data | Low |
+| Plan-and-Execute | For complex tasks, plan first then execute steps | Medium |
 
 ---
 
@@ -662,35 +731,42 @@ Query → Single Router (config-driven)
 | 7 | **Add basic auth to VPS**: API key authentication, restrict CORS to known origins | HIGH | Medium | Prevents public abuse |
 | 8 | **Add logging to silent exception handlers**: Especially `main.py:1934`, `rag_core.py:102,111`, `auth.py:61` | HIGH | Medium | Makes failures diagnosable |
 | 9 | **Centralize model IDs in config.py**: Define constants, import everywhere, use env var overrides | HIGH | Medium | Prevents model ID drift |
-| 10 | **Add circuit breaker for external APIs**: At minimum for Perplexity and Groq | HIGH | Medium | Prevents cascading timeouts |
-| 11 | **Update stale docstrings**: Mode names, model references, architecture comments | MEDIUM | Low | Reduces developer confusion |
-| 12 | **Add __pycache__ clearing to deploy script** | MEDIUM | Low | Prevents stale bytecode issues |
+| 10 | **Add retry with exponential backoff + jitter** for transient API failures (429, 502, 503). 3 attempts, 1s/2s/4s + random jitter | HIGH | Low | Prevents transient failures, follows AWS SDK v3 pattern |
+| 11 | **Switch to recursive chunking**: Replace fixed 500-char chunks with recursive paragraph->sentence splitting. Per research, this alone significantly improves retrieval quality | HIGH | Low | Better KB search quality across all projects |
+| 12 | **Add per-iteration timeout (30s)** in tool loops and **tool output validation** (non-empty check before passing back to LLM) | HIGH | Low | Prevents hanging, prevents LLM confusion from empty results |
+| 13 | **Raise similarity threshold** from current to 0.65-0.7 for KB retrieval | HIGH | Low | Reduces irrelevant context fed to LLM, fewer hallucinations |
+| 14 | **Add circuit breaker for external APIs**: Track last N calls, if >50% fail, stop calling for 30-60s, then probe | HIGH | Medium | Prevents cascading timeouts |
+| 15 | **Update stale docstrings**: Mode names, model references, architecture comments | MEDIUM | Low | Reduces developer confusion |
+| 16 | **Add __pycache__ clearing to deploy script** | MEDIUM | Low | Prevents stale bytecode issues |
 
 ### Medium-Term (Next Quarter)
 
 | # | Action | Priority | Effort | Impact |
 |---|--------|----------|--------|--------|
-| 13 | **Break up main.py**: Extract tool handlers into `tools/` module, services into `services/` | HIGH | High | Maintainability, testability |
-| 14 | **Consolidate routing**: Merge three routing systems into single config-driven pipeline | HIGH | High | Eliminates misrouting, removes hardcoded keywords |
-| 15 | **Add retry with backoff for transient API failures** | HIGH | Medium | Better reliability under API instability |
-| 16 | **Per-project chunk size for KB**: Legal docs 1500 chars, general 500 chars | MEDIUM | Medium | Better Chapter 7 search quality |
-| 17 | **Deduplicate code**: Notion block reading, Claude fallback, citation stripping | MEDIUM | Medium | Bug fixes propagate correctly |
-| 18 | **Move domain keywords to project config** | MEDIUM | Medium | Projects configurable without code changes |
-| 19 | **Add user-friendly error messages**: Replace raw API errors with structured, actionable messages | MEDIUM | Medium | Better user experience |
-| 20 | **Frontend: Show error details from ApiError.body** | MEDIUM | Low | Users can diagnose issues |
+| 17 | **Break up main.py**: Extract tool handlers into `tools/` module, services into `services/` | HIGH | High | Maintainability, testability |
+| 18 | **Consolidate routing**: Merge three routing systems into single config-driven pipeline | HIGH | High | Eliminates misrouting, removes hardcoded keywords |
+| 19 | **Upgrade embedding model**: Switch from `all-MiniLM-L6-v2` (MTEB 56.3) to `BGE-M3` (MTEB ~63) or `e5-base-instruct`. Requires re-indexing all documents | HIGH | Medium | Major retrieval quality improvement |
+| 20 | **Add hybrid search (BM25 + vector)**: ChromaDB now supports this via RRF. Critical for exact-match queries (form numbers, specific terms, names) | HIGH | Medium | Significantly better retrieval for factual queries |
+| 21 | **Add semantic caching**: Cache query embeddings + responses. Return cached response if new query >0.95 similar. Research shows 20-73% cost reduction, up to 65x latency improvement | HIGH | Medium | Major cost and latency savings |
+| 22 | **Deduplicate code**: Notion block reading, Claude fallback, citation stripping | MEDIUM | Medium | Bug fixes propagate correctly |
+| 23 | **Move domain keywords to project config** | MEDIUM | Medium | Projects configurable without code changes |
+| 24 | **Add confidence scoring to responses**: Based on chunk count, avg similarity, domain match. Display in UI | MEDIUM | Low-Medium | Users can gauge reliability |
+| 25 | **Add user-friendly error messages**: Replace raw API errors with structured, actionable messages | MEDIUM | Medium | Better user experience |
+| 26 | **Frontend: Show error details from ApiError.body** | MEDIUM | Low | Users can diagnose issues |
 
 ### Long-Term (Future)
 
 | # | Action | Priority | Effort | Impact |
 |---|--------|----------|--------|--------|
-| 21 | **Add automated test suite**: Unit tests for routing, tool handlers, error paths | MEDIUM | High | Confidence in changes, catch regressions |
-| 22 | **Hybrid search (vector + keyword)** for KB | MEDIUM | High | Better recall for factual queries |
-| 23 | **Hallucination verification**: Post-response fact checking against tool outputs | MEDIUM | High | Higher answer accuracy |
-| 24 | **Cost tracking dashboard**: Aggregate per-query costs, daily/monthly totals | LOW | Medium | Budget awareness |
-| 25 | **Migrate `on_event` to lifespan context manager** | LOW | Low | Future FastAPI compatibility |
-| 26 | **Re-ranker for KB search results** | LOW | Medium | Better precision for top results |
-| 27 | **Deploy rollback mechanism** | LOW | Medium | Quick recovery from bad deploys |
-| 28 | **Health-aware routing**: Skip providers with open circuit breakers | LOW | Medium | Smarter failover |
+| 27 | **Add automated test suite**: Unit tests for routing, tool handlers, error paths | MEDIUM | High | Confidence in changes, catch regressions |
+| 28 | **Add semantic routing as first tier**: Pre-compute embeddings for 10 prototype queries per route. Compare before calling Groq. Would eliminate Groq API call for ~60% of queries | MEDIUM | Low-Medium | Faster routing, reduced API calls |
+| 29 | **Hallucination self-evaluation**: After generating response, check: "Does this only cite from provided context?" Especially for Chapter 7 | MEDIUM | Medium | Reduces hallucinations (adds latency) |
+| 30 | **Add reranking step**: Cross-encoder reranker to re-order top-k results before sending to LLM | MEDIUM | Medium | Better precision for top results |
+| 31 | **Provider health dashboard**: Track success rate, avg latency, error count per provider. Expose via health endpoint | MEDIUM | Low-Medium | Operational visibility |
+| 32 | **Cost tracking dashboard**: Aggregate per-query costs, daily/monthly totals, token budget tracking across tool iterations | LOW | Medium | Budget awareness |
+| 33 | **Migrate `on_event` to lifespan context manager** | LOW | Low | Future FastAPI compatibility |
+| 34 | **Deploy rollback mechanism** | LOW | Medium | Quick recovery from bad deploys |
+| 35 | **Health-aware routing**: Skip providers with open circuit breakers automatically | LOW | Medium | Smarter failover |
 
 ---
 
