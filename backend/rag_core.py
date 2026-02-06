@@ -37,6 +37,7 @@ from config import (
     get_anthropic_api_key,
     get_chats_path,
     get_database_url,
+    get_claude_haiku_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,8 @@ class RAGCore:
                 self._http_client = httpx.AsyncClient(timeout=10.0)
             resp = await self._http_client.get(f"{get_ollama_host()}/api/tags")
             return resp.status_code == 200
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Ollama health check failed: {e}")
             return False
 
     async def check_chromadb(self) -> bool:
@@ -113,8 +115,8 @@ class RAGCore:
             if self._chroma_client:
                 self._chroma_client.heartbeat()
                 return True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"ChromaDB health check failed: {e}")
         return False
 
     # ------------------------------------------------------------------
@@ -587,8 +589,8 @@ Answer:"""
         if result is not None:
             return {"text": result, "usage": {}, "model_used": "ollama"}
         logger.info("Ollama unavailable, falling back to Claude Haiku")
-        claude_result = await self._call_claude(prompt, model="claude-haiku-4-5-20251001")
-        claude_result["model_used"] = "claude-haiku-4-5-20251001"
+        claude_result = await self._call_claude(prompt, model=get_claude_haiku_model())
+        claude_result["model_used"] = get_claude_haiku_model()
         return claude_result
 
     async def _call_claude(self, prompt: str, model: str) -> Dict[str, Any]:
@@ -707,7 +709,7 @@ IMPORTANT RULES:
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-haiku-4-5-20251001",
+                    "model": get_claude_haiku_model(),
                     "max_tokens": 500,
                     "temperature": 0,
                     "messages": [{"role": "user", "content": query}],
@@ -855,7 +857,7 @@ IMPORTANT RULES:
                         conversation_history=conversation_history,
                         project_config=project_config,
                         enable_tools=False,
-                        model="claude-haiku-4-5-20251001",
+                        model=get_claude_haiku_model(),
                         global_instructions=global_instructions,
                     )
 
@@ -925,8 +927,8 @@ IMPORTANT RULES:
             try:
                 col = self._chroma_client.get_collection(collection_name)
                 doc_count = col.count()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Collection count failed for {collection_name}: {e}")
 
             projects.append({
                 "name": name,
@@ -963,7 +965,8 @@ IMPORTANT RULES:
         try:
             self._chroma_client.delete_collection(col_name)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Collection deletion failed for {col_name}: {e}")
             return False
 
     # ------------------------------------------------------------------
@@ -1456,7 +1459,7 @@ IMPORTANT RULES:
         if not config_path.exists():
             # Return defaults
             return {
-                "default_model": "claude-haiku-4-5-20251001",
+                "default_model": get_claude_haiku_model(),
                 "default_mode": "auto",
             }
 
@@ -1466,7 +1469,7 @@ IMPORTANT RULES:
         except Exception as e:
             logger.warning(f"Failed to load global config: {e}")
             return {
-                "default_model": "claude-haiku-4-5-20251001",
+                "default_model": get_claude_haiku_model(),
                 "default_mode": "auto",
             }
 
@@ -1596,23 +1599,26 @@ Assistant:"""
             return {"text": result, "usage": {}, "model_used": "ollama"}
         # Fall back to Claude Haiku
         logger.info("Ollama unavailable for chat, falling back to Claude Haiku")
+        haiku_model = get_claude_haiku_model()
         claude_result = await self._chat_claude(
-            query, conversation_history, "claude-haiku-4-5-20251001",
+            query, conversation_history, haiku_model,
             project_config, global_instructions, query_classification
         )
-        claude_result["model_used"] = "claude-haiku-4-5-20251001"
+        claude_result["model_used"] = haiku_model
         return claude_result
 
     async def _chat_claude(
         self,
         query: str,
         conversation_history: Optional[List[Dict[str, str]]] = None,
-        model: str = "claude-haiku-4-5-20251001",
+        model: str = None,
         project_config: Optional[Dict[str, Any]] = None,
         global_instructions: Optional[str] = None,
         query_classification: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Chat using Claude API with optional project instructions. Returns {"text": str, "usage": dict}."""
+        if model is None:
+            model = get_claude_haiku_model()
         api_key = get_anthropic_api_key()
         if not api_key or api_key.startswith("your_"):
             return {"text": "[Claude API key not configured]", "usage": {}}

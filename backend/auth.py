@@ -56,9 +56,11 @@ def hash_password(plain: str) -> str:
 
 def check_password(plain: str, hashed: str) -> bool:
     """Verify a plaintext password against a bcrypt hash."""
+    import logging
     try:
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Password verification error: {e}")
         return False
 
 

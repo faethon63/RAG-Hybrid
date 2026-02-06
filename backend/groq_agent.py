@@ -4,6 +4,7 @@ Groq (Llama 3.3 70B) as the main conversational brain with tool access.
 This is the orchestrator that maintains context and calls tools as needed.
 """
 
+import asyncio
 import logging
 import httpx
 import json
@@ -12,6 +13,8 @@ import re
 from contextvars import ContextVar
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+
+from resilience import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +122,12 @@ class GroqAgent:
     """
 
     # Use Llama 4 Scout for reliable tool calling (recommended by Groq)
-    GROQ_MODEL = os.getenv("GROQ_TOOL_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+    @property
+    def GROQ_MODEL(self):
+        from config import get_groq_model
+        return get_groq_model()
 
     # Tool definitions for Groq
     TOOLS = [
@@ -717,7 +724,7 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                     # Fallback to Claude Haiku if Ollama failed (VPS has no Ollama)
                     if not analyzed:
                         try:
-                            from config import get_anthropic_api_key
+                            from config import get_anthropic_api_key, get_claude_haiku_model
                             api_key = get_anthropic_api_key()
                             if api_key and not api_key.startswith("your_"):
                                 client = await self._get_client()
@@ -729,7 +736,7 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                                         "content-type": "application/json",
                                     },
                                     json={
-                                        "model": "claude-haiku-4-5-20251001",
+                                        "model": get_claude_haiku_model(),
                                         "max_tokens": 1024,
                                         "temperature": 0.3,
                                         "messages": [{"role": "user", "content": llm_prompt}],
@@ -844,15 +851,19 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                 logger.info(f"Groq request - model: {payload['model']}, messages: {len(payload['messages'])}, tools: {tool_names}, tool_choice: {payload.get('tool_choice', 'not set')}")
                 logger.info(f"Groq last message: {messages[-1]['content'][:100]}...")
 
-                response = await client.post(
-                    self.GROQ_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-                response.raise_for_status()
+                async def _do_groq_post():
+                    r = await client.post(
+                        self.GROQ_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+                    r.raise_for_status()
+                    return r
+
+                response = await retry_with_backoff(_do_groq_post)
                 data = response.json()
 
                 # Track usage
@@ -891,13 +902,21 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         logger.info(f"Tool args: {json.dumps(func_args, indent=2)}")
                         all_tool_calls.append({"tool": func_name, "args": func_args})
 
-                        # Execute the tool
+                        # Execute the tool with timeout
                         if func_name in self._tool_handlers:
                             try:
-                                result = await self._tool_handlers[func_name](**func_args)
+                                result = await asyncio.wait_for(
+                                    self._tool_handlers[func_name](**func_args),
+                                    timeout=30.0
+                                )
 
                                 # Include citations in tool result so Groq can reference them
                                 tool_result = result.get("answer", str(result))
+
+                                # Validate tool output
+                                if not tool_result or (isinstance(tool_result, str) and len(tool_result.strip()) < 5):
+                                    tool_result = f"Tool {func_name} returned empty results. Please answer based on your knowledge or try a different approach."
+                                    logger.warning(f"Tool {func_name} returned empty/minimal results")
                                 citations = result.get("citations", [])
                                 logger.info(f"Tool {func_name} returned {len(citations)} citations")
 
@@ -934,6 +953,9 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                                 elif result.get("sources"):
                                     all_sources.extend(result["sources"])
 
+                            except asyncio.TimeoutError:
+                                logger.warning(f"Tool {func_name} timed out after 30s")
+                                tool_result = f"Tool {func_name} timed out. Please proceed without this tool's results."
                             except Exception as e:
                                 logger.error(f"Tool {func_name} failed: {e}")
                                 # Give Groq a clear message about the failure

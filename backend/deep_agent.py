@@ -186,7 +186,7 @@ def summarize_text(text: str, focus: Optional[str] = None) -> str:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
+                "model": os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001"),
                 "max_tokens": 1024,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -484,7 +484,8 @@ def get_deep_agent(model_id: str = None) -> DeepResearchAgent:
     if model_id is None:
         # Auto-detect: use Ollama if available, otherwise Claude
         ollama_ok = _check_ollama_available()
-        model_id = "ollama/qwen2.5:14b" if ollama_ok else "anthropic/claude-haiku-4-5-20251001"
+        haiku_model = os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001")
+        model_id = "ollama/qwen2.5:14b" if ollama_ok else f"anthropic/{haiku_model}"
         logger.info(f"Deep agent auto-selected model: {model_id} (ollama_available={ollama_ok})")
 
     if _deep_agent is None or _deep_agent.model_id != model_id:

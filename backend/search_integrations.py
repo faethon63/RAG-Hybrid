@@ -17,7 +17,9 @@ from config import (
     get_tavily_api_key,
     get_max_tokens,
     get_temperature,
+    get_claude_haiku_model,
 )
+from resilience import retry_with_backoff
 
 
 def get_idealista_api_key() -> str:
@@ -59,7 +61,7 @@ class ClaudeSearch:
         # Key is configured - assume healthy (actual errors caught on query)
         return True
 
-    async def search(self, query: str, model: str = "claude-haiku-4-5-20251001") -> Dict[str, Any]:
+    async def search(self, query: str, model: str = None) -> Dict[str, Any]:
         """
         Ask Claude to answer a question.
         Returns {"answer": str, "sources": list[dict], "usage": dict}.
@@ -71,7 +73,9 @@ If you cite any sources, list them at the end.
 Question: {query}"""
 
         # Use local model fallback if specified
-        actual_model = model if model != "local" else "claude-haiku-4-5-20251001"
+        if model is None or model == "local":
+            model = get_claude_haiku_model()
+        actual_model = model
         api_key = get_anthropic_api_key()
 
         # System message to prevent unhelpful "I can't browse" responses
@@ -83,22 +87,26 @@ CRITICAL RULES:
 - Never include citation markers like [1], [2] in your response."""
 
         try:
-            resp = await client.post(
-                self.API_URL,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": actual_model,
-                    "max_tokens": get_max_tokens(),
-                    "temperature": get_temperature(),
-                    "system": system_msg,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            resp.raise_for_status()
+            async def _do_post():
+                r = await client.post(
+                    self.API_URL,
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": actual_model,
+                        "max_tokens": get_max_tokens(),
+                        "temperature": get_temperature(),
+                        "system": system_msg,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+                r.raise_for_status()
+                return r
+
+            resp = await retry_with_backoff(_do_post)
             data = resp.json()
 
             answer = ""
@@ -130,31 +138,37 @@ CRITICAL RULES:
                 "usage": {},
             }
 
-    async def generate(self, prompt: str, model: str = "claude-haiku-4-5-20251001") -> Dict[str, Any]:
+    async def generate(self, prompt: str, model: str = None) -> Dict[str, Any]:
         """
         General-purpose generation with Claude.
         Used for synthesizing hybrid answers.
         Returns {"text": str, "usage": dict}.
         """
         client = self._get_client()
-        actual_model = model if model != "local" else "claude-haiku-4-5-20251001"
+        if model is None or model == "local":
+            model = get_claude_haiku_model()
+        actual_model = model
         api_key = get_anthropic_api_key()
         try:
-            resp = await client.post(
-                self.API_URL,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": actual_model,
-                    "max_tokens": get_max_tokens(),
-                    "temperature": get_temperature(),
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            resp.raise_for_status()
+            async def _do_post():
+                r = await client.post(
+                    self.API_URL,
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": actual_model,
+                        "max_tokens": get_max_tokens(),
+                        "temperature": get_temperature(),
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+                r.raise_for_status()
+                return r
+
+            resp = await retry_with_backoff(_do_post)
             data = resp.json()
             text = ""
             if data.get("content"):
@@ -320,15 +334,19 @@ CRITICAL RULES:
             payload["web_search_options"] = web_opts
 
         try:
-            resp = await client.post(
-                self.API_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            resp.raise_for_status()
+            async def _do_post():
+                r = await client.post(
+                    self.API_URL,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                r.raise_for_status()
+                return r
+
+            resp = await retry_with_backoff(_do_post)
             return self._parse_response(resp.json())
         except httpx.HTTPStatusError as e:
             error_body = e.response.text

@@ -24,17 +24,30 @@ def get_groq_api_key() -> str:
 class QueryOrchestrator:
     """Uses Groq (Llama 3.3 70B) to analyze queries and route to optimal model - FREE."""
 
-    # Model definitions (loaded from env vars with defaults)
-    MODEL_OPUS = os.getenv("CLAUDE_OPUS_MODEL", "claude-opus-4-6")
-    MODEL_SONNET = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
-    MODEL_HAIKU = os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001")
+    # Model definitions - use centralized config functions
     MODEL_LOCAL = "local"  # Ollama - only for static knowledge chat
     MODEL_PERPLEXITY = "perplexity"  # Routes to Perplexity API
     MODEL_DEEP_AGENT = "deep_agent"  # Routes to smolagents multi-step agent
 
-    # Groq model for orchestration (free, fast, good at instruction-following)
-    # Using same model as groq_agent for consistency
-    GROQ_MODEL = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    @property
+    def MODEL_OPUS(self):
+        from config import get_claude_opus_model
+        return get_claude_opus_model()
+
+    @property
+    def MODEL_SONNET(self):
+        from config import get_claude_sonnet_model
+        return get_claude_sonnet_model()
+
+    @property
+    def MODEL_HAIKU(self):
+        from config import get_claude_haiku_model
+        return get_claude_haiku_model()
+
+    @property
+    def GROQ_MODEL(self):
+        from config import get_groq_model
+        return get_groq_model()
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
     GROQ_ROUTING_PROMPT = """You are a query router. Analyze the query and decide which service should handle it.

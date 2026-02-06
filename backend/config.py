@@ -188,3 +188,25 @@ def get_database_url() -> str:
     """Get PostgreSQL connection URL for chat sync across local/VPS."""
     _ensure_env_loaded()
     return os.getenv("DATABASE_URL", "")
+
+
+# --- Centralized Model Constants (override via .env) ---
+
+def get_claude_haiku_model() -> str:
+    _ensure_env_loaded()
+    return os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001")
+
+
+def get_claude_sonnet_model() -> str:
+    _ensure_env_loaded()
+    return os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
+
+
+def get_claude_opus_model() -> str:
+    _ensure_env_loaded()
+    return os.getenv("CLAUDE_OPUS_MODEL", "claude-opus-4-6")
+
+
+def get_groq_model() -> str:
+    _ensure_env_loaded()
+    return os.getenv("GROQ_TOOL_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")

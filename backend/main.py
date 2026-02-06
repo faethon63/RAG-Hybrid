@@ -15,7 +15,11 @@ from pathlib import Path
 # Ensure backend directory is on the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import reload_env, get_log_level, get_fastapi_port, get_project_kb_path, get_synced_kb_path, get_chromadb_collection, get_chromadb_path
+from config import (
+    reload_env, get_log_level, get_fastapi_port, get_project_kb_path,
+    get_synced_kb_path, get_chromadb_collection, get_chromadb_path,
+    get_claude_haiku_model, get_claude_sonnet_model, get_claude_opus_model,
+)
 
 from fastapi import FastAPI, HTTPException, status, UploadFile, File as FastAPIFile, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -269,11 +273,11 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 
     # Map complexity to Claude model
     model_map = {
-        "simple": "claude-haiku-4-5-20251001",
-        "medium": "claude-sonnet-4-5-20250929",
-        "critical": "claude-opus-4-6",
+        "simple": get_claude_haiku_model(),
+        "medium": get_claude_sonnet_model(),
+        "critical": get_claude_opus_model(),
     }
-    model = model_map.get(complexity, "claude-haiku-4-5-20251001")
+    model = model_map.get(complexity, get_claude_haiku_model())
 
     logger.info(f"complex_reasoning: complexity={original_complexity}→{complexity} → model={model}")
 
@@ -1445,7 +1449,8 @@ async def query(request: Request, query_request: QueryRequest):
                 if first_tool in ["tavily", "perplexity", "perplexity_pro", "perplexity_focused"]:
                     pricing_model = first_tool
                 elif first_tool == "claude" and claude_model:
-                    pricing_model = f"claude-{claude_model}-4-5-20251001" if claude_model == "haiku" else f"claude-{claude_model}-4-5-20250929"
+                    _model_lookup = {"haiku": get_claude_haiku_model(), "sonnet": get_claude_sonnet_model(), "opus": get_claude_opus_model()}
+                    pricing_model = _model_lookup.get(claude_model, get_claude_haiku_model())
 
             result = {
                 "answer": agent_result["answer"],
@@ -1800,7 +1805,7 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-5-20250929",
+                    "model": get_claude_sonnet_model(),
                     "max_tokens": 4096,
                     "messages": messages,
                 }
@@ -1842,7 +1847,7 @@ async def query_vision(request: QueryRequest, files: List[AttachedFile]) -> Dict
                 "output_tokens": usage.get("output_tokens", 0),
             },
             "model_used": "claude-sonnet-4.5 (vision)",
-            "pricing_model": "claude-sonnet-4-5-20250929",
+            "pricing_model": get_claude_sonnet_model(),
         }
 
     except httpx.HTTPStatusError as e:
