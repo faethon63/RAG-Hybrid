@@ -693,8 +693,19 @@ class TavilySearch:
 
                 # Summarize for answer
                 if content:
-                    # Take first 2000 chars for the answer
-                    answer_parts.append(f"Content from {url}:\n{content[:2000]}")
+                    # Use up to 15K chars, skipping nav boilerplate
+                    excerpt = content
+                    if len(content) > 5000:
+                        # Try to find where product content starts
+                        for marker in ["About this item", "Product Description", "Product details", "Description"]:
+                            idx = content.find(marker)
+                            if idx != -1:
+                                excerpt = content[max(0, idx - 300):]
+                                break
+                        else:
+                            # Skip first 30% (usually nav)
+                            excerpt = content[len(content) // 3:]
+                    answer_parts.append(f"Content from {url}:\n{excerpt[:15000]}")
 
                 citations.append({
                     "title": result.get("title", url),
@@ -989,10 +1000,37 @@ class Crawl4AISearch:
         Returns: {"success": bool, "answer": str, "raw_content": dict, "metadata": dict}
         """
         try:
-            from crawl4ai import AsyncWebCrawler
+            from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+
+            # Detect e-commerce / JS-heavy sites that need special handling
+            url_lower = url.lower()
+            is_ecommerce = any(d in url_lower for d in [
+                "amazon.com", "amazon.", "ebay.com", "walmart.com",
+                "etsy.com", "aliexpress.com", "target.com",
+            ])
+
+            # Configure based on site type
+            if is_ecommerce:
+                config = CrawlerRunConfig(
+                    wait_until="networkidle",          # Wait for all AJAX to finish
+                    delay_before_return_html=3.0,      # Extra 3s for dynamic content
+                    scan_full_page=True,               # Scroll to load lazy content
+                    excluded_selector="nav, header, footer, #navbar, #nav-belt, #skiplink, .nav-sprite, #rhf",
+                    remove_forms=True,
+                    exclude_external_images=True,
+                    word_count_threshold=1,
+                    page_timeout=45000,
+                )
+                logger.info(f"Crawl4AI: using e-commerce config for {url[:60]}")
+            else:
+                config = CrawlerRunConfig(
+                    wait_until="domcontentloaded",
+                    delay_before_return_html=0.5,
+                    page_timeout=30000,
+                )
 
             async with AsyncWebCrawler() as crawler:
-                result = await crawler.arun(url=url)
+                result = await crawler.arun(url=url, config=config)
 
                 if not result.success:
                     logger.warning(f"Crawl4AI failed for {url}: extraction unsuccessful")
@@ -1010,17 +1048,16 @@ class Crawl4AISearch:
                 logger.info(f"Crawl4AI extracted {len(content)} chars from {url}")
 
                 # Smart truncation: skip nav/header boilerplate, find product content
-                # Amazon and e-commerce pages have ~50K+ of nav before actual content
                 useful_content = content
                 if len(content) > 10000:
-                    # Look for product-content markers that indicate where real content starts
+                    # Look for product-content markers
                     content_markers = [
                         "## About this item", "About this item",
                         "## Product Description", "Product Description",
                         "## Product details", "Product details",
                         "## Product information", "Product information",
                         "## Features", "## Specifications",
-                        "## Description", "100% Pure",
+                        "## Description",
                     ]
                     best_start = None
                     for marker in content_markers:
@@ -1029,18 +1066,28 @@ class Crawl4AISearch:
                             best_start = idx
 
                     if best_start is not None:
-                        # Start from the first content marker, include some context before it
                         start = max(0, best_start - 500)
                         useful_content = content[start:]
                         logger.info(f"Crawl4AI: found content marker at char {best_start}, using from {start}")
                     else:
-                        # No markers found -- skip first 30% (usually nav) and take middle
-                        skip = len(content) // 3
-                        useful_content = content[skip:]
-                        logger.info(f"Crawl4AI: no content markers, skipping first {skip} chars")
+                        # No markers found -- find the first substantial text block
+                        # (paragraphs with 50+ words, not just headers/links)
+                        lines = content.split('\n')
+                        for i, line in enumerate(lines):
+                            word_count = len(line.split())
+                            if word_count >= 15 and not line.startswith(('![', '[', '#', '|', '<')):
+                                start = max(0, content.find(line) - 200)
+                                useful_content = content[start:]
+                                logger.info(f"Crawl4AI: found first text block at line {i}, char {start}")
+                                break
+                        else:
+                            # Last resort: skip first 40%
+                            skip = int(len(content) * 0.4)
+                            useful_content = content[skip:]
+                            logger.info(f"Crawl4AI: no text blocks found, skipping first {skip} chars")
 
-                # Allow up to 15K chars for the answer (Groq has 128K context)
-                answer = useful_content[:15000] if useful_content else ""
+                # Allow up to 20K chars for the answer (Groq has 128K context)
+                answer = useful_content[:20000] if useful_content else ""
 
                 return {
                     "success": True,

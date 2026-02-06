@@ -1075,6 +1075,8 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                     # BUT: Don't passthrough raw content dumps (from Tavily extract)
                     is_raw_content_dump = perplexity_direct_answer and (
                         "Content from http" in perplexity_direct_answer[:150] or
+                        "Page content:" in perplexity_direct_answer[:100] or  # Crawl4AI wrapper
+                        "Based on the page content:" in perplexity_direct_answer[:100] or
                         perplexity_direct_answer.strip().startswith("![") or  # SVG/image markdown
                         "```html" in perplexity_direct_answer[:200] or
                         "<svg" in perplexity_direct_answer[:500].lower() or
