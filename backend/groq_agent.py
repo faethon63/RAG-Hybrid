@@ -520,7 +520,23 @@ BAD RESPONSE (NEVER DO THIS):
             self._http_client = httpx.AsyncClient(timeout=60.0)
         return self._http_client
 
-    def _should_force_web_search(self, query: str) -> bool:
+    def _extract_url_from_history(self, conversation_history: List[Dict[str, str]] = None) -> str:
+        """
+        Look for URLs in recent conversation history.
+        Returns the most recent URL found, or empty string.
+        """
+        if not conversation_history:
+            return ""
+        import re
+        for msg in reversed(conversation_history):
+            content = msg.get("content", "")
+            url_match = re.search(r'(https?://[^\s]+)', content)
+            if url_match:
+                url = url_match.group(1).rstrip('.,;:!?"\')')
+                return url
+        return ""
+
+    def _should_force_web_search(self, query: str, conversation_history: List[Dict[str, str]] = None) -> bool:
         """
         Detect if this query should bypass Groq and go directly to web_search.
         Returns True for product/supplier/provider queries that need real-time data.
@@ -532,12 +548,25 @@ BAD RESPONSE (NEVER DO THIS):
             logger.info("URL detected in query - forcing web_search")
             return True
 
+        # Check if this is a follow-up about a URL from conversation history
+        # e.g. "try again", "read it again", "scrape it", "what about the price"
+        retry_indicators = [
+            "try again", "again", "retry", "re-read", "reread",
+            "read it", "scrape it", "fetch it", "check it",
+            "the page", "the link", "that page", "that link",
+            "the product", "that product", "this product",
+        ]
+        if any(ind in query_lower for ind in retry_indicators):
+            history_url = self._extract_url_from_history(conversation_history)
+            if history_url:
+                logger.info(f"Follow-up about URL from history: {history_url}")
+                return True
+
         # Check for follow-up questions - these should NOT force web search
         # They should be handled by Groq using conversation context
         followup_indicators = [
             "did you", "do you", "can you", "could you", "would you",
             "was it", "was that", "is it", "is that", "is this",
-            "the page", "the link", "the product", "that product", "this product",
             "what about", "how about", "tell me more", "more details",
         ]
         if any(ind in query_lower for ind in followup_indicators):
@@ -592,7 +621,7 @@ BAD RESPONSE (NEVER DO THIS):
 
         # PREPROCESSING: Force web_search for product/supplier queries
         # Groq (Llama 4 Scout) often misroutes these to complex_reasoning
-        should_force = self._should_force_web_search(query)
+        should_force = self._should_force_web_search(query, conversation_history)
         has_web_search = "web_search" in self._tool_handlers
         logger.info(f"BYPASS CHECK: query='{query[:60]}...', should_force={should_force}, has_web_search={has_web_search}")
         if should_force and has_web_search:
@@ -600,8 +629,18 @@ BAD RESPONSE (NEVER DO THIS):
             try:
                 query_lower = query.lower()
 
-                # Check if query contains a URL - use Tavily to fetch the specific page (cheaper)
+                # Check if query contains a URL - use Tavily to fetch the specific page
                 has_url = "https://" in query_lower or "http://" in query_lower or "www." in query_lower
+
+                # If no URL in query, check conversation history (follow-up about a page)
+                if not has_url:
+                    history_url = self._extract_url_from_history(conversation_history)
+                    if history_url:
+                        # Inject the URL from history into the query so the scraper fetches it
+                        query = f"{query} {history_url}"
+                        query_lower = query.lower()
+                        has_url = True
+                        logger.info(f"Injected URL from conversation history: {history_url}")
 
                 if has_url:
                     # URL query - use Tavily to fetch the specific page
