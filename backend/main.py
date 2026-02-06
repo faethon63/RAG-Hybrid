@@ -17,10 +17,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import reload_env, get_log_level, get_fastapi_port, get_project_kb_path, get_synced_kb_path, get_chromadb_collection, get_chromadb_path
 
-from fastapi import FastAPI, HTTPException, status, UploadFile, File as FastAPIFile
+from fastapi import FastAPI, HTTPException, status, UploadFile, File as FastAPIFile, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 # KB file upload constants
 ALLOWED_KB_EXTENSIONS = {'.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv', '.pdf'}
@@ -43,15 +48,51 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware - configurable for production
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+# API Key authentication middleware
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """Simple API key authentication. Skipped if API_KEY env var not set (local dev)."""
+
+    EXEMPT_PATHS = {"/api/v1/health", "/docs", "/openapi.json", "/"}
+
+    async def dispatch(self, request: Request, call_next):
+        api_key = os.getenv("API_KEY", "")
+
+        # Skip auth if no API_KEY configured (local development)
+        if not api_key:
+            return await call_next(request)
+
+        # Skip auth for exempt paths and static files
+        if request.url.path in self.EXEMPT_PATHS:
+            return await call_next(request)
+
+        # Check API key from header or query param
+        request_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+
+        if request_key != api_key:
+            return Response(
+                content='{"detail": "Invalid or missing API key"}',
+                status_code=401,
+                media_type="application/json"
+            )
+
+        return await call_next(request)
+
+app.add_middleware(APIKeyMiddleware)
+
+# CORS middleware - restrict to known origins
+allowed_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,https://rag.coopeverything.org").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Initialize RAG components
 rag_core = RAGCore()
@@ -1231,7 +1272,8 @@ def _is_image_followup(query: str, history: Optional[List[Dict]] = None) -> bool
 
 
 @app.post("/api/v1/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
+@limiter.limit("30/minute")
+async def query(request: Request, query_request: QueryRequest):
     """
     Main query endpoint - orchestrates search across all sources
 
@@ -1256,7 +1298,7 @@ async def query(request: QueryRequest):
     global_instructions = global_config.get("global_instructions", "")
 
     # Classify the query early for better routing and response generation
-    query_classification = classify_query(request.query, request.conversation_history)
+    query_classification = classify_query(query_request.query, query_request.conversation_history)
     logging.getLogger(__name__).info(
         f"Query classification: intent={query_classification['intent'].value}, "
         f"is_correction={query_classification['is_correction']}, "
@@ -1266,22 +1308,22 @@ async def query(request: QueryRequest):
     try:
         # Log incoming request details for debugging
         logger = logging.getLogger(__name__)
-        logger.info(f"Query received: mode={request.mode}, model={request.model}, has_files={request.files is not None and len(request.files) > 0 if request.files else False}")
-        if request.files:
-            for f in request.files:
+        logger.info(f"Query received: mode={query_request.mode}, model={query_request.model}, has_files={query_request.files is not None and len(query_request.files) > 0 if query_request.files else False}")
+        if query_request.files:
+            for f in query_request.files:
                 logger.info(f"  File: {f.name}, type={f.type}, isImage={f.isImage}, data_len={len(f.data) if f.data else 0}")
 
         # Check for attached files - route to vision model if images present
-        if request.files and len(request.files) > 0:
-            has_images = any(f.isImage for f in request.files)
+        if query_request.files and len(query_request.files) > 0:
+            has_images = any(f.isImage for f in query_request.files)
             if has_images:
                 logger.info("Routing to vision model for image analysis")
             else:
-                logger.info(f"Processing {len(request.files)} attached file(s) (no images)")
-            result = await query_vision(request, request.files)
+                logger.info(f"Processing {len(query_request.files)} attached file(s) (no images)")
+            result = await query_vision(query_request, query_request.files)
 
         # Detect follow-up questions about images when no image is attached
-        elif _is_image_followup(request.query, request.conversation_history):
+        elif _is_image_followup(query_request.query, query_request.conversation_history):
             logging.getLogger(__name__).info("Detected image follow-up without image attached")
             result = {
                 "answer": "I don't have access to the image from the previous message. Please re-attach the image with your question so I can analyze it again.",
@@ -1291,14 +1333,14 @@ async def query(request: QueryRequest):
                 "model_used": "system",
             }
 
-        elif request.mode == "private":
+        elif query_request.mode == "private":
             # Force local-only mode (no external APIs)
-            request.model = "local"
-            result = await query_local(request, global_instructions, query_classification)
+            query_request.model = "local"
+            result = await query_local(query_request, global_instructions, query_classification)
 
-        elif request.mode == "research":
+        elif query_request.mode == "research":
             # Detect supplier queries - use focused format instead of essay
-            query_lower = request.query.lower()
+            query_lower = query_request.query.lower()
             supplier_keywords = [
                 "supplier", "vendor", "wholesale", "where to buy",
                 "isolate", "absolute", "terpene", "essential oil",
@@ -1310,7 +1352,7 @@ async def query(request: QueryRequest):
                 # Use focused search (table format with URLs) instead of essay
                 logging.getLogger(__name__).info("Research mode: detected supplier query, using focused_search")
                 focused_result = await perplexity_search.focused_search(
-                    query=request.query,
+                    query=query_request.query,
                     recency="month"
                 )
                 result = {
@@ -1323,26 +1365,26 @@ async def query(request: QueryRequest):
                 }
             else:
                 # Regular deep research for non-supplier queries
-                result = await query_research(request)
+                result = await query_research(query_request)
 
-        elif request.mode == "deep_agent":
+        elif query_request.mode == "deep_agent":
             # Force multi-step agent research via smolagents
-            result = await query_deep_agent(request)
+            result = await query_deep_agent(query_request)
 
         else:  # auto mode (default) - Groq agent with tools
             # ALWAYS use Groq agent in auto mode - it handles web search, Notion, etc.
             # Model selection (haiku/sonnet/opus) only affects complex_reasoning delegation
             # Get project config for context
             project_config = None
-            if request.project:
-                project_config = await rag_core.get_project_config(request.project)
+            if query_request.project:
+                project_config = await rag_core.get_project_config(query_request.project)
 
-            logging.getLogger(__name__).info(f"Using Groq agent with tools (user model pref: {request.model})")
+            logging.getLogger(__name__).info(f"Using Groq agent with tools (user model pref: {query_request.model})")
 
             # Groq agent handles everything - routing, tool calls, synthesis
             agent_result = await groq_agent.chat(
-                query=request.query,
-                conversation_history=request.conversation_history,
+                query=query_request.query,
+                conversation_history=query_request.conversation_history,
                 project_config=project_config,
             )
 
@@ -1417,7 +1459,7 @@ async def query(request: QueryRequest):
                     "reasoning": routing_reasoning,
                 },
             }
-            request.model = "groq"  # For response metadata
+            query_request.model = "groq"  # For response metadata
         
         # Calculate processing time
         processing_time = (datetime.utcnow() - start_time).total_seconds()
@@ -1432,7 +1474,7 @@ async def query(request: QueryRequest):
                 "output": usage.get("output_tokens", 0)
             }
             # Use actual model for pricing (result may specify pricing_model for vision etc)
-            pricing_model = result.get("pricing_model") or request.model
+            pricing_model = result.get("pricing_model") or query_request.model
             estimated_cost = calculate_cost(
                 pricing_model,
                 tokens["input"],
@@ -1451,14 +1493,14 @@ async def query(request: QueryRequest):
             )
 
         return QueryResponse(
-            query=request.query,
+            query=query_request.query,
             answer=result["answer"],
-            mode=request.mode,
+            mode=query_request.mode,
             sources=result["sources"],
             processing_time=processing_time,
             timestamp=datetime.utcnow().isoformat(),
             confidence=result.get("confidence"),
-            model_used=result.get("model_used") or request.model,
+            model_used=result.get("model_used") or query_request.model,
             tokens=tokens,
             estimated_cost=estimated_cost,
             routing_info=routing_info,

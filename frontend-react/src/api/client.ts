@@ -1,6 +1,7 @@
 // API Client for RAG-Hybrid Backend
 
 const API_BASE = '/api/v1';
+const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 class ApiError extends Error {
   status: number;
@@ -25,6 +26,7 @@ async function request<T>(
   const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...(API_KEY && { 'X-API-Key': API_KEY }),
       ...options.headers,
     },
     ...options,
@@ -120,6 +122,7 @@ export const api = {
     files.forEach(file => formData.append('files', file));
     const response = await fetch(`${API_BASE}/projects/${encodeURIComponent(name)}/files`, {
       method: 'POST',
+      ...(API_KEY && { headers: { 'X-API-Key': API_KEY } }),
       body: formData,
     });
     if (!response.ok) {
