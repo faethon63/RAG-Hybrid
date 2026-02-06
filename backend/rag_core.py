@@ -41,9 +41,14 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-# Chunk settings
+# Chunk settings (defaults, can be overridden per-project via chunk_size/chunk_overlap in project config)
 CHUNK_SIZE = 500  # characters per chunk
 CHUNK_OVERLAP = 50  # overlap between chunks
+
+# TODO: Embedding model upgrade path
+# Current: sentence-transformers/all-MiniLM-L6-v2 (MTEB 56.3, 384d)
+# Recommended: BAAI/bge-m3 (MTEB ~63, 1024d) or intfloat/e5-base-v2
+# Requires: re-indexing all documents, ChromaDB collection recreation
 
 
 class RAGCore:
@@ -146,15 +151,49 @@ class RAGCore:
 
     @staticmethod
     def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
-        """Split text into overlapping chunks."""
+        """
+        Recursively split text into chunks, trying to preserve natural boundaries.
+        Splits by: double newline (paragraphs) -> single newline -> sentence -> character.
+        """
+        # If text fits in one chunk, return it
         if len(text) <= chunk_size:
-            return [text]
+            return [text.strip()] if text.strip() else []
+
+        separators = ["\n\n", "\n", ". ", "! ", "? ", "; ", ", ", " "]
+
+        # Try each separator, starting with the largest (paragraph breaks)
+        for sep in separators:
+            if sep in text:
+                parts = text.split(sep)
+                chunks = []
+                current_chunk = ""
+
+                for part in parts:
+                    # If adding this part exceeds chunk_size, save current and start new
+                    test = current_chunk + sep + part if current_chunk else part
+                    if len(test) > chunk_size and current_chunk:
+                        chunks.append(current_chunk.strip())
+                        # Overlap: keep the end of the previous chunk
+                        if overlap > 0 and len(current_chunk) > overlap:
+                            current_chunk = current_chunk[-overlap:] + sep + part
+                        else:
+                            current_chunk = part
+                    else:
+                        current_chunk = test
+
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+
+                if chunks:
+                    return chunks
+
+        # Fallback: character-level splitting
         chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunks.append(text[start:end])
-            start += chunk_size - overlap
+        for i in range(0, len(text), chunk_size - overlap):
+            chunk = text[i:i + chunk_size]
+            if chunk.strip():
+                chunks.append(chunk.strip())
+
         return chunks
 
     @staticmethod
@@ -167,6 +206,8 @@ class RAGCore:
         self,
         documents: List[Dict[str, Any]],
         project: Optional[str] = None,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
     ) -> int:
         """
         Index a list of documents into ChromaDB.
@@ -176,9 +217,27 @@ class RAGCore:
           - "title": str (optional)
           - "path": str (optional)
           - "metadata": dict (optional, extra metadata)
+
+        chunk_size/chunk_overlap: Override defaults (can be set per-project in config).
         """
         if not self._initialized:
             await self.initialize()
+
+        # Resolve chunk settings: explicit args > project config > global defaults
+        effective_chunk_size = chunk_size or CHUNK_SIZE
+        effective_chunk_overlap = chunk_overlap or CHUNK_OVERLAP
+
+        # If project specified, try to load per-project chunk settings
+        if project and chunk_size is None:
+            try:
+                project_config = await self.get_project_config(project)
+                if project_config:
+                    effective_chunk_size = project_config.get("chunk_size", CHUNK_SIZE)
+                    effective_chunk_overlap = project_config.get("chunk_overlap", CHUNK_OVERLAP)
+            except Exception:
+                pass
+
+        logger.info(f"Indexing with chunk_size={effective_chunk_size}, chunk_overlap={effective_chunk_overlap} for project '{project}'")
 
         collection = self._get_collection(project)
         total_indexed = 0
@@ -192,7 +251,7 @@ class RAGCore:
             path = doc.get("path", "")
             extra_meta = doc.get("metadata", {})
 
-            chunks = self._chunk_text(content)
+            chunks = self._chunk_text(content, effective_chunk_size, effective_chunk_overlap)
             for i, chunk in enumerate(chunks):
                 doc_id = self._doc_id(content, i)
                 embedding = self.embed([chunk])[0]
@@ -202,6 +261,8 @@ class RAGCore:
                     "path": path,
                     "chunk_index": i,
                     "total_chunks": len(chunks),
+                    "chunk_size": effective_chunk_size,
+                    "chunk_overlap": effective_chunk_overlap,
                 }
                 metadata.update(extra_meta)
 
@@ -1034,7 +1095,8 @@ IMPORTANT RULES:
     # Fields that sync across environments (tracked in git)
     SYNCED_CONFIG_FIELDS = {
         "name", "description", "system_prompt", "flexible_prompt",
-        "instructions", "created_at", "updated_at"
+        "instructions", "created_at", "updated_at",
+        "chunk_size", "chunk_overlap",
     }
     # Fields that stay local (gitignored) - environment-specific
     LOCAL_CONFIG_FIELDS = {"allowed_paths", "indexed_files"}
