@@ -989,9 +989,84 @@ class Crawl4AISearch:
             logger.warning("Crawl4AI not installed - run: pip install crawl4ai")
             return False
 
+    def _assess_content_quality(self, content: str) -> dict:
+        """
+        Check if extracted content has real text or is mostly nav/boilerplate.
+        Returns {"good": bool, "sentence_count": int, "reason": str}
+        """
+        if not content or len(content) < 200:
+            return {"good": False, "sentence_count": 0, "reason": "too short"}
+
+        lines = content.split('\n')
+        # Count lines that look like real sentences (15+ words, not links/headers/images)
+        sentence_lines = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            word_count = len(stripped.split())
+            # Skip: markdown images, links-only lines, headers, table rows, HTML tags
+            if stripped.startswith(('![', '<', '|', '#')):
+                continue
+            if stripped.startswith('[') and stripped.endswith(')'):
+                continue  # markdown link line
+            if word_count >= 12:
+                sentence_lines += 1
+
+        if sentence_lines >= 3:
+            return {"good": True, "sentence_count": sentence_lines, "reason": "ok"}
+        else:
+            return {"good": False, "sentence_count": sentence_lines, "reason": f"only {sentence_lines} text lines found"}
+
+    def _extract_useful_content(self, content: str) -> str:
+        """
+        Extract the useful portion of scraped content, skipping nav boilerplate.
+        Works for any website type.
+        """
+        if len(content) <= 10000:
+            return content
+
+        # 1. Try content section markers (works for many site types)
+        content_markers = [
+            "## About this item", "About this item",
+            "## Product Description", "Product Description",
+            "## Product details", "Product details",
+            "## Product information", "Product information",
+            "## Article", "## Content", "## Main",
+            "## Features", "## Specifications", "## Overview",
+            "## Description", "## Summary", "## Review",
+        ]
+        best_start = None
+        for marker in content_markers:
+            idx = content.find(marker)
+            if idx != -1 and (best_start is None or idx < best_start):
+                best_start = idx
+
+        if best_start is not None:
+            start = max(0, best_start - 500)
+            logger.info(f"Crawl4AI: found content marker at char {best_start}, using from {start}")
+            return content[start:]
+
+        # 2. Find the first substantial text block (12+ word sentences)
+        lines = content.split('\n')
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            word_count = len(stripped.split())
+            if word_count >= 12 and not stripped.startswith(('![', '[', '#', '|', '<')):
+                start = max(0, content.find(line) - 200)
+                logger.info(f"Crawl4AI: found first text block at line {i}, char {start}")
+                return content[start:]
+
+        # 3. Last resort: skip first 40%
+        skip = int(len(content) * 0.4)
+        logger.info(f"Crawl4AI: no text blocks found, skipping first {skip} chars")
+        return content[skip:]
+
     async def extract(self, url: str, timeout: int = 30) -> Dict[str, Any]:
         """
         Extract clean content from URL using Playwright for JS rendering.
+        Uses a two-pass approach: fast config first, retry with heavy config
+        if content quality is poor (catches JS-heavy sites automatically).
 
         Args:
             url: URL to scrape
@@ -1002,107 +1077,99 @@ class Crawl4AISearch:
         try:
             from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
 
-            # Detect e-commerce / JS-heavy sites that need special handling
-            url_lower = url.lower()
-            is_ecommerce = any(d in url_lower for d in [
-                "amazon.com", "amazon.", "ebay.com", "walmart.com",
-                "etsy.com", "aliexpress.com", "target.com",
-            ])
+            # Pass 1: Standard config (fast, works for most sites)
+            config_fast = CrawlerRunConfig(
+                wait_until="domcontentloaded",
+                delay_before_return_html=0.5,
+                scan_full_page=False,
+                excluded_selector="nav, header, footer",
+                remove_forms=True,
+                exclude_external_images=True,
+                page_timeout=30000,
+            )
 
-            # Configure based on site type
-            if is_ecommerce:
-                config = CrawlerRunConfig(
-                    wait_until="networkidle",          # Wait for all AJAX to finish
-                    delay_before_return_html=3.0,      # Extra 3s for dynamic content
-                    scan_full_page=True,               # Scroll to load lazy content
-                    excluded_selector="nav, header, footer, #navbar, #nav-belt, #skiplink, .nav-sprite, #rhf",
-                    remove_forms=True,
-                    exclude_external_images=True,
-                    word_count_threshold=1,
-                    page_timeout=45000,
-                )
-                logger.info(f"Crawl4AI: using e-commerce config for {url[:60]}")
-            else:
-                config = CrawlerRunConfig(
-                    wait_until="domcontentloaded",
-                    delay_before_return_html=0.5,
-                    page_timeout=30000,
-                )
+            # Pass 2: Heavy config (for JS-heavy sites where pass 1 fails)
+            config_heavy = CrawlerRunConfig(
+                wait_until="networkidle",
+                delay_before_return_html=3.0,
+                scan_full_page=True,
+                excluded_selector="nav, header, footer, [role='navigation'], [role='banner']",
+                remove_forms=True,
+                exclude_external_images=True,
+                word_count_threshold=1,
+                page_timeout=45000,
+            )
+
+            content = ""
+            result = None
 
             async with AsyncWebCrawler() as crawler:
-                result = await crawler.arun(url=url, config=config)
+                # --- Pass 1: Fast ---
+                logger.info(f"Crawl4AI pass 1 (fast) for {url[:80]}")
+                result = await crawler.arun(url=url, config=config_fast)
 
-                if not result.success:
-                    logger.warning(f"Crawl4AI failed for {url}: extraction unsuccessful")
-                    return {
-                        "success": False,
-                        "error": "Extraction failed",
-                        "answer": "",
-                        "raw_content": {},
-                        "citations": [],
-                    }
+                if result and result.success:
+                    content = result.markdown or result.cleaned_html or ""
+                    logger.info(f"Crawl4AI pass 1: {len(content)} chars")
 
-                # Get clean markdown (preferred) or cleaned HTML
-                content = result.markdown or result.cleaned_html or ""
+                    useful = self._extract_useful_content(content)
+                    quality = self._assess_content_quality(useful[:20000])
 
-                logger.info(f"Crawl4AI extracted {len(content)} chars from {url}")
-
-                # Smart truncation: skip nav/header boilerplate, find product content
-                useful_content = content
-                if len(content) > 10000:
-                    # Look for product-content markers
-                    content_markers = [
-                        "## About this item", "About this item",
-                        "## Product Description", "Product Description",
-                        "## Product details", "Product details",
-                        "## Product information", "Product information",
-                        "## Features", "## Specifications",
-                        "## Description",
-                    ]
-                    best_start = None
-                    for marker in content_markers:
-                        idx = content.find(marker)
-                        if idx != -1 and (best_start is None or idx < best_start):
-                            best_start = idx
-
-                    if best_start is not None:
-                        start = max(0, best_start - 500)
-                        useful_content = content[start:]
-                        logger.info(f"Crawl4AI: found content marker at char {best_start}, using from {start}")
+                    if quality["good"]:
+                        logger.info(f"Crawl4AI pass 1: quality OK ({quality['sentence_count']} text lines)")
                     else:
-                        # No markers found -- find the first substantial text block
-                        # (paragraphs with 50+ words, not just headers/links)
-                        lines = content.split('\n')
-                        for i, line in enumerate(lines):
-                            word_count = len(line.split())
-                            if word_count >= 15 and not line.startswith(('![', '[', '#', '|', '<')):
-                                start = max(0, content.find(line) - 200)
-                                useful_content = content[start:]
-                                logger.info(f"Crawl4AI: found first text block at line {i}, char {start}")
-                                break
-                        else:
-                            # Last resort: skip first 40%
-                            skip = int(len(content) * 0.4)
-                            useful_content = content[skip:]
-                            logger.info(f"Crawl4AI: no text blocks found, skipping first {skip} chars")
+                        logger.info(f"Crawl4AI pass 1: low quality ({quality['reason']}), retrying with heavy config")
+                        content = ""  # Force pass 2
+                else:
+                    logger.info("Crawl4AI pass 1 failed, trying heavy config")
 
-                # Allow up to 20K chars for the answer (Groq has 128K context)
-                answer = useful_content[:20000] if useful_content else ""
+                # --- Pass 2: Heavy (only if pass 1 failed quality check) ---
+                if not content or len(content) < 500:
+                    logger.info(f"Crawl4AI pass 2 (heavy) for {url[:80]}")
+                    result = await crawler.arun(url=url, config=config_heavy)
 
+                    if result and result.success:
+                        content = result.markdown or result.cleaned_html or ""
+                        logger.info(f"Crawl4AI pass 2: {len(content)} chars")
+                    else:
+                        logger.warning(f"Crawl4AI pass 2 also failed for {url}")
+                        return {
+                            "success": False,
+                            "error": "Extraction failed after both attempts",
+                            "answer": "",
+                            "raw_content": {},
+                            "citations": [],
+                        }
+
+            if not content:
                 return {
-                    "success": True,
-                    "answer": answer,
-                    "raw_content": {url: content},
-                    "citations": [{
-                        "title": result.metadata.get("title", url) if result.metadata else url,
-                        "url": url,
-                        "snippet": answer[:300] if answer else "",
-                    }],
-                    "metadata": {
-                        "title": result.metadata.get("title", "") if result.metadata else "",
-                        "description": result.metadata.get("description", "") if result.metadata else "",
-                    },
+                    "success": False,
+                    "error": "No content extracted",
+                    "answer": "",
+                    "raw_content": {},
+                    "citations": [],
                 }
+
+            logger.info(f"Crawl4AI extracted {len(content)} chars from {url}")
+
+            # Extract useful portion and truncate for answer
+            useful_content = self._extract_useful_content(content)
+            answer = useful_content[:20000] if useful_content else ""
+
+            return {
+                "success": True,
+                "answer": answer,
+                "raw_content": {url: content},
+                "citations": [{
+                    "title": result.metadata.get("title", url) if result and result.metadata else url,
+                    "url": url,
+                    "snippet": answer[:300] if answer else "",
+                }],
+                "metadata": {
+                    "title": result.metadata.get("title", "") if result and result.metadata else "",
+                    "description": result.metadata.get("description", "") if result and result.metadata else "",
+                },
+            }
 
         except ImportError:
             logger.error("Crawl4AI not installed")
