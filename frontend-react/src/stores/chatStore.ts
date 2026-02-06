@@ -121,9 +121,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await api.getChat(chatId);
+      // Ensure every message has a unique ID (server may not store them)
+      const messages = (response.chat.messages || []).map((m: Message, idx: number) => ({
+        ...m,
+        id: m.id || `msg_loaded_${chatId}_${idx}`,
+      }));
       set({
         currentChatId: chatId,
-        messages: response.chat.messages,
+        messages,
         isLoading: false,
       });
     } catch (err) {
@@ -140,6 +145,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const chatData = {
         project,
         messages: messages.map((m) => ({
+          id: m.id,
           role: m.role,
           content: m.content,
           metadata: m.metadata,

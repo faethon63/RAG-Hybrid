@@ -135,7 +135,7 @@ export function ChatList() {
     <div className="space-y-1">
       {/* Selection mode toolbar */}
       {selectionMode && (
-        <div className="flex items-center gap-1 px-2 py-1.5 mb-1 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)]">
+        <div className="sticky top-0 z-10 flex items-center gap-1 px-2 py-1.5 mb-1 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)]">
           <span className="text-xs text-[var(--color-text-secondary)] flex-1">
             {selectedIds.size} selected
           </span>
