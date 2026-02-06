@@ -384,13 +384,16 @@ class DeepResearchAgent:
             # Extract steps from agent memory
             steps = []
             if hasattr(agent, 'memory') and agent.memory:
-                for step in agent.memory:
-                    if hasattr(step, 'tool_calls'):
-                        for tc in step.tool_calls:
-                            steps.append({
-                                "tool": tc.name if hasattr(tc, 'name') else str(tc),
-                                "input": str(tc.arguments)[:200] if hasattr(tc, 'arguments') else "",
-                            })
+                # AgentMemory is not directly iterable - access .steps attribute
+                memory_steps = getattr(agent.memory, 'steps', None)
+                if memory_steps:
+                    for step in memory_steps:
+                        if hasattr(step, 'tool_calls'):
+                            for tc in step.tool_calls:
+                                steps.append({
+                                    "tool": tc.name if hasattr(tc, 'name') else str(tc),
+                                    "input": str(tc.arguments)[:200] if hasattr(tc, 'arguments') else "",
+                                })
 
             return {
                 "answer": str(result),
@@ -474,7 +477,7 @@ def get_deep_agent(model_id: str = None) -> DeepResearchAgent:
     if model_id is None:
         # Auto-detect: use Ollama if available, otherwise Claude
         ollama_ok = _check_ollama_available()
-        model_id = "ollama/qwen2.5:14b" if ollama_ok else "anthropic/claude-3-5-haiku-20241022"
+        model_id = "ollama/qwen2.5:14b" if ollama_ok else "anthropic/claude-haiku-4-5-20251001"
         logger.info(f"Deep agent auto-selected model: {model_id} (ollama_available={ollama_ok})")
 
     if _deep_agent is None or _deep_agent.model_id != model_id:

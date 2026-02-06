@@ -29,7 +29,7 @@ MAX_KB_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 from rag_core import RAGCore
 from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch, IdealistaSearch, Crawl4AISearch
 from orchestrator import QueryOrchestrator
-from groq_agent import groq_agent, GroqAgent
+from groq_agent import groq_agent, GroqAgent, get_current_project, get_current_project_config, get_current_conversation_history
 from deep_agent import get_deep_agent, is_deep_research_query
 from auth import authenticate_user
 from query_classifier import QueryClassifier, classify_query
@@ -211,10 +211,11 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 
     # Auto-bump complexity for specialized domains
     original_complexity = complexity
-    if complexity == "simple" and groq_agent._current_project_config:
+    current_config = get_current_project_config()
+    if complexity == "simple" and current_config:
         project_prompt = (
-            groq_agent._current_project_config.get("system_prompt", "") + " " +
-            groq_agent._current_project_config.get("description", "")
+            current_config.get("system_prompt", "") + " " +
+            current_config.get("description", "")
         ).lower()
         domain_keywords = [
             "bankruptcy", "legal", "court", "compliance", "attorney", "law",
@@ -237,9 +238,9 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 
     # Include conversation history from groq_agent for context
     conversation_context = ""
-    if groq_agent._current_conversation_history:
+    if get_current_conversation_history():
         history_lines = []
-        for msg in groq_agent._current_conversation_history[-6:]:
+        for msg in get_current_conversation_history()[-6:]:
             role = msg.get("role", "user")
             content = msg.get("content", "")[:500]  # Truncate long messages
             history_lines.append(f"{role.upper()}: {content}")
@@ -249,9 +250,9 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 
     # Inject KB context: search project knowledge base for relevant docs
     kb_context = ""
-    if groq_agent._current_project:
+    if get_current_project():
         try:
-            kb_results = await rag_core.search(query=task, project=groq_agent._current_project, top_k=3)
+            kb_results = await rag_core.search(query=task, project=get_current_project(), top_k=3)
             if kb_results:
                 kb_chunks = []
                 for r in kb_results:
@@ -911,7 +912,7 @@ async def _tool_find_suppliers(
 async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, Any]:
     """Search project's indexed knowledge base (ChromaDB)."""
     logger = logging.getLogger(__name__)
-    project_name = groq_agent._current_project
+    project_name = get_current_project()
     if not project_name:
         return {"answer": "No project selected. Select a project to search its knowledge base.", "sources": []}
 
@@ -945,7 +946,7 @@ async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, A
 async def _tool_list_directory(path: str) -> Dict[str, Any]:
     """List directory contents within allowed project paths."""
     logger = logging.getLogger(__name__)
-    config = groq_agent._current_project_config or {}
+    config = get_current_project_config() or {}
     allowed_paths = config.get("allowed_paths", [])
     if not allowed_paths:
         return {"answer": "No file access configured for this project. Add allowed paths in project settings.", "sources": []}
@@ -967,7 +968,7 @@ async def _tool_list_directory(path: str) -> Dict[str, Any]:
 async def _tool_read_file(path: str) -> Dict[str, Any]:
     """Read file contents from allowed project paths."""
     logger = logging.getLogger(__name__)
-    config = groq_agent._current_project_config or {}
+    config = get_current_project_config() or {}
     allowed_paths = config.get("allowed_paths", [])
     if not allowed_paths:
         return {"answer": "No file access configured for this project.", "sources": []}
@@ -987,7 +988,7 @@ async def _tool_read_file(path: str) -> Dict[str, Any]:
 async def _tool_search_files(path: str, pattern: str) -> Dict[str, Any]:
     """Search for files matching a pattern in allowed project paths."""
     logger = logging.getLogger(__name__)
-    config = groq_agent._current_project_config or {}
+    config = get_current_project_config() or {}
     allowed_paths = config.get("allowed_paths", [])
     if not allowed_paths:
         return {"answer": "No file access configured for this project.", "sources": []}

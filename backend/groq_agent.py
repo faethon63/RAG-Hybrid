@@ -9,10 +9,32 @@ import httpx
 import json
 import os
 import re
+from contextvars import ContextVar
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# Request-scoped state using contextvars (safe for concurrent async requests).
+# Each asyncio task gets its own copy, preventing cross-request contamination.
+_request_project: ContextVar[Optional[str]] = ContextVar('_request_project', default=None)
+_request_project_config: ContextVar[Optional[Dict]] = ContextVar('_request_project_config', default=None)
+_request_conversation_history: ContextVar[Optional[List[Dict]]] = ContextVar('_request_conversation_history', default=None)
+
+
+def get_current_project() -> Optional[str]:
+    """Get the current request's project name (async-safe)."""
+    return _request_project.get()
+
+
+def get_current_project_config() -> Optional[Dict]:
+    """Get the current request's project config (async-safe)."""
+    return _request_project_config.get()
+
+
+def get_current_conversation_history() -> Optional[List[Dict]]:
+    """Get the current request's conversation history (async-safe)."""
+    return _request_conversation_history.get()
 
 
 def _strip_citation_markers(text: str) -> str:
@@ -481,9 +503,6 @@ BAD RESPONSE (NEVER DO THIS):
     def __init__(self):
         self._http_client = None
         self._tool_handlers = {}
-        self._current_conversation_history = None  # Store history for tool handlers
-        self._current_project = None  # Store current project name
-        self._current_project_config = None  # Store current project config for tool handlers
 
     def register_tool_handler(self, name: str, handler):
         """Register a function to handle tool calls."""
@@ -559,10 +578,10 @@ BAD RESPONSE (NEVER DO THIS):
 
         Returns: {"answer": str, "sources": list, "tool_calls": list, "usage": dict}
         """
-        # Store conversation history and project config for tool handlers
-        self._current_conversation_history = conversation_history
-        self._current_project = project_config.get("name") if project_config else None
-        self._current_project_config = project_config
+        # Set request-scoped context (safe for concurrent async requests)
+        _request_conversation_history.set(conversation_history)
+        _request_project.set(project_config.get("name") if project_config else None)
+        _request_project_config.set(project_config)
 
         # PREPROCESSING: Force web_search for product/supplier queries
         # Groq (Llama 4 Scout) often misroutes these to complex_reasoning
