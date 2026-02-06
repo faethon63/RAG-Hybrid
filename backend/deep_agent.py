@@ -5,9 +5,15 @@ for simple queries (95% of traffic).
 """
 
 import os
+import sys
 import logging
+import asyncio
 from typing import Optional, Dict, Any, List
 from smolagents import CodeAgent, tool, LiteLLMModel
+
+# Add backend to path for rag_core import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rag_core import RAGCore
 
 logger = logging.getLogger(__name__)
 
@@ -95,26 +101,27 @@ def search_local_knowledge(query: str, project: Optional[str] = None) -> str:
     Returns:
         Relevant document snippets
     """
-    import httpx
-
     try:
-        resp = httpx.post(
-            "http://localhost:8000/api/v1/search",
-            json={"query": query, "project": project, "max_results": 5},
-            timeout=15.0,
-        )
-        if resp.status_code == 200:
-            results = resp.json().get("results", [])
-            if not results:
-                return "No relevant documents found in knowledge base."
+        rag = RAGCore()
+        # RAGCore.search is async, but we're in a sync @tool context
+        # Use a new event loop since we're in a thread (asyncio.to_thread)
+        loop = asyncio.new_event_loop()
+        try:
+            results = loop.run_until_complete(rag.search(query=query, project=project, top_k=5))
+        finally:
+            loop.close()
 
-            output = []
-            for r in results:
-                output.append(f"**{r.get('title', 'Untitled')}** (score: {r.get('score', 0):.2f})")
-                output.append(r.get("snippet", "")[:500])
-                output.append("---")
-            return "\n".join(output)
-        return f"Search error: {resp.status_code}"
+        if not results:
+            return "No relevant documents found in knowledge base."
+
+        output = []
+        for r in results:
+            source = r.get("metadata", {}).get("source", "unknown")
+            score = r.get("score", 0)
+            content = r.get("content", "")[:500]
+            output.append(f"**{source}** (relevance: {score:.2f})\n{content}")
+            output.append("---")
+        return "\n".join(output)
     except Exception as e:
         return f"Knowledge search failed: {e}"
 

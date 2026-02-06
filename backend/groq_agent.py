@@ -865,7 +865,7 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                     return {
                         "answer": "No response from Groq API",
                         "usage": total_usage,
-                        "tool_results": tool_results,
+                        "tool_results": all_tool_calls,
                     }
                 choice = choices[0]
                 message = choice.get("message", {})

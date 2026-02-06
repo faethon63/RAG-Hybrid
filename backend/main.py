@@ -230,7 +230,7 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
     model_map = {
         "simple": "claude-haiku-4-5-20251001",
         "medium": "claude-sonnet-4-5-20250929",
-        "critical": "claude-opus-4-5-20251101",
+        "critical": "claude-opus-4-6",
     }
     model = model_map.get(complexity, "claude-haiku-4-5-20251001")
 
@@ -333,7 +333,7 @@ async def _tool_github_search(action: str, query: str = None, repo: str = None) 
                 try:
                     content = base64.b64decode(result.stdout.strip()).decode('utf-8')
                     return {"answer": f"File {query} from {repo}:\n```\n{content[:5000]}\n```", "sources": [{"url": f"https://github.com/{repo}/blob/main/{query}"}]}
-                except:
+                except (ValueError, UnicodeDecodeError):
                     return {"answer": f"File content:\n{result.stdout[:5000]}", "sources": []}
             return {"answer": f"Error reading file: {result.stderr}", "sources": []}
 
@@ -1951,7 +1951,7 @@ def calculate_confidence(results: List[Dict]) -> float:
 # Note: Perplexity/Tavily use per-request pricing, these are approximations
 PRICING = {
     # Claude models
-    "claude-opus-4-5-20251101": (15.0, 75.0),
+    "claude-opus-4-6": (15.0, 75.0),
     "claude-sonnet-4-5-20250929": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
     # Perplexity (per-request pricing ~$1/1000 req, approximated to tokens)

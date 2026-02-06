@@ -25,7 +25,7 @@ class QueryOrchestrator:
     """Uses Groq (Llama 3.3 70B) to analyze queries and route to optimal model - FREE."""
 
     # Model definitions (loaded from env vars with defaults)
-    MODEL_OPUS = os.getenv("CLAUDE_OPUS_MODEL", "claude-opus-4-5-20251101")
+    MODEL_OPUS = os.getenv("CLAUDE_OPUS_MODEL", "claude-opus-4-6")
     MODEL_SONNET = os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-5-20250929")
     MODEL_HAIKU = os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001")
     MODEL_LOCAL = "local"  # Ollama - only for static knowledge chat
