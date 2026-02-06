@@ -31,6 +31,10 @@ interface ChatState {
   setLastSources: (sources: Source[]) => void;
   setLastAgentSteps: (steps: AgentStep[]) => void;
 
+  // Message editing
+  editMessage: (messageId: string, newContent: string, project?: string | null) => Promise<void>;
+  deleteMessage: (messageId: string, project?: string | null) => Promise<void>;
+
   // API operations
   loadChats: (project?: string | null) => Promise<void>;
   loadChat: (chatId: string) => Promise<void>;
@@ -85,6 +89,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setError: (error) => set({ error }),
   setLastSources: (sources) => set({ lastSources: sources }),
   setLastAgentSteps: (steps) => set({ lastAgentSteps: steps }),
+
+  editMessage: async (messageId, newContent, project) => {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === messageId ? { ...m, content: newContent } : m
+      ),
+    }));
+    await get().saveChat(project);
+  },
+
+  deleteMessage: async (messageId, project) => {
+    set((state) => ({
+      messages: state.messages.filter((m) => m.id !== messageId),
+    }));
+    await get().saveChat(project);
+  },
 
   loadChats: async (project) => {
     set({ chatsLoading: true });
@@ -172,7 +192,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Build user message content with file info
     let userContent = query;
-    const hasImages = effectiveFiles?.some(f => f.isImage);
     if (hasNewFiles && files.length > 0) {
       const fileNames = files.map(f => f.name).join(', ');
       if (!query) {

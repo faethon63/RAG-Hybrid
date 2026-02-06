@@ -13,17 +13,25 @@ import {
   ChevronRightIcon,
   CopyIcon,
   CheckIcon,
+  EditIcon,
+  TrashIcon,
+  CloseIcon,
 } from '../common/icons';
 import clsx from 'clsx';
 
 interface MessageItemProps {
   message: Message;
+  onEdit?: (id: string, content: string) => void;
+  onDelete?: (id: string) => void;
 }
 
-export function MessageItem({ message }: MessageItemProps) {
+export function MessageItem({ message, onEdit, onDelete }: MessageItemProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const showThinking = useSettingsStore((s) => s.showThinking);
 
   const isUser = message.role === 'user';
@@ -36,10 +44,45 @@ export function MessageItem({ message }: MessageItemProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleStartEdit = () => {
+    setEditContent(message.content);
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (editContent.trim() && onEdit) {
+      onEdit(message.id, editContent);
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditContent('');
+  };
+
+  const handleDeleteClick = () => {
+    if (confirmDelete) {
+      onDelete?.(message.id);
+      setConfirmDelete(false);
+    } else {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 3000);
+    }
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      handleCancelEdit();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      handleSaveEdit();
+    }
+  };
+
   return (
     <div
       className={clsx(
-        'py-6 px-4 md:px-8',
+        'group/msg relative py-6 px-4 md:px-8',
         isUser ? 'bg-transparent' : 'bg-[var(--color-surface)]/30'
       )}
     >
@@ -127,32 +170,64 @@ export function MessageItem({ message }: MessageItemProps) {
           )}
 
           {/* Main content */}
-          <div className="markdown-content">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ node, className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || '');
-                  const inline = !match && !className;
-                  return inline ? (
-                    <code className={className} {...props}>
-                      {children}
-                    </code>
-                  ) : (
-                    <SyntaxHighlighter
-                      style={oneDark}
-                      language={match?.[1] || 'text'}
-                      PreTag="div"
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  );
-                },
-              }}
-            >
-              {content}
-            </ReactMarkdown>
-          </div>
+          {isEditing ? (
+            <div className="space-y-2">
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                autoFocus
+                rows={Math.max(3, editContent.split('\n').length)}
+                className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg p-3 text-sm outline-none focus:border-[var(--color-primary)] resize-y"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveEdit}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-primary)] text-white rounded-lg text-xs hover:opacity-90 transition-opacity"
+                >
+                  <CheckIcon className="w-3 h-3" />
+                  Save
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-xs hover:bg-[var(--color-surface-hover)] transition-colors"
+                >
+                  <CloseIcon className="w-3 h-3" />
+                  Cancel
+                </button>
+                <span className="text-xs text-[var(--color-text-secondary)] ml-2">
+                  Ctrl+Enter to save, Esc to cancel
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="markdown-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ node, className, children, ...props }) {
+                    const match = /language-(\w+)/.exec(className || '');
+                    const inline = !match && !className;
+                    return inline ? (
+                      <code className={className} {...props}>
+                        {children}
+                      </code>
+                    ) : (
+                      <SyntaxHighlighter
+                        style={oneDark}
+                        language={match?.[1] || 'text'}
+                        PreTag="div"
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                    );
+                  },
+                }}
+              >
+                {content}
+              </ReactMarkdown>
+            </div>
+          )}
 
           {/* Metadata */}
           {meta && !isUser && (
@@ -227,12 +302,43 @@ export function MessageItem({ message }: MessageItemProps) {
             </div>
           )}
 
-          {/* Copy button */}
-          {!isUser && (
-            <div className="mt-3">
+          {/* Action bar - hover to show */}
+          {!isEditing && (
+            <div className="mt-2 flex items-center gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+              <button
+                onClick={handleStartEdit}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] rounded transition-colors"
+                title="Edit"
+              >
+                <EditIcon className="w-3 h-3" />
+                <span>Edit</span>
+              </button>
+              <button
+                onClick={handleDeleteClick}
+                className={clsx(
+                  'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
+                  confirmDelete
+                    ? 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]'
+                )}
+                title={confirmDelete ? 'Click again to confirm delete' : 'Delete'}
+              >
+                {confirmDelete ? (
+                  <>
+                    <CheckIcon className="w-3 h-3" />
+                    <span>Confirm?</span>
+                  </>
+                ) : (
+                  <>
+                    <TrashIcon className="w-3 h-3" />
+                    <span>Delete</span>
+                  </>
+                )}
+              </button>
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                className="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] rounded transition-colors"
+                title="Copy"
               >
                 {copied ? (
                   <>

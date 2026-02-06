@@ -1,5 +1,6 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 import { useChatStore } from '../../stores/chatStore';
+import { useProjectStore } from '../../stores/projectStore';
 import { MessageItem } from './MessageItem';
 import { ChatInput } from './ChatInput';
 import { LoaderIcon, SparklesIcon } from '../common/icons';
@@ -8,7 +9,18 @@ export function ChatContainer() {
   const messages = useChatStore((s) => s.messages);
   const isLoading = useChatStore((s) => s.isLoading);
   const error = useChatStore((s) => s.error);
+  const editMessage = useChatStore((s) => s.editMessage);
+  const deleteMessage = useChatStore((s) => s.deleteMessage);
+  const currentProject = useProjectStore((s) => s.currentProject);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleEdit = useCallback((id: string, content: string) => {
+    editMessage(id, content, currentProject);
+  }, [editMessage, currentProject]);
+
+  const handleDelete = useCallback((id: string) => {
+    deleteMessage(id, currentProject);
+  }, [deleteMessage, currentProject]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -34,7 +46,7 @@ export function ChatContainer() {
         ) : (
           <div className="pb-4">
             {messages.map((message) => (
-              <MessageItem key={message.id} message={message} />
+              <MessageItem key={message.id} message={message} onEdit={handleEdit} onDelete={handleDelete} />
             ))}
 
             {/* Loading indicator */}
