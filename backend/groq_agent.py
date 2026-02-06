@@ -980,6 +980,52 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                     # No tool calls or max iterations reached - return response
                     answer = message.get("content", "")
 
+                    # FALLBACK: Detect tool calls embedded as text in content
+                    # Llama models sometimes return JSON tool calls as plain text
+                    # e.g. "I'll search the KB:\n[{\"name\": \"search_knowledge_base\", ...}]"
+                    if answer and iteration < max_tool_calls:
+                        import re
+                        # Try to extract JSON array or object from the text
+                        json_match = re.search(r'(\[[\s\S]*\{[\s\S]*"name"[\s\S]*\}[\s\S]*\]|\{[\s\S]*"name"[\s\S]*\})', answer)
+                        if json_match:
+                            try:
+                                parsed = json.loads(json_match.group(1))
+                                if isinstance(parsed, dict) and "name" in parsed:
+                                    parsed = [parsed]
+                                if isinstance(parsed, list) and all(isinstance(t, dict) and "name" in t for t in parsed):
+                                    # Verify these are actual tool names we have
+                                    valid_tools = [t for t in parsed if t["name"] in self._tool_handlers]
+                                    if valid_tools:
+                                        logger.warning(f"Groq returned tool calls as text content - re-executing {len(valid_tools)} tool call(s)")
+                                        for tc in valid_tools:
+                                            func_name = tc["name"]
+                                            func_args = tc.get("parameters", tc.get("arguments", {}))
+                                            # Ensure args are correct types (Groq sometimes sends strings for ints)
+                                            if "top_k" in func_args and isinstance(func_args["top_k"], str):
+                                                func_args["top_k"] = int(func_args["top_k"])
+                                            logger.info(f"Text-parsed tool call: {func_name}({func_args})")
+                                            all_tool_calls.append({"tool": func_name, "args": func_args})
+
+                                            try:
+                                                result = await asyncio.wait_for(
+                                                    self._tool_handlers[func_name](**func_args),
+                                                    timeout=30.0
+                                                )
+                                                tool_result = result.get("answer", str(result))
+                                                if not tool_result or (isinstance(tool_result, str) and len(tool_result.strip()) < 5):
+                                                    tool_result = f"Tool {func_name} returned empty results."
+                                            except Exception as e:
+                                                logger.error(f"Text-parsed tool {func_name} failed: {e}")
+                                                tool_result = f"Tool {func_name} failed: {e}"
+
+                                            # Feed tool results back to Groq for synthesis
+                                            messages.append({"role": "assistant", "content": answer})
+                                            messages.append({"role": "user", "content": f"Tool result from {func_name}:\n{tool_result}\n\nPlease synthesize this into a helpful answer."})
+
+                                        continue  # Re-enter the loop for Groq to process results
+                            except (json.JSONDecodeError, TypeError, KeyError, ValueError):
+                                pass  # Not valid JSON tool calls, treat as normal text answer
+
                     # Debug passthrough condition
                     print(f"[DEBUG] Passthrough check: perplexity_direct_answer={bool(perplexity_direct_answer)}, "
                           f"tool_calls_count={len(all_tool_calls)}, "
@@ -1097,7 +1143,46 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                             except Exception as fallback_err:
                                 logger.error(f"Claude fallback failed: {fallback_err}")
 
-                        # Not truncated, use as-is
+                        # FALLBACK: Check if failed_gen contains tool calls as text
+                        # Groq returns 400 tool_use_failed when model outputs tool call JSON as text
+                        import re
+                        tc_match = re.search(r'(\[[\s\S]*\{[\s\S]*"name"[\s\S]*\}[\s\S]*\]|\{[\s\S]*"name"[\s\S]*\})', failed_gen)
+                        if tc_match and iteration < max_tool_calls:
+                            try:
+                                tc_parsed = json.loads(tc_match.group(1))
+                                if isinstance(tc_parsed, dict) and "name" in tc_parsed:
+                                    tc_parsed = [tc_parsed]
+                                if isinstance(tc_parsed, list) and all(isinstance(t, dict) and "name" in t for t in tc_parsed):
+                                    valid_tcs = [t for t in tc_parsed if t["name"] in self._tool_handlers]
+                                    if valid_tcs:
+                                        logger.warning(f"Recovering {len(valid_tcs)} tool call(s) from failed_generation text")
+                                        tool_results_text = []
+                                        for tc in valid_tcs:
+                                            fn = tc["name"]
+                                            fa = tc.get("parameters", tc.get("arguments", {}))
+                                            if "top_k" in fa and isinstance(fa["top_k"], str):
+                                                fa["top_k"] = int(fa["top_k"])
+                                            logger.info(f"Executing recovered tool: {fn}({fa})")
+                                            all_tool_calls.append({"tool": fn, "args": fa})
+                                            try:
+                                                tr = await asyncio.wait_for(self._tool_handlers[fn](**fa), timeout=30.0)
+                                                tr_text = tr.get("answer", str(tr))
+                                                if not tr_text or len(tr_text.strip()) < 5:
+                                                    tr_text = f"Tool {fn} returned empty results."
+                                                tool_results_text.append(tr_text)
+                                            except Exception as te:
+                                                logger.error(f"Recovered tool {fn} failed: {te}")
+                                                tool_results_text.append(f"Tool {fn} failed: {te}")
+
+                                        # Feed results back to Groq for synthesis
+                                        combined_results = "\n\n".join(tool_results_text)
+                                        messages.append({"role": "assistant", "content": failed_gen})
+                                        messages.append({"role": "user", "content": f"Here are the tool results:\n\n{combined_results}\n\nPlease provide a helpful answer based on these results."})
+                                        continue  # Re-enter the loop
+                            except (json.JSONDecodeError, TypeError, KeyError, ValueError):
+                                pass
+
+                        # Not truncated and no recoverable tool calls, use as-is
                         return {
                             "answer": failed_gen,
                             "sources": all_sources,
