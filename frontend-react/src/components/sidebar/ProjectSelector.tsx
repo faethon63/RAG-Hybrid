@@ -77,11 +77,20 @@ export function ProjectSelector() {
 
   return (
     <div className="space-y-1">
-      {/* Header */}
+      {/* Header - clickable to deselect project */}
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-[var(--color-text-secondary)] uppercase tracking-wide">
+        <button
+          onClick={() => { if (currentProject) { setCurrentProject(null); newChat(); loadChats(null); } }}
+          className={clsx(
+            'text-xs font-medium uppercase tracking-wide transition-colors',
+            currentProject
+              ? 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] cursor-pointer'
+              : 'text-[var(--color-text-secondary)] cursor-default'
+          )}
+          title={currentProject ? 'Show all chats' : undefined}
+        >
           Projects
-        </span>
+        </button>
         <button
           onClick={handleCreateNew}
           className="p-0.5 hover:bg-[var(--color-surface-hover)] rounded transition-colors"
