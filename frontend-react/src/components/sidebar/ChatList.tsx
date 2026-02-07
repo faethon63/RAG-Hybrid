@@ -169,7 +169,7 @@ export function ChatList() {
   return (
     <div className="space-y-1">
       {/* Selection mode toolbar */}
-      {selectionMode && (
+      {selectionMode ? (
         <div className="sticky top-0 z-10 flex items-center gap-1 px-2 py-1.5 mb-1 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)]">
           <span className="text-xs text-[var(--color-text-secondary)] flex-1">
             {selectedIds.size} selected
@@ -198,6 +198,15 @@ export function ChatList() {
             title="Cancel"
           >
             <CloseIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
+          </button>
+        </div>
+      ) : filteredChats.length > 0 && (
+        <div className="flex justify-end mb-1">
+          <button
+            onClick={() => setSelectionMode(true)}
+            className="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+          >
+            Select
           </button>
         </div>
       )}
