@@ -84,13 +84,13 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Project selector */}
-      <div className="px-3 pb-3">
+      {/* Project list */}
+      <div className="px-3 py-2 border-b border-[var(--color-border)]">
         <ProjectSelector />
       </div>
 
       {/* Chat list */}
-      <div className="flex-1 overflow-y-auto px-3">
+      <div className="flex-1 overflow-y-auto px-3 pt-2">
         <div className="text-xs font-medium text-[var(--color-text-secondary)] uppercase tracking-wide mb-2">
           {currentProject ? `${currentProject} Chats` : 'Recent Chats'}
         </div>

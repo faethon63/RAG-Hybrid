@@ -15,10 +15,12 @@ from pathlib import Path
 # Ensure backend directory is on the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import shutil
 from config import (
     reload_env, get_log_level, get_fastapi_port, get_project_kb_path,
     get_synced_kb_path, get_chromadb_collection, get_chromadb_path,
     get_claude_haiku_model, get_claude_sonnet_model, get_claude_opus_model,
+    get_synced_projects_path,
 )
 
 from fastapi import FastAPI, HTTPException, status, UploadFile, File as FastAPIFile, Request, Response
@@ -2223,6 +2225,49 @@ async def update_project_config(name: str, request: ProjectConfigRequest):
         response["sync_error"] = str(sync_err)
 
     return response
+
+
+@app.delete("/api/v1/projects/{name}")
+async def delete_project(name: str):
+    """Delete a project entirely: config, KB files, ChromaDB collection."""
+    try:
+        deleted = []
+
+        # 1. Delete synced config (config/projects/{name}.json)
+        synced_config = Path(get_synced_projects_path()) / f"{name}.json"
+        if synced_config.exists():
+            synced_config.unlink()
+            deleted.append("synced_config")
+
+        # 2. Delete synced KB docs (config/project-kb/{name}/)
+        synced_kb = Path(get_synced_kb_path()) / name
+        if synced_kb.exists():
+            shutil.rmtree(synced_kb)
+            deleted.append("synced_kb")
+
+        # 3. Delete local project data (data/project-kb/{name}/)
+        local_kb = Path(get_project_kb_path()) / name
+        if local_kb.exists():
+            shutil.rmtree(local_kb)
+            deleted.append("local_kb")
+
+        # 4. Delete ChromaDB collection
+        if await rag_core.delete_project(name):
+            deleted.append("chromadb_collection")
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+        return {
+            "status": "success",
+            "project": name,
+            "deleted": deleted,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/v1/projects/{name}/index")

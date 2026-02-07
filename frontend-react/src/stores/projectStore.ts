@@ -40,6 +40,7 @@ interface ProjectState {
     allowed_paths?: string[];
   }) => Promise<void>;
   updateProject: (name: string, config: Partial<ProjectConfig>) => Promise<void>;
+  deleteProject: (name: string) => Promise<void>;
   indexProject: (name: string) => Promise<IndexResponse>;
 
   // Project KB file operations
@@ -114,6 +115,22 @@ export const useProjectStore = create<ProjectState>()(
           await get().loadProjects();
         } catch (err) {
           console.error('Failed to update project:', err);
+          throw err;
+        }
+      },
+
+      deleteProject: async (name) => {
+        try {
+          await api.deleteProject(name);
+          // If we deleted the current project, clear selection
+          if (get().currentProject === name) {
+            set({ currentProject: null, currentProjectConfig: null });
+          }
+          // Remove from recent projects
+          set({ recentProjects: get().recentProjects.filter((p) => p !== name) });
+          await get().loadProjects();
+        } catch (err) {
+          console.error('Failed to delete project:', err);
           throw err;
         }
       },

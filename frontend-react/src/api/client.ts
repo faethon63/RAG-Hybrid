@@ -108,6 +108,11 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  deleteProject: (name: string) =>
+    request<{ status: string; project: string; deleted: string[] }>(`/projects/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+
   indexProject: (name: string) =>
     request<import('../types/api').IndexResponse>(`/projects/${encodeURIComponent(name)}/index`, {
       method: 'POST',

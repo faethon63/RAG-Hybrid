@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useProjectStore } from '../../stores/projectStore';
-import { CloseIcon, LoaderIcon, CheckIcon } from '../common/icons';
+import { CloseIcon, LoaderIcon, CheckIcon, ChevronDownIcon } from '../common/icons';
 import { FileUploadZone } from './FileUploadZone';
 
 export function ProjectForm() {
@@ -23,6 +23,12 @@ export function ProjectForm() {
   const [indexing, setIndexing] = useState(false);
   const [indexResult, setIndexResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [expandedFields, setExpandedFields] = useState<Record<string, boolean>>({});
+
+  const toggleExpand = useCallback((field: string) => {
+    setExpandedFields((prev) => ({ ...prev, [field]: !prev[field] }));
+  }, []);
 
   const isEditing = !!editingProject;
   const isOpen = showProjectForm || isEditing;
@@ -176,37 +182,73 @@ export function ProjectForm() {
 
           {/* System prompt */}
           <div>
-            <label className="block text-sm mb-2">System Prompt</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm">System Prompt</label>
+              {systemPrompt && (
+                <button
+                  type="button"
+                  onClick={() => toggleExpand('systemPrompt')}
+                  className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                >
+                  {expandedFields.systemPrompt ? 'Collapse' : 'Expand'}
+                  <ChevronDownIcon className={`w-3 h-3 transition-transform ${expandedFields.systemPrompt ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+            </div>
             <textarea
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder="Custom system instructions for this project..."
-              rows={3}
-              className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-secondary)] resize-none focus:outline-none focus:border-[var(--color-primary)]"
+              rows={expandedFields.systemPrompt ? 12 : 3}
+              className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-secondary)] resize-y focus:outline-none focus:border-[var(--color-primary)] transition-all"
             />
           </div>
 
           {/* Additional instructions */}
           <div>
-            <label className="block text-sm mb-2">Additional Instructions</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm">Additional Instructions</label>
+              {instructions && (
+                <button
+                  type="button"
+                  onClick={() => toggleExpand('instructions')}
+                  className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                >
+                  {expandedFields.instructions ? 'Collapse' : 'Expand'}
+                  <ChevronDownIcon className={`w-3 h-3 transition-transform ${expandedFields.instructions ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+            </div>
             <textarea
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
               placeholder="Extra context or instructions..."
-              rows={2}
-              className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-secondary)] resize-none focus:outline-none focus:border-[var(--color-primary)]"
+              rows={expandedFields.instructions ? 12 : 2}
+              className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-secondary)] resize-y focus:outline-none focus:border-[var(--color-primary)] transition-all"
             />
           </div>
 
           {/* Allowed paths */}
           <div>
-            <label className="block text-sm mb-2">Allowed File Paths</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm">Allowed File Paths</label>
+              {allowedPaths && (
+                <button
+                  type="button"
+                  onClick={() => toggleExpand('allowedPaths')}
+                  className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+                >
+                  {expandedFields.allowedPaths ? 'Collapse' : 'Expand'}
+                  <ChevronDownIcon className={`w-3 h-3 transition-transform ${expandedFields.allowedPaths ? 'rotate-180' : ''}`} />
+                </button>
+              )}
+            </div>
             <textarea
               value={allowedPaths}
               onChange={(e) => setAllowedPaths(e.target.value)}
               placeholder="One path per line, e.g.:&#10;C:\Projects\my-project&#10;D:\Documents\specs"
-              rows={3}
-              className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-secondary)] resize-none focus:outline-none focus:border-[var(--color-primary)] font-mono text-sm"
+              rows={expandedFields.allowedPaths ? 10 : 3}
+              className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-secondary)] resize-y focus:outline-none focus:border-[var(--color-primary)] font-mono text-sm transition-all"
             />
             <p className="text-xs text-[var(--color-text-secondary)] mt-1">
               Directories containing files to index for this project
