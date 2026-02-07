@@ -524,13 +524,17 @@ BAD RESPONSE (NEVER DO THIS):
 
     def _extract_url_from_history(self, conversation_history: List[Dict[str, str]] = None) -> str:
         """
-        Look for URLs in recent conversation history.
-        Returns the most recent URL found, or empty string.
+        Look for URLs in recent USER messages only.
+        Only user messages express intent; assistant messages may contain
+        hallucinated or loosely related URLs we should NOT re-fetch.
+        Returns the most recent URL found in a user message, or empty string.
         """
         if not conversation_history:
             return ""
         import re
         for msg in reversed(conversation_history):
+            if msg.get("role") != "user":
+                continue
             content = msg.get("content", "")
             url_match = re.search(r'(https?://[^\s]+)', content)
             if url_match:
@@ -550,15 +554,15 @@ BAD RESPONSE (NEVER DO THIS):
             logger.info("URL detected in query - forcing web_search")
             return True
 
-        # Check if this is a follow-up about a URL from conversation history
-        # e.g. "try again", "read it again", "scrape it", "what about the price"
-        retry_indicators = [
-            "try again", "again", "retry", "re-read", "reread",
+        # Check if this is a follow-up about a specific URL the USER previously shared
+        # Only triggers if a URL exists in a USER message (not assistant output)
+        url_retry_indicators = [
+            "try again", "retry", "re-read", "reread",
             "read it", "scrape it", "fetch it", "check it",
             "the page", "the link", "that page", "that link",
             "the product", "that product", "this product",
         ]
-        if any(ind in query_lower for ind in retry_indicators):
+        if any(ind in query_lower for ind in url_retry_indicators):
             history_url = self._extract_url_from_history(conversation_history)
             if history_url:
                 logger.info(f"Follow-up about URL from history: {history_url}")
