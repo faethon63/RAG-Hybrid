@@ -59,10 +59,10 @@ export function ChatList() {
     setMovingChatId(null);
   };
 
-  // Show project chats if project selected, or ALL chats when no project
+  // Show project chats if project selected, or only unassigned chats otherwise
   const filteredChats = currentProject
     ? chats.filter((chat) => chat.project === currentProject)
-    : chats;
+    : chats.filter((chat) => !chat.project);
 
   const handleDelete = async (e: React.MouseEvent, chatId: string) => {
     e.stopPropagation();
