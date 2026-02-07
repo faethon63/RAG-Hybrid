@@ -320,6 +320,8 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 - If the data is limited, give the best answer you can with what's available.
 - Do not redirect the user to search elsewhere - answer their question.
 - Never include citation markers like [1], [2] in your response.
+- NEVER fabricate or guess URLs. Only use URLs that appear in the provided context/data. If a website could not be accessed, say so honestly. Do NOT invent URL paths.
+- If tool results say "FAILED" or "could not fetch", report that honestly. Do not fill gaps with made-up information.
 
 """
     full_query = instructions + task
@@ -1060,10 +1062,11 @@ async def _tool_search_files(path: str, pattern: str) -> Dict[str, Any]:
 
 
 async def _tool_browse_website(url: str, action: str = "read", search_term: str = None, link_filter: str = None) -> Dict[str, Any]:
-    """Browse a website using Playwright browser automation."""
+    """Browse a website. Tries Playwright first, falls back to Crawl4AI."""
     logger = logging.getLogger(__name__)
     logger.info(f"browse_website: url={url}, action={action}, search_term={search_term}")
 
+    playwright_failed = False
     try:
         from procurement_agent import get_procurement_agent
         from supplier_db import get_supplier_db
@@ -1074,24 +1077,42 @@ async def _tool_browse_website(url: str, action: str = "read", search_term: str 
             supplier_db=supplier_db,
         )
 
-        return await agent.browse_page(
+        result = await agent.browse_page(
             url=url,
             action=action,
             search_term=search_term,
             link_filter=link_filter,
         )
-    except ImportError as e:
-        logger.error(f"browse_website import error: {e}")
-        return {
-            "answer": "Browser automation not available. Try web_search instead.",
-            "sources": [],
-        }
+        # Check if Playwright actually returned content
+        answer = result.get("answer", "")
+        if answer and "failed" not in answer.lower() and "not available" not in answer.lower() and len(answer) > 100:
+            return result
+        logger.info(f"Playwright returned insufficient content, falling back to Crawl4AI")
+        playwright_failed = True
     except Exception as e:
-        logger.error(f"browse_website error: {e}")
-        return {
-            "answer": f"Browser automation failed: {e}. Try web_search instead.",
-            "sources": [],
-        }
+        logger.warning(f"Playwright browse failed: {e}, falling back to Crawl4AI")
+        playwright_failed = True
+
+    # Fallback: use Crawl4AI to fetch the page
+    if playwright_failed:
+        try:
+            logger.info(f"browse_website fallback: using Crawl4AI for {url}")
+            crawl_result = await crawl4ai_search.extract(url)
+            if crawl_result.get("success") and len(crawl_result.get("answer", "")) > 200:
+                answer = crawl_result["answer"]
+                if search_term:
+                    answer = f"Page content from {url} (searched for: {search_term}):\n\n{answer}"
+                crawl_result["provider_used"] = "crawl4ai"
+                return crawl_result
+            else:
+                logger.warning(f"Crawl4AI also returned insufficient content for {url}")
+        except Exception as e2:
+            logger.error(f"Crawl4AI fallback also failed for {url}: {e2}")
+
+    return {
+        "answer": f"FAILED: Could not fetch content from {url}. The page could not be loaded.",
+        "sources": [],
+    }
 
 
 groq_agent.register_tool_handler("web_search", _tool_web_search)
