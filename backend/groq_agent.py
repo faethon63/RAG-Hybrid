@@ -950,11 +950,15 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                                     timeout=30.0
                                 )
 
-                                # Store result metadata (e.g., provider_used) for routing display
+                                # Store result metadata for routing display and cost tracking
                                 if isinstance(result, dict):
-                                    tool_call_entry["result"] = {
-                                        k: result[k] for k in ("provider_used",) if k in result
-                                    }
+                                    meta = {}
+                                    if "provider_used" in result:
+                                        meta["provider_used"] = result["provider_used"]
+                                    if "usage" in result and result["usage"]:
+                                        meta["usage"] = result["usage"]
+                                    if meta:
+                                        tool_call_entry["result"] = meta
 
                                 # Include citations in tool result so Groq can reference them
                                 tool_result = result.get("answer", str(result))

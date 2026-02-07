@@ -1418,19 +1418,25 @@ async def query(request: Request, query_request: QueryRequest):
             claude_model = None
             routing_reasoning = "Groq handled directly"
 
-            # Parse tool calls to show actual providers used
+            # Parse tool calls to show actual providers used and capture tool token usage
+            tool_usage = {}  # Token usage from paid tools (Perplexity, Claude)
             for tc in agent_result.get("tool_calls", []):
                 tool_name = tc["tool"]
                 args = tc.get("args", {})
-                result_data = tc.get("result", {})
+                result_data = tc.get("result", {}) if isinstance(tc.get("result"), dict) else {}
 
                 # Show actual provider for web_search (what actually ran, not what was requested)
                 if tool_name == "web_search":
                     # provider_used tracks what actually succeeded (crawl4ai, tavily_extract, perplexity)
-                    actual = result_data.get("provider_used") if isinstance(result_data, dict) else None
+                    actual = result_data.get("provider_used")
                     requested = args.get("provider", "perplexity")
                     provider = actual or requested
                     tools_used.append(provider)
+                    # Capture Perplexity token usage for accurate costing
+                    if result_data.get("usage"):
+                        u = result_data["usage"]
+                        tool_usage["input_tokens"] = tool_usage.get("input_tokens", 0) + u.get("input_tokens", 0)
+                        tool_usage["output_tokens"] = tool_usage.get("output_tokens", 0) + u.get("output_tokens", 0)
                     if args.get("forced"):
                         routing_reasoning = f"Forced {provider} search (bypassed Groq routing)"
                 elif tool_name == "complex_reasoning":
@@ -1439,6 +1445,10 @@ async def query(request: Request, query_request: QueryRequest):
                     model_names = {"simple": "haiku", "medium": "sonnet", "critical": "opus"}
                     claude_model = model_names.get(complexity, "haiku")
                     routing_reasoning = f"Delegated to Claude {claude_model.title()} for {complexity} task"
+                    if result_data.get("usage"):
+                        u = result_data["usage"]
+                        tool_usage["input_tokens"] = tool_usage.get("input_tokens", 0) + u.get("input_tokens", 0)
+                        tool_usage["output_tokens"] = tool_usage.get("output_tokens", 0) + u.get("output_tokens", 0)
                 elif tool_name == "deep_research":
                     tools_used.append("perplexity_pro")
                 elif tool_name == "browse_website":
@@ -1451,7 +1461,7 @@ async def query(request: Request, query_request: QueryRequest):
             if tools_used and "Delegated" not in routing_reasoning and "Forced" not in routing_reasoning:
                 routing_reasoning = f"Groq used: {', '.join(tools_used)}"
 
-            # Determine pricing model based on tools used (first tool takes priority)
+            # Determine pricing model based on tools used (first paid tool takes priority)
             pricing_model = "groq"  # Default free
             if tools_used:
                 first_tool = tools_used[0]
@@ -1461,10 +1471,13 @@ async def query(request: Request, query_request: QueryRequest):
                     _model_lookup = {"haiku": get_claude_haiku_model(), "sonnet": get_claude_sonnet_model(), "opus": get_claude_opus_model()}
                     pricing_model = _model_lookup.get(claude_model, get_claude_haiku_model())
 
+            # Use tool token usage (Perplexity/Claude) if available, otherwise Groq's own
+            effective_usage = tool_usage if tool_usage else agent_result.get("usage", {})
+
             result = {
                 "answer": agent_result["answer"],
                 "sources": sources,
-                "usage": agent_result.get("usage", {}),
+                "usage": effective_usage,
                 "pricing_model": pricing_model,
                 "routing_info": {
                     "orchestrator": "groq",
@@ -2003,20 +2016,20 @@ def calculate_confidence(results: List[Dict]) -> float:
     return min(avg_score, 1.0)
 
 
-# Pricing per 1M tokens: (input, output) for token-based APIs
-# Per-request flat costs are in FLAT_PRICING
+# Pricing per 1M tokens: (input, output)
 TOKEN_PRICING = {
-    # Claude models (per 1M tokens)
+    # Claude
     "claude-opus-4-6": (15.0, 75.0),
     "claude-sonnet-4-5-20250929": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
+    # Perplexity (token cost only; search request fees not included)
+    "perplexity": (1.0, 1.0),           # Sonar
+    "perplexity_pro": (3.0, 15.0),      # Sonar Pro
+    "perplexity_focused": (3.0, 15.0),  # Sonar Pro (focused mode)
 }
 
 # Flat per-request pricing (not token-based)
 FLAT_PRICING = {
-    "perplexity": 0,            # Free tier
-    "perplexity_pro": 0,        # Free tier
-    "perplexity_focused": 0,    # Free tier
     "tavily": 0,                # Free tier: 1,000 credits/month
     "tavily_extract": 0,        # Free tier: 1,000 credits/month
     "crawl4ai": 0,              # Free (self-hosted)
@@ -2027,11 +2040,9 @@ FLAT_PRICING = {
 
 def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Calculate estimated cost based on model and token usage."""
-    # Token-based pricing (Claude)
     if model in TOKEN_PRICING:
         rates = TOKEN_PRICING[model]
         return (input_tokens * rates[0] + output_tokens * rates[1]) / 1_000_000
-    # Flat per-request pricing (Perplexity, Tavily, etc.)
     if model in FLAT_PRICING:
         return FLAT_PRICING[model]
     return 0.0
