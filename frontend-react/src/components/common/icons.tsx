@@ -25,6 +25,7 @@ import {
   Bot,
   Copy,
   ExternalLink,
+  FolderInput,
 } from 'lucide-react';
 
 export {
@@ -54,4 +55,5 @@ export {
   Bot as BotIcon,
   Copy as CopyIcon,
   ExternalLink as ExternalLinkIcon,
+  FolderInput as MoveIcon,
 };

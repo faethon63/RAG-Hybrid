@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { api } from '../../api/client';
-import { ChatIcon, TrashIcon, LoaderIcon, EditIcon, CheckIcon, CloseIcon } from '../common/icons';
+import { ChatIcon, TrashIcon, LoaderIcon, EditIcon, CheckIcon, CloseIcon, MoveIcon } from '../common/icons';
 import clsx from 'clsx';
 
 export function ChatList() {
@@ -16,13 +16,48 @@ export function ChatList() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [movingChatId, setMovingChatId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const editRef = useRef<HTMLInputElement>(null);
+  const projects = useProjectStore((s) => s.projects);
 
   useEffect(() => {
     loadChats(currentProject);
   }, [currentProject, loadChats]);
+
+  // Click outside cancels edit mode
+  useEffect(() => {
+    if (!editingId) return;
+    const handler = (e: MouseEvent) => {
+      if (editRef.current && !editRef.current.parentElement?.contains(e.target as Node)) {
+        setEditingId(null);
+        setEditName('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [editingId]);
+
+  // Click outside closes move dropdown
+  useEffect(() => {
+    if (!movingChatId) return;
+    const handler = () => setMovingChatId(null);
+    // Use setTimeout so the click that opened the dropdown doesn't immediately close it
+    const id = setTimeout(() => document.addEventListener('click', handler), 0);
+    return () => { clearTimeout(id); document.removeEventListener('click', handler); };
+  }, [movingChatId]);
+
+  const handleMoveChat = async (chatId: string, targetProject: string | null) => {
+    try {
+      await api.updateChat(chatId, { project: targetProject });
+      await loadChats(currentProject);
+    } catch (err) {
+      console.error('Failed to move chat:', err);
+    }
+    setMovingChatId(null);
+  };
 
   // Show project chats if project selected, or ALL chats when no project
   const filteredChats = currentProject
@@ -206,6 +241,7 @@ export function ChatList() {
             {editingId === chat.id && !selectionMode ? (
               <>
                 <input
+                  ref={editRef}
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
@@ -233,22 +269,61 @@ export function ChatList() {
                   {chat.name}
                 </span>
                 {!selectionMode && (
-                  <>
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity relative">
                     <button
                       onClick={(e) => handleStartRename(e, chat.id, chat.name)}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[var(--color-border)] rounded transition-all"
+                      className="p-1 hover:bg-[var(--color-border)] rounded transition-colors"
                       title="Rename"
                     >
                       <EditIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
                     </button>
                     <button
+                      onClick={(e) => { e.stopPropagation(); setMovingChatId(movingChatId === chat.id ? null : chat.id); }}
+                      className="p-1 hover:bg-[var(--color-border)] rounded transition-colors"
+                      title="Move to project"
+                    >
+                      <MoveIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
+                    </button>
+                    <button
                       onClick={(e) => handleDelete(e, chat.id)}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[var(--color-border)] rounded transition-all"
+                      className="p-1 hover:bg-[var(--color-border)] rounded transition-colors"
                       title="Delete"
                     >
                       <TrashIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
                     </button>
-                  </>
+                    {/* Move-to dropdown */}
+                    {movingChatId === chat.id && (
+                      <div
+                        className="absolute right-0 top-full mt-1 z-30 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-xl overflow-hidden min-w-[140px]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-2 py-1.5 text-xs text-[var(--color-text-secondary)] font-medium">
+                          Move to...
+                        </div>
+                        <button
+                          onClick={() => handleMoveChat(chat.id, null)}
+                          className={clsx(
+                            'w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-surface-hover)] transition-colors',
+                            !chat.project && 'text-[var(--color-primary)]'
+                          )}
+                        >
+                          No project
+                        </button>
+                        {projects.map((p) => (
+                          <button
+                            key={p.name}
+                            onClick={() => handleMoveChat(chat.id, p.name)}
+                            className={clsx(
+                              'w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-surface-hover)] transition-colors truncate',
+                              chat.project === p.name && 'text-[var(--color-primary)]'
+                            )}
+                          >
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </>
             )}
