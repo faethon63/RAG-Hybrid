@@ -428,6 +428,74 @@ class GroqAgent:
         },
     ]
 
+    # Bankruptcy form-filling tools - added when project is Chapter 7
+    BANKRUPTCY_TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "fill_bankruptcy_form",
+                "description": "Safe, verified bankruptcy form filling with data profile. ALWAYS use action='plan' first to review before filling. Actions: 'plan' (generate fill plan for review), 'audit' (Opus reviews the plan), 'fill' (execute after approval).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["plan", "audit", "fill"],
+                            "description": "Action: 'plan' (REQUIRED first - generates fill plan for review), 'audit' (sends plan to Opus for independent review), 'fill' (executes fill after user approval)"
+                        },
+                        "form_id": {
+                            "type": "string",
+                            "description": "Form identifier (e.g., '101', '106A', '122A-1')"
+                        },
+                        "input_pdf": {
+                            "type": "string",
+                            "description": "Path to blank PDF form (required for 'fill' action)"
+                        },
+                        "output_pdf": {
+                            "type": "string",
+                            "description": "Path to save filled PDF (required for 'fill' action)"
+                        }
+                    },
+                    "required": ["action", "form_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "build_data_profile",
+                "description": "Extract structured data from tax returns, bank statements, and other documents into a verified data profile. Uses dual-model extraction (Sonnet + Opus) for maximum accuracy.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "document_paths": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of file paths to extract data from"
+                        },
+                        "use_dual_verification": {
+                            "type": "boolean",
+                            "description": "If true, uses both Sonnet and Opus for verification (recommended, higher cost). Default: true"
+                        }
+                    },
+                    "required": ["document_paths"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_data_consistency",
+                "description": "Run cross-document consistency checks on the data profile. Verifies income matches across tax returns, bank statements, and form entries.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        },
+    ]
+
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
 
 YOU HAVE REAL-TIME WEB ACCESS via the web_search tool (Perplexity API).
@@ -852,6 +920,9 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
             tools.append(self.KB_SEARCH_TOOL)
         if project_config and project_config.get("allowed_paths"):
             tools.extend(self.FILE_TOOLS)
+        # Add bankruptcy tools for Chapter 7 project
+        if project_config and project_config.get("name") == "Chapter_7_Assistant":
+            tools.extend(self.BANKRUPTCY_TOOLS)
 
         # Build messages
         messages = [{"role": "system", "content": system_prompt}]

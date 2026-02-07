@@ -1260,6 +1260,54 @@ IMPORTANT RULES:
             logger.warning(f"Failed to extract PDF text from {file_path}: {e}")
             return ""
 
+    async def _extract_image_text(self, file_path: Path) -> str:
+        """Extract text from an image using Claude Sonnet vision (OCR)."""
+        try:
+            import base64
+            api_key = get_anthropic_api_key()
+            if not api_key or api_key.startswith("your_"):
+                logger.warning("Claude API key not configured, cannot OCR image")
+                return ""
+
+            # Read and base64 encode the image
+            image_data = file_path.read_bytes()
+            b64_data = base64.b64encode(image_data).decode("utf-8")
+
+            # Determine media type
+            suffix = file_path.suffix.lower()
+            media_type = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}.get(suffix, "image/png")
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-sonnet-4-5-20250929",
+                        "max_tokens": 4000,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64_data}},
+                                {"type": "text", "text": "Extract ALL text from this image. Include every word, number, date, and label visible. Preserve the layout structure. If this is a form or document, include field labels and their values. Output only the extracted text, nothing else."}
+                            ]
+                        }]
+                    }
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("content"):
+                    text = data["content"][0].get("text", "")
+                    logger.info(f"OCR extracted {len(text)} chars from {file_path.name}")
+                    return text
+            return ""
+        except Exception as e:
+            logger.warning(f"Failed to OCR image {file_path}: {e}")
+            return ""
+
     async def index_project_files(self, project_name: str, force_reindex: bool = False) -> Dict[str, Any]:
         """
         Index files from a project's allowed_paths directories.
@@ -1295,7 +1343,8 @@ IMPORTANT RULES:
 
         # Supported file extensions
         text_extensions = {".txt", ".md", ".json", ".py", ".js", ".ts", ".html", ".css", ".yaml", ".yml", ".rst", ".csv"}
-        all_extensions = text_extensions | {".pdf"}
+        image_extensions = {".png", ".jpg", ".jpeg"}
+        all_extensions = text_extensions | {".pdf"} | image_extensions
 
         documents = []
         files_indexed = []
@@ -1335,6 +1384,8 @@ IMPORTANT RULES:
                     logger.info(f"Indexing: {file_path.name}")
                     if file_path.suffix.lower() == ".pdf":
                         content = self._extract_pdf_text(file_path)
+                    elif file_path.suffix.lower() in image_extensions:
+                        content = await self._extract_image_text(file_path)
                     else:
                         content = file_path.read_text(encoding="utf-8", errors="ignore")
 

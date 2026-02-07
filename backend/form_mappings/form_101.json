@@ -1,0 +1,175 @@
+{
+  "form_id": "101",
+  "form_name": "Voluntary Petition for Individuals Filing for Bankruptcy",
+  "description": "The main petition form - establishes the bankruptcy case",
+  "instructions_pages": "1-15",
+  "fields": [
+    {
+      "pdf_field": "District",
+      "human_label": "Bankruptcy District",
+      "profile_path": null,
+      "default_value": "Central District of California",
+      "instructions_page": 2,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Name of Debtor 1",
+      "human_label": "Your full legal name",
+      "profile_path": "personal_info.full_name",
+      "instructions_page": 2,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "First Name Debtor 1",
+      "human_label": "First name",
+      "profile_path": "personal_info.first_name",
+      "instructions_page": 2,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Last Name Debtor 1",
+      "human_label": "Last name",
+      "profile_path": "personal_info.last_name",
+      "instructions_page": 2,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "All other names Debtor 1",
+      "human_label": "Other names used in the last 8 years",
+      "profile_path": "personal_info.other_names",
+      "instructions_page": 2,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "SSN Debtor 1",
+      "human_label": "Social Security Number",
+      "profile_path": "personal_info.ssn",
+      "instructions_page": 2,
+      "required": true,
+      "format": "XXX-XX-XXXX",
+      "sensitive": true,
+      "notes": "NEVER auto-fill. User must provide at fill time."
+    },
+    {
+      "pdf_field": "Street Address Debtor 1",
+      "human_label": "Street address",
+      "profile_path": "personal_info.address",
+      "instructions_page": 3,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "City Debtor 1",
+      "human_label": "City",
+      "profile_path": "personal_info.city",
+      "instructions_page": 3,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "State Debtor 1",
+      "human_label": "State",
+      "profile_path": "personal_info.state",
+      "instructions_page": 3,
+      "required": true,
+      "format": "XX",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Zip Debtor 1",
+      "human_label": "ZIP Code",
+      "profile_path": "personal_info.zip",
+      "instructions_page": 3,
+      "required": true,
+      "format": "XXXXX",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "County Debtor 1",
+      "human_label": "County of residence",
+      "profile_path": "personal_info.county",
+      "instructions_page": 3,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Mailing Address Debtor 1",
+      "human_label": "Mailing address (if different from street address)",
+      "profile_path": "personal_info.mailing_address",
+      "instructions_page": 3,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Chapter Filed Under",
+      "human_label": "Chapter filing under",
+      "profile_path": null,
+      "default_value": "7",
+      "instructions_page": 4,
+      "required": true,
+      "format": "number",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Tax ID Type",
+      "human_label": "Type of debtor (individual, corporation, etc.)",
+      "profile_path": null,
+      "default_value": "Individual",
+      "instructions_page": 4,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Filing Fee Status",
+      "human_label": "Filing fee status",
+      "profile_path": null,
+      "instructions_page": 5,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Estimated Number of Creditors",
+      "human_label": "Estimated number of creditors",
+      "profile_path": "debts.creditor_count",
+      "instructions_page": 6,
+      "required": true,
+      "format": "range",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Estimated Assets",
+      "human_label": "Estimated assets",
+      "profile_path": "assets.total_estimated",
+      "instructions_page": 6,
+      "required": true,
+      "format": "range",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Estimated Liabilities",
+      "human_label": "Estimated liabilities",
+      "profile_path": "debts.total_estimated",
+      "instructions_page": 6,
+      "required": true,
+      "format": "range",
+      "sensitive": false
+    }
+  ],
+  "notes": "This is a starter mapping. Actual PDF field names must be verified by running PDFFormReader.read_form_fields() on the downloaded form. Field names may differ from this template."
+}

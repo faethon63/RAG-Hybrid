@@ -34,8 +34,8 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # KB file upload constants
-ALLOWED_KB_EXTENSIONS = {'.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv', '.pdf'}
-MAX_KB_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_KB_EXTENSIONS = {'.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv', '.pdf', '.png', '.jpg', '.jpeg'}
+MAX_KB_FILE_SIZE = 20 * 1024 * 1024  # 20 MB (needed for large instruction PDFs)
 
 from rag_core import RAGCore
 from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch, IdealistaSearch, Crawl4AISearch
@@ -1129,6 +1129,126 @@ groq_agent.register_tool_handler("search_knowledge_base", _tool_search_knowledge
 groq_agent.register_tool_handler("list_directory", _tool_list_directory)
 groq_agent.register_tool_handler("read_file", _tool_read_file)
 groq_agent.register_tool_handler("search_files", _tool_search_files)
+
+
+# --- Bankruptcy Form-Filling Tool Handlers ---
+
+async def _tool_fill_bankruptcy_form(
+    action: str,
+    form_id: str,
+    input_pdf: str = "",
+    output_pdf: str = "",
+) -> Dict[str, Any]:
+    """Handle fill_bankruptcy_form tool calls from Groq."""
+    logger = logging.getLogger(__name__)
+    logger.info(f"fill_bankruptcy_form: action={action}, form_id={form_id}")
+
+    try:
+        from form_filler_engine import handle_fill_form_tool
+        project_name = get_current_project() or "Chapter_7_Assistant"
+        result = await handle_fill_form_tool(
+            action=action,
+            form_id=form_id,
+            input_pdf=input_pdf,
+            output_pdf=output_pdf,
+            project_name=project_name,
+        )
+
+        # Format result for Groq
+        if result.get("markdown"):
+            return {"answer": result["markdown"], "sources": []}
+        elif result.get("audit"):
+            audit = result["audit"]
+            summary = audit.get("summary", "")
+            approved = audit.get("approved", False)
+            concerns = audit.get("concerns", [])
+            concern_text = "\n".join(f"- [{c.get('severity', 'info')}] {c.get('field', '')}: {c.get('issue', '')}" for c in concerns)
+            return {
+                "answer": f"**Opus Audit {'APPROVED' if approved else 'REJECTED'}**\n\n{summary}\n\n{concern_text}" if concerns else f"**Opus Audit {'APPROVED' if approved else 'REJECTED'}**\n\n{summary}",
+                "sources": [],
+            }
+        elif result.get("success"):
+            return {"answer": result.get("message", json.dumps(result)), "sources": []}
+        else:
+            return {"answer": f"Error: {result.get('error', 'Unknown error')}", "sources": []}
+
+    except Exception as e:
+        logger.error(f"fill_bankruptcy_form error: {e}")
+        return {"answer": f"Form fill error: {str(e)}", "sources": []}
+
+
+async def _tool_build_data_profile(
+    document_paths: List[str],
+    use_dual_verification: bool = True,
+) -> Dict[str, Any]:
+    """Handle build_data_profile tool calls."""
+    logger = logging.getLogger(__name__)
+    logger.info(f"build_data_profile: {len(document_paths)} documents, dual={use_dual_verification}")
+
+    try:
+        from data_extractor import build_data_profile
+        project_name = get_current_project() or "Chapter_7_Assistant"
+        result = await build_data_profile(
+            project_name=project_name,
+            document_paths=document_paths,
+            use_dual_verification=use_dual_verification,
+        )
+
+        if result.get("success"):
+            summary = result.get("profile_summary", {})
+            discrepancies = result.get("discrepancies", [])
+            disc_text = ""
+            if discrepancies:
+                disc_text = "\n\n**Discrepancies found (need review):**\n"
+                for d in discrepancies[:10]:
+                    disc_text += f"- {d.get('field', '')}: Sonnet={d.get('sonnet')}, Opus={d.get('opus')} ({d.get('reason', '')})\n"
+
+            return {
+                "answer": f"**Data Profile Built**\n\nDocuments processed: {', '.join(result.get('documents_processed', []))}\nTotal fields extracted: {result.get('total_fields_extracted', 0)}\nProfile sections: {json.dumps(summary.get('sections', {}))}{disc_text}",
+                "sources": [],
+            }
+        return {"answer": f"Error: {result.get('error', 'Unknown error')}", "sources": []}
+
+    except Exception as e:
+        logger.error(f"build_data_profile error: {e}")
+        return {"answer": f"Profile build error: {str(e)}", "sources": []}
+
+
+async def _tool_check_data_consistency() -> Dict[str, Any]:
+    """Handle check_data_consistency tool calls."""
+    logger = logging.getLogger(__name__)
+    logger.info("check_data_consistency called")
+
+    try:
+        from data_profile import DataProfile
+        from audit_rules import run_all_checks
+
+        project_name = get_current_project() or "Chapter_7_Assistant"
+        profile = DataProfile(project_name)
+        if not profile.load():
+            return {"answer": "No data profile found. Build one first with build_data_profile.", "sources": []}
+
+        result = run_all_checks(profile)
+
+        # Format issues
+        issues_text = ""
+        for issue in result.get("issues", []):
+            severity = issue.get("severity", "info").upper()
+            issues_text += f"\n- [{severity}] {issue.get('rule', '')}: {issue.get('message', '')}"
+
+        return {
+            "answer": f"**Consistency Check: {result.get('summary', '')}**{issues_text}" if issues_text else f"**Consistency Check: {result.get('summary', '')}**\n\nNo issues found.",
+            "sources": [],
+        }
+
+    except Exception as e:
+        logger.error(f"check_data_consistency error: {e}")
+        return {"answer": f"Consistency check error: {str(e)}", "sources": []}
+
+
+groq_agent.register_tool_handler("fill_bankruptcy_form", _tool_fill_bankruptcy_form)
+groq_agent.register_tool_handler("build_data_profile", _tool_build_data_profile)
+groq_agent.register_tool_handler("check_data_consistency", _tool_check_data_consistency)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
