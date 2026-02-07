@@ -2014,11 +2014,11 @@ TOKEN_PRICING = {
 
 # Flat per-request pricing (not token-based)
 FLAT_PRICING = {
-    "perplexity": 0.001,        # Sonar: ~$1/1000 requests (free tier: $0)
-    "perplexity_pro": 0.005,    # Sonar Pro: ~$5/1000 requests
-    "perplexity_focused": 0.005,
-    "tavily": 0.01,             # ~$0.01/search
-    "tavily_extract": 0.01,     # ~$0.01/extract
+    "perplexity": 0,            # Free tier
+    "perplexity_pro": 0,        # Free tier
+    "perplexity_focused": 0,    # Free tier
+    "tavily": 0,                # Free tier: 1,000 credits/month
+    "tavily_extract": 0,        # Free tier: 1,000 credits/month
     "crawl4ai": 0,              # Free (self-hosted)
     "groq": 0,                  # Free tier
     "local": 0,                 # Free (Ollama)
