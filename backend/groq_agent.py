@@ -939,7 +939,8 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
 
                         logger.info(f"Groq calling tool: {func_name}")
                         logger.info(f"Tool args: {json.dumps(func_args, indent=2)}")
-                        all_tool_calls.append({"tool": func_name, "args": func_args})
+                        tool_call_entry = {"tool": func_name, "args": func_args}
+                        all_tool_calls.append(tool_call_entry)
 
                         # Execute the tool with timeout
                         if func_name in self._tool_handlers:
@@ -948,6 +949,12 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                                     self._tool_handlers[func_name](**func_args),
                                     timeout=30.0
                                 )
+
+                                # Store result metadata (e.g., provider_used) for routing display
+                                if isinstance(result, dict):
+                                    tool_call_entry["result"] = {
+                                        k: result[k] for k in ("provider_used",) if k in result
+                                    }
 
                                 # Include citations in tool result so Groq can reference them
                                 tool_result = result.get("answer", str(result))

@@ -123,14 +123,18 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
         # Focused search: returns clean table with exact product URLs
         # Best for supplier/product queries where we need real links, not prose
         logger.info("Using Perplexity Sonar Pro FOCUSED mode (table output)")
-        return await perplexity_search.focused_search(
+        result = await perplexity_search.focused_search(
             query=query,
             num_results=8,
             recency=recency or "month",
         )
+        result["provider_used"] = "perplexity_focused"
+        return result
     elif provider == "perplexity_pro":
         logger.info("Using Perplexity Sonar Pro (high mode)")
-        return await perplexity_search.search(query=query, search_mode="high", recency=recency)
+        result = await perplexity_search.search(query=query, search_mode="high", recency=recency)
+        result["provider_used"] = "perplexity_pro"
+        return result
     elif provider == "tavily":
         # Check if query contains a specific URL
         import re
@@ -150,6 +154,7 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
                     logger.info(f"Crawl4AI succeeded for {url} - {len(answer_text)} chars")
                     if question_part:
                         crawl_result["answer"] = f"Page content:\n\n{answer_text}\n\nUser question: {question_part}"
+                    crawl_result["provider_used"] = "crawl4ai"
                     return crawl_result
                 else:
                     logger.info(f"Crawl4AI returned insufficient content, trying Tavily")
@@ -169,18 +174,25 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             if not content_seems_valid:
                 # Extraction failed - fallback to Perplexity
                 logger.info(f"Tavily extract returned insufficient content, falling back to Perplexity")
-                return await perplexity_search.search(query=query, search_mode="high", recency="week")
+                fallback = await perplexity_search.search(query=query, search_mode="high", recency="week")
+                fallback["provider_used"] = "perplexity"
+                return fallback
 
             # Extraction worked - add question context
             if question_part:
                 result["answer"] = f"Based on the page content:\n\n{result['answer']}\n\nUser question: {question_part}"
+            result["provider_used"] = "tavily_extract"
             return result
         else:
             logger.info("Using Tavily search (no specific URL)")
-            return await tavily_search.search(query=query, search_depth="advanced")
+            result = await tavily_search.search(query=query, search_depth="advanced")
+            result["provider_used"] = "tavily"
+            return result
     else:
         # Default: perplexity (Sonar, lower cost)
-        return await perplexity_search.search(query=query, search_mode="low", recency=recency)
+        result = await perplexity_search.search(query=query, search_mode="low", recency=recency)
+        result["provider_used"] = "perplexity"
+        return result
 
 
 async def _tool_search_listings(
@@ -1410,11 +1422,15 @@ async def query(request: Request, query_request: QueryRequest):
             for tc in agent_result.get("tool_calls", []):
                 tool_name = tc["tool"]
                 args = tc.get("args", {})
+                result_data = tc.get("result", {})
 
-                # Show actual provider for web_search
+                # Show actual provider for web_search (what actually ran, not what was requested)
                 if tool_name == "web_search":
-                    provider = args.get("provider", "perplexity")
-                    tools_used.append(provider)  # Show actual provider: tavily, perplexity, perplexity_pro, etc.
+                    # provider_used tracks what actually succeeded (crawl4ai, tavily_extract, perplexity)
+                    actual = result_data.get("provider_used") if isinstance(result_data, dict) else None
+                    requested = args.get("provider", "perplexity")
+                    provider = actual or requested
+                    tools_used.append(provider)
                     if args.get("forced"):
                         routing_reasoning = f"Forced {provider} search (bypassed Groq routing)"
                 elif tool_name == "complex_reasoning":
@@ -1439,7 +1455,7 @@ async def query(request: Request, query_request: QueryRequest):
             pricing_model = "groq"  # Default free
             if tools_used:
                 first_tool = tools_used[0]
-                if first_tool in ["tavily", "perplexity", "perplexity_pro", "perplexity_focused"]:
+                if first_tool in ["tavily", "tavily_extract", "perplexity", "perplexity_pro", "perplexity_focused", "crawl4ai"]:
                     pricing_model = first_tool
                 elif first_tool == "claude" and claude_model:
                     _model_lookup = {"haiku": get_claude_haiku_model(), "sonnet": get_claude_sonnet_model(), "opus": get_claude_opus_model()}
@@ -1466,18 +1482,18 @@ async def query(request: Request, query_request: QueryRequest):
         usage = result.get("usage", {})
         tokens = None
         estimated_cost = None
+        pricing_model = result.get("pricing_model") or query_request.model
         if usage:
             tokens = {
                 "input": usage.get("input_tokens", 0),
                 "output": usage.get("output_tokens", 0)
             }
-            # Use actual model for pricing (result may specify pricing_model for vision etc)
-            pricing_model = result.get("pricing_model") or query_request.model
-            estimated_cost = calculate_cost(
-                pricing_model,
-                tokens["input"],
-                tokens["output"]
-            )
+        # Always calculate cost (flat-rate providers don't need tokens)
+        estimated_cost = calculate_cost(
+            pricing_model,
+            tokens["input"] if tokens else 0,
+            tokens["output"] if tokens else 0
+        )
 
         # Build routing_info if available
         routing_info = None
@@ -1987,29 +2003,38 @@ def calculate_confidence(results: List[Dict]) -> float:
     return min(avg_score, 1.0)
 
 
-# Pricing per 1M tokens: (input, output)
-# Note: Perplexity/Tavily use per-request pricing, these are approximations
-PRICING = {
-    # Claude models
+# Pricing per 1M tokens: (input, output) for token-based APIs
+# Per-request flat costs are in FLAT_PRICING
+TOKEN_PRICING = {
+    # Claude models (per 1M tokens)
     "claude-opus-4-6": (15.0, 75.0),
     "claude-sonnet-4-5-20250929": (3.0, 15.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
-    # Perplexity (per-request pricing ~$1/1000 req, approximated to tokens)
-    "perplexity": (0.2, 0.2),
-    "perplexity_pro": (1.0, 5.0),
-    "perplexity_focused": (1.0, 5.0),  # Uses sonar-pro
-    # Tavily (~$0.01/search, approximated)
-    "tavily": (0.5, 0.5),
-    # Free
-    "groq": (0, 0),
-    "local": (0, 0),
+}
+
+# Flat per-request pricing (not token-based)
+FLAT_PRICING = {
+    "perplexity": 0.001,        # Sonar: ~$1/1000 requests (free tier: $0)
+    "perplexity_pro": 0.005,    # Sonar Pro: ~$5/1000 requests
+    "perplexity_focused": 0.005,
+    "tavily": 0.01,             # ~$0.01/search
+    "tavily_extract": 0.01,     # ~$0.01/extract
+    "crawl4ai": 0,              # Free (self-hosted)
+    "groq": 0,                  # Free tier
+    "local": 0,                 # Free (Ollama)
 }
 
 
 def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Calculate estimated cost based on model and token usage."""
-    rates = PRICING.get(model, (0, 0))
-    return (input_tokens * rates[0] + output_tokens * rates[1]) / 1_000_000
+    # Token-based pricing (Claude)
+    if model in TOKEN_PRICING:
+        rates = TOKEN_PRICING[model]
+        return (input_tokens * rates[0] + output_tokens * rates[1]) / 1_000_000
+    # Flat per-request pricing (Perplexity, Tavily, etc.)
+    if model in FLAT_PRICING:
+        return FLAT_PRICING[model]
+    return 0.0
 
 
 @app.post("/api/v1/index")

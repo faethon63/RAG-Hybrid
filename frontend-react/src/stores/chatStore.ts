@@ -100,9 +100,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteMessage: async (messageId, project) => {
-    set((state) => ({
-      messages: state.messages.filter((m) => m.id !== messageId),
-    }));
+    set((state) => {
+      const idx = state.messages.findIndex((m) => m.id === messageId);
+      if (idx === -1) return state;
+      const msg = state.messages[idx];
+      const next = state.messages[idx + 1];
+      // If deleting a user message, also remove the assistant reply that follows
+      const removeNext = msg.role === 'user' && next && next.role === 'assistant';
+      const idsToRemove = new Set([messageId]);
+      if (removeNext) idsToRemove.add(next.id);
+      return { messages: state.messages.filter((m) => !idsToRemove.has(m.id)) };
+    });
     await get().saveChat(project);
   },
 
