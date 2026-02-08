@@ -1294,7 +1294,7 @@ IMPORTANT RULES:
 
             # Scale max_tokens and timeout based on file size
             max_tokens = min(16000, max(8000, file_size // 1024))  # ~1 token per KB, 8K-16K range
-            timeout = max(120.0, file_size / (100 * 1024))  # ~100KB/sec minimum
+            timeout = max(300.0, file_size / (50 * 1024))  # 5min minimum, ~50KB/sec for large files
 
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
