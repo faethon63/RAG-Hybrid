@@ -1242,7 +1242,7 @@ IMPORTANT RULES:
         }
 
     def _extract_pdf_text(self, file_path: Path) -> str:
-        """Extract text from a PDF file."""
+        """Extract text from a PDF file using pypdf."""
         try:
             import pypdf
             text_parts = []
@@ -1259,6 +1259,65 @@ IMPORTANT RULES:
         except Exception as e:
             logger.warning(f"Failed to extract PDF text from {file_path}: {e}")
             return ""
+
+    async def _extract_pdf_text_with_ocr(self, file_path: Path) -> str:
+        """Extract text from PDF, falling back to Claude vision OCR if pypdf fails.
+        OCR limited to PDFs under 10MB and first 20 pages to control costs."""
+        text = self._extract_pdf_text(file_path)
+        if len(text.strip()) >= 100:
+            return text
+
+        # pypdf got little/no text - try Claude vision OCR for smaller PDFs
+        file_size = file_path.stat().st_size
+        if file_size > 20 * 1024 * 1024:
+            logger.warning(f"PDF {file_path.name} has no extractable text and is too large ({file_size // (1024*1024)}MB) for OCR")
+            return text
+
+        try:
+            import base64
+            api_key = get_anthropic_api_key()
+            if not api_key or api_key.startswith("your_"):
+                return text
+
+            logger.info(f"PDF {file_path.name}: pypdf got {len(text)} chars, trying Claude vision OCR ({file_size // 1024}KB)")
+
+            pdf_data = file_path.read_bytes()
+            b64_data = base64.b64encode(pdf_data).decode("utf-8")
+
+            # Scale max_tokens and timeout based on file size
+            max_tokens = min(16000, max(8000, file_size // 1024))  # ~1 token per KB, 8K-16K range
+            timeout = max(120.0, file_size / (100 * 1024))  # ~100KB/sec minimum
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-sonnet-4-5-20250929",
+                        "max_tokens": max_tokens,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64_data}},
+                                {"type": "text", "text": "Extract ALL text from this PDF document. Include every word, number, date, label, field name, and value. Preserve the structure. For forms, include both field labels and any filled values. For tax returns, capture every line item and amount. Output only the extracted text."}
+                            ]
+                        }]
+                    }
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("content"):
+                    ocr_text = data["content"][0].get("text", "")
+                    logger.info(f"PDF OCR extracted {len(ocr_text)} chars from {file_path.name}")
+                    return ocr_text
+        except Exception as e:
+            logger.warning(f"PDF OCR failed for {file_path.name}: {e}")
+
+        return text
 
     async def _extract_image_text(self, file_path: Path) -> str:
         """Extract text from an image using Claude Sonnet vision (OCR)."""
@@ -1383,7 +1442,7 @@ IMPORTANT RULES:
                     # File is new or modified - index it
                     logger.info(f"Indexing: {file_path.name}")
                     if file_path.suffix.lower() == ".pdf":
-                        content = self._extract_pdf_text(file_path)
+                        content = await self._extract_pdf_text_with_ocr(file_path)
                     elif file_path.suffix.lower() in image_extensions:
                         content = await self._extract_image_text(file_path)
                     else:
