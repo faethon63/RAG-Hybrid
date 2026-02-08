@@ -1246,9 +1246,37 @@ async def _tool_check_data_consistency() -> Dict[str, Any]:
         return {"answer": f"Consistency check error: {str(e)}", "sources": []}
 
 
+async def _tool_get_data_profile(section: str = "all") -> Dict[str, Any]:
+    """Return the extracted data profile (truth file) with structured financial data."""
+    logger = logging.getLogger(__name__)
+    project_name = get_current_project() or "Chapter_7_Assistant"
+    profile_path = Path(get_project_kb_path()) / project_name / "data_profile.json"
+
+    if not profile_path.exists():
+        return {"answer": "No data profile found. Build one first with build_data_profile.", "sources": []}
+
+    try:
+        with open(profile_path) as f:
+            data = json.load(f)
+
+        if section and section != "all" and section in data:
+            result = {section: data[section]}
+        else:
+            result = data
+
+        answer = json.dumps(result, indent=2)
+        if len(answer) > 8000:
+            answer = answer[:8000] + "\n... (truncated)"
+        return {"answer": f"**Data Profile:**\n```json\n{answer}\n```", "sources": []}
+    except Exception as e:
+        logger.error(f"get_data_profile error: {e}")
+        return {"answer": f"Error reading data profile: {e}", "sources": []}
+
+
 groq_agent.register_tool_handler("fill_bankruptcy_form", _tool_fill_bankruptcy_form)
 groq_agent.register_tool_handler("build_data_profile", _tool_build_data_profile)
 groq_agent.register_tool_handler("check_data_consistency", _tool_check_data_consistency)
+groq_agent.register_tool_handler("get_data_profile", _tool_get_data_profile)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS

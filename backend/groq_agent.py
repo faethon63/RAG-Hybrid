@@ -494,6 +494,24 @@ class GroqAgent:
                 }
             }
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_data_profile",
+                "description": "Read the extracted data profile (truth file) containing structured financial data from tax returns and bank statements. Use this FIRST when answering questions about the debtor's income, expenses, bank balances, or any form field values. Returns personal info, tax data, bank statement summaries, and computed totals.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "section": {
+                            "type": "string",
+                            "enum": ["all", "personal_info", "tax_data_2025", "bank_data", "computed_totals"],
+                            "description": "Which section to return. Use 'all' for everything, or a specific section name."
+                        }
+                    },
+                    "required": []
+                }
+            }
+        },
     ]
 
     SYSTEM_PROMPT = """You are a helpful AI assistant. Today's date is {current_date}.
