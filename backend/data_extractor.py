@@ -542,7 +542,7 @@ async def build_data_profile(
                 profile.record_extraction_run(path.name, "TaxReturnExtractor", len(fields))
                 documents_processed.append(path.name)
 
-        elif "bank" in filename or "statement" in filename:
+        elif "bank" in filename or "statement" in filename or filename.startswith("bus ") or filename.startswith("per "):
             logger.info(f"Processing bank statement: {path.name}")
             if use_dual_verification:
                 result = await verifier.verify_bank_statement(doc_path)

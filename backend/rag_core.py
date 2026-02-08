@@ -1464,7 +1464,7 @@ IMPORTANT RULES:
                             "title": file_path.name,
                             "path": file_str,
                             "metadata": {
-                                "source": "allowed_paths",
+                                "source": file_path.name,
                                 "project": project_name,
                                 "file_type": file_path.suffix.lower(),
                             }
