@@ -1322,8 +1322,10 @@ IMPORTANT RULES:
                     ocr_text = data["content"][0].get("text", "")
                     logger.info(f"PDF OCR extracted {len(ocr_text)} chars from {file_path.name}")
                     return ocr_text
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"PDF OCR API error for {file_path.name}: {e.response.status_code} - {e.response.text[:500]}")
         except Exception as e:
-            logger.warning(f"PDF OCR failed for {file_path.name}: {e}")
+            logger.warning(f"PDF OCR failed for {file_path.name}: {type(e).__name__}: {e}")
 
         return text
 
