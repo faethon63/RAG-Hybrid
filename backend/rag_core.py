@@ -1159,16 +1159,16 @@ IMPORTANT RULES:
 
         return config if config else None
 
-    async def save_project_config(self, project_name: str, config: Dict[str, Any]) -> bool:
-        """Save project config - synced fields to git, local fields to data/."""
+    async def save_project_config(self, project_name: str, config: Dict[str, Any], local_only: bool = False) -> bool:
+        """Save project config - synced fields to git, local fields to data/.
+
+        Args:
+            local_only: If True, only save local config (indexed_files, allowed_paths).
+                       Use this when updating local-only fields to avoid overwriting
+                       git-tracked synced config that may have been edited externally.
+        """
         if not project_name:
             return False
-
-        # Add/update timestamps
-        config["name"] = project_name
-        config["updated_at"] = datetime.utcnow().isoformat()
-        if "created_at" not in config:
-            config["created_at"] = config["updated_at"]
 
         # Split config into synced vs local
         synced_config = {k: v for k, v in config.items() if k in self.SYNCED_CONFIG_FIELDS}
@@ -1176,15 +1176,23 @@ IMPORTANT RULES:
 
         success = True
 
-        # Save synced config (git-tracked)
-        synced_path = self._get_synced_config_path(project_name)
-        try:
-            with open(synced_path, "w", encoding="utf-8") as f:
-                json.dump(synced_config, f, indent=2)
-            logger.info(f"Saved synced config for project '{project_name}'")
-        except Exception as e:
-            logger.error(f"Failed to save synced config for '{project_name}': {e}")
-            success = False
+        # Save synced config (git-tracked) - skip if local_only
+        if not local_only:
+            # Add/update timestamps only for synced saves
+            config["name"] = project_name
+            config["updated_at"] = datetime.utcnow().isoformat()
+            if "created_at" not in config:
+                config["created_at"] = config["updated_at"]
+            synced_config = {k: v for k, v in config.items() if k in self.SYNCED_CONFIG_FIELDS}
+
+            synced_path = self._get_synced_config_path(project_name)
+            try:
+                with open(synced_path, "w", encoding="utf-8") as f:
+                    json.dump(synced_config, f, indent=2)
+                logger.info(f"Saved synced config for project '{project_name}'")
+            except Exception as e:
+                logger.error(f"Failed to save synced config for '{project_name}': {e}")
+                success = False
 
         # Save local config (gitignored) - only if there's local data
         if local_config:
@@ -1470,9 +1478,9 @@ IMPORTANT RULES:
         if documents:
             indexed_count = await self.index_documents(documents, project=project_name)
 
-        # Update the project config with the file index
+        # Update the project config with the file index (local_only to avoid overwriting synced config)
         config["indexed_files"] = new_indexed_files
-        await self.save_project_config(project_name, config)
+        await self.save_project_config(project_name, config, local_only=True)
 
         logger.info(f"Indexing complete: {indexed_count} chunks from {len(files_indexed)} files")
         return {
@@ -1546,11 +1554,11 @@ IMPORTANT RULES:
                 collection.delete(ids=ids_to_delete)
                 logger.info(f"Deleted {len(ids_to_delete)} chunks for file: {file_path}")
 
-            # Update indexed_files in config
+            # Update indexed_files in config (local_only to avoid overwriting synced config)
             config = await self.get_project_config(project_name)
             if config and file_path in config.get("indexed_files", {}):
                 del config["indexed_files"][file_path]
-                await self.save_project_config(project_name, config)
+                await self.save_project_config(project_name, config, local_only=True)
 
             return len(ids_to_delete) > 0
         except Exception as e:
