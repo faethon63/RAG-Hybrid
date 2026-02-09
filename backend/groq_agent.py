@@ -917,6 +917,8 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
         if project_config:
             if project_config.get("system_prompt"):
                 project_instructions = f"\nProject context: {project_config['system_prompt']}"
+            if project_config.get("instructions"):
+                project_instructions += f"\n\nProject tool routing instructions:\n{project_config['instructions']}"
 
         # Build KB/file instructions based on project capabilities
         kb_instructions = ""
