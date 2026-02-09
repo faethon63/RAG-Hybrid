@@ -994,10 +994,48 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                 and "fill_bankruptcy_form" in self._tool_handlers):
             query_lower = query.lower()
 
+            # Helper: extract form ID from conversation history
+            import re
+            def _extract_form_id_from_history(history):
+                """Search recent conversation for form references to determine which form user means."""
+                form_pattern = re.compile(
+                    r'(?:form\s*(?:b?\s*)?)?(\d{3}[a-z]?(?:[_\-][a-z0-9]+)?)',
+                    re.IGNORECASE
+                )
+                keyword_to_id = {
+                    "means test": "122a_1", "122a-1": "122a_1", "122a_1": "122a_1",
+                    "schedule i": "106i", "schedule j": "106j", "schedule c": "106c",
+                    "schedule a": "106ab", "schedule b": "106ab", "schedule d": "106d",
+                    "schedule e": "106ef", "schedule f": "106ef", "schedule g": "106g",
+                    "schedule h": "106h", "petition": "101", "voluntary petition": "101",
+                    "assets": "106ab", "property": "106ab", "income": "106i",
+                    "expenses": "106j", "creditor": "106ef", "unsecured": "106ef",
+                    "secured": "106d", "financial affairs": "107", "intention": "108",
+                    "exempt": "106c", "summary of schedules": "106sum",
+                    "ssn": "121", "social security": "121", "122a-2": "122a_2",
+                }
+                # Search last 6 messages (most recent first)
+                for msg in reversed(history[-6:]):
+                    text = msg.get("content", "").lower()
+                    # Check "Fill Plan: Form XXX" first
+                    plan_match = re.search(r'fill plan:\s*form\s*(\S+)', text, re.IGNORECASE)
+                    if plan_match:
+                        return plan_match.group(1).replace("-", "_")
+                    # Check keyword names
+                    for kw, fid in keyword_to_id.items():
+                        if kw in text:
+                            return fid
+                    # Check numeric form IDs
+                    m = form_pattern.search(text)
+                    if m:
+                        return m.group(1).replace("-", "_")
+                return None
+
             # APPROVAL INTERCEPTOR: detect "approve" after a fill plan was shown
             approve_patterns = ["approve", "looks good", "go ahead", "fill it", "proceed",
                                 "yes, fill", "yes fill", "execute the fill", "execute fill",
-                                "do it", "confirmed", "confirm"]
+                                "do it", "confirmed", "confirm", "fill out the form",
+                                "did you fill", "fill it out"]
             last_assistant_msg = ""
             if conversation_history:
                 for msg in reversed(conversation_history):
@@ -1005,25 +1043,45 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         last_assistant_msg = msg.get("content", "")
                         break
 
-            if (any(p in query_lower for p in approve_patterns)
-                    and "Fill Plan:" in last_assistant_msg):
-                # Extract form_id from the previous fill plan
-                import re
-                plan_form_match = re.search(r'Fill Plan: Form (\S+)', last_assistant_msg)
-                if plan_form_match:
-                    form_id = plan_form_match.group(1)
+            # Check for approval OR direct "fill out the form" with context
+            is_approval = any(p in query_lower for p in approve_patterns)
+            has_fill_plan = "Fill Plan:" in last_assistant_msg
+            # Also trigger if recent conversation discussed a specific form
+            has_form_context = False
+            context_form_id = None
+            if is_approval and not has_fill_plan and conversation_history:
+                context_form_id = _extract_form_id_from_history(conversation_history)
+                has_form_context = context_form_id is not None
+
+            if is_approval and (has_fill_plan or has_form_context):
+                # Extract form_id from fill plan or conversation context
+                form_id = None
+                if has_fill_plan:
+                    plan_form_match = re.search(r'Fill Plan: Form (\S+)', last_assistant_msg)
+                    if plan_form_match:
+                        form_id = plan_form_match.group(1)
+                if not form_id:
+                    form_id = context_form_id
+
+                if form_id:
                     try:
-                        logger.info(f"Form fill approval interceptor: form_id={form_id}, executing fill")
-                        result = await self._tool_handlers["fill_bankruptcy_form"](action="fill", form_id=form_id)
-                        answer = result.get("answer", "")
-                        if answer and "Error:" not in answer:
+                        # Run plan first, then fill - show both
+                        logger.info(f"Form fill interceptor: form_id={form_id}, running plan+fill")
+                        plan_result = await self._tool_handlers["fill_bankruptcy_form"](action="plan", form_id=form_id)
+                        plan_text = plan_result.get("answer", "")
+
+                        fill_result = await self._tool_handlers["fill_bankruptcy_form"](action="fill", form_id=form_id)
+                        fill_text = fill_result.get("answer", "")
+
+                        if fill_text and "Error:" not in fill_text:
+                            combined = f"{plan_text}\n\n---\n\n{fill_text}"
                             return {
-                                "answer": answer,
+                                "answer": combined,
                                 "sources": [],
                                 "usage": {"input_tokens": 0, "output_tokens": 0},
                                 "tool_results": [{"tool": "fill_bankruptcy_form", "args": {"action": "fill", "form_id": form_id}}],
                             }
-                        logger.warning(f"Form fill approval: tool returned error: {answer}")
+                        logger.warning(f"Form fill approval: tool returned error: {fill_text}")
                     except Exception as e:
                         logger.warning(f"Form fill approval interceptor failed: {e}")
 
@@ -1032,20 +1090,25 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                              "generate fill", "generate a fill", "complete the form", "complete form"]
             if any(p in query_lower for p in fill_patterns):
                 # Extract form ID from query
-                import re
                 form_match = re.search(r'\b(?:form\s*)?(?:b?\s*)?(\d{3}[a-z]?(?:[_\-][a-z0-9]+)?)\b', query_lower)
                 if not form_match:
                     # Try common form names
                     form_id_map = {"means test": "122a_1", "schedule i": "106i", "schedule j": "106j",
                                    "petition": "101", "assets": "106ab", "property": "106ab",
                                    "income": "106i", "expenses": "106j", "creditor": "106ef",
-                                   "financial affairs": "107", "intention": "108", "exempt": "106c"}
+                                   "financial affairs": "107", "intention": "108", "exempt": "106c",
+                                   "summary": "106sum", "ssn": "121", "social security": "121"}
                     detected_form = None
                     for kw, fid in form_id_map.items():
                         if kw in query_lower:
                             detected_form = fid
                             break
                     form_id = detected_form
+                    # If still no form ID, check conversation history
+                    if not form_id and conversation_history:
+                        form_id = _extract_form_id_from_history(conversation_history)
+                        if form_id:
+                            logger.info(f"Form fill interceptor: found form_id={form_id} from conversation context")
                 else:
                     form_id = form_match.group(1).replace(" ", "")
 
