@@ -944,8 +944,31 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
         if project_config and project_config.get("name") == "Chapter_7_Assistant":
             tools.extend(self.BANKRUPTCY_TOOLS)
 
+        # AUTO-INJECT data profile for Chapter 7 financial queries
+        # Groq (Llama) ignores routing instructions, so we pre-fetch and inject
+        data_profile_context = ""
+        if (project_config and project_config.get("name") == "Chapter_7_Assistant"
+                and "get_data_profile" in self._tool_handlers):
+            query_lower = query.lower()
+            financial_keywords = [
+                "form", "fill", "income", "expense", "bank", "tax", "agi",
+                "balance", "gross", "net", "salary", "wage", "deduction",
+                "122a", "106", "107", "108", "101", "schedule",
+                "collect", "gather", "deduce", "information", "data", "need",
+                "cmi", "monthly", "means test", "median",
+            ]
+            if any(kw in query_lower for kw in financial_keywords):
+                try:
+                    profile_result = await self._tool_handlers["get_data_profile"](section="all")
+                    profile_text = profile_result.get("answer", "")
+                    if profile_text and "No data profile found" not in profile_text:
+                        data_profile_context = f"\n\n--- DEBTOR'S VERIFIED FINANCIAL DATA (use this to answer) ---\n{profile_text}\n--- END DATA PROFILE ---"
+                        logger.info("Auto-injected data profile into Ch7 query context")
+                except Exception as e:
+                    logger.warning(f"Failed to auto-inject data profile: {e}")
+
         # Build messages
-        messages = [{"role": "system", "content": system_prompt}]
+        messages = [{"role": "system", "content": system_prompt + data_profile_context}]
 
         # Add conversation history
         if conversation_history:
