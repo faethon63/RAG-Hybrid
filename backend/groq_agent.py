@@ -374,6 +374,27 @@ class GroqAgent:
         {
             "type": "function",
             "function": {
+                "name": "download_file",
+                "description": "Download a file from a URL and save it to the project's documents folder. Use for downloading PDFs, forms, reference documents, or any file the user needs. For bankruptcy forms, you can use shorthand IDs like '101', '106A', '122A-1' instead of full URLs.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "Full URL to download from, OR a bankruptcy form ID shorthand (e.g., '101', '106A', '122A-1')"
+                        },
+                        "filename": {
+                            "type": "string",
+                            "description": "Optional filename to save as. If not provided, uses the filename from the URL."
+                        }
+                    },
+                    "required": ["url"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "list_directory",
                 "description": "List files and folders in a directory. Use to see what files exist in a project folder.",
                 "parameters": {
@@ -491,23 +512,6 @@ class GroqAgent:
                     "type": "object",
                     "properties": {},
                     "required": []
-                }
-            }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "download_bankruptcy_form",
-                "description": "Download an official blank bankruptcy form from uscourts.gov. Use when user needs a form that isn't in the KB yet. Available forms: 101, 106A/B, 106C, 106D, 106E/F, 106G, 106H, 106I, 106J, 106Sum, 106Dec, 107, 108, 121, 122A-1, 122A-2.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "form_id": {
-                            "type": "string",
-                            "description": "Form identifier (e.g., '101', '106A', '122A-1')"
-                        }
-                    },
-                    "required": ["form_id"]
                 }
             }
         },

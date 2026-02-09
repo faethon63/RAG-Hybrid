@@ -1285,27 +1285,65 @@ async def _tool_get_data_profile(section: str = "all") -> Dict[str, Any]:
         return {"answer": f"Error reading data profile: {e}", "sources": []}
 
 
-async def _tool_download_bankruptcy_form(form_id: str) -> Dict[str, Any]:
-    """Handle download_bankruptcy_form tool calls."""
+async def _tool_download_file(url: str, filename: str = "") -> Dict[str, Any]:
+    """Handle download_file tool calls - general file download to project KB."""
     logger = logging.getLogger(__name__)
-    logger.info(f"download_bankruptcy_form: form_id={form_id}")
+    logger.info(f"download_file: url={url}, filename={filename}")
     try:
-        from pdf_tools import PDFDownloader
+        import httpx
+        from pdf_tools import BANKRUPTCY_FORM_URLS
+
         project_name = get_current_project() or "Chapter_7_Assistant"
-        output_dir = str(Path(get_project_kb_path()) / project_name / "blank_forms")
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        result = await PDFDownloader.download_form(form_id, output_dir)
-        if result.get("success"):
-            msg = result.get("message", f"Downloaded form {form_id}")
-            return {"answer": msg, "sources": []}
-        else:
-            return {"answer": f"Error: {result.get('error', 'download failed')}", "sources": []}
+        docs_dir = Path(get_synced_kb_path()) / project_name / "documents"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check if url is a bankruptcy form ID shorthand
+        url_upper = url.upper().replace(" ", "").replace("_", "")
+        if url_upper in BANKRUPTCY_FORM_URLS or any(
+            k.replace("-", "") == url_upper.replace("-", "") for k in BANKRUPTCY_FORM_URLS
+        ):
+            # It's a form ID, resolve to URL
+            actual_url = BANKRUPTCY_FORM_URLS.get(url_upper)
+            if not actual_url:
+                for k, v in BANKRUPTCY_FORM_URLS.items():
+                    if k.replace("-", "") == url_upper.replace("-", ""):
+                        actual_url = v
+                        break
+            if actual_url:
+                if not filename:
+                    filename = actual_url.split("/")[-1]
+                url = actual_url
+
+        # Validate it looks like a URL
+        if not url.startswith("http://") and not url.startswith("https://"):
+            return {"answer": f"Error: '{url}' is not a valid URL or known form ID.", "sources": []}
+
+        # Derive filename from URL if not provided
+        if not filename:
+            filename = url.split("/")[-1].split("?")[0]
+            if not filename:
+                filename = "downloaded_file"
+
+        output_path = docs_dir / filename
+
+        async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            output_path.write_bytes(response.content)
+
+        size_kb = len(response.content) / 1024
+        return {
+            "answer": f"Downloaded **{filename}** ({size_kb:.0f} KB) to project documents folder.",
+            "sources": [],
+        }
+    except httpx.HTTPError as e:
+        return {"answer": f"Download failed: {e}", "sources": []}
     except Exception as e:
-        logger.error(f"download_bankruptcy_form error: {e}")
+        logger.error(f"download_file error: {e}")
         return {"answer": f"Download error: {str(e)}", "sources": []}
 
 groq_agent.register_tool_handler("fill_bankruptcy_form", _tool_fill_bankruptcy_form)
-groq_agent.register_tool_handler("download_bankruptcy_form", _tool_download_bankruptcy_form)
+groq_agent.register_tool_handler("download_file", _tool_download_file)
 groq_agent.register_tool_handler("build_data_profile", _tool_build_data_profile)
 groq_agent.register_tool_handler("check_data_consistency", _tool_check_data_consistency)
 groq_agent.register_tool_handler("get_data_profile", _tool_get_data_profile)
