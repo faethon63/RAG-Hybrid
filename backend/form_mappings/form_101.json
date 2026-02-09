@@ -2,174 +2,120 @@
   "form_id": "101",
   "form_name": "Voluntary Petition for Individuals Filing for Bankruptcy",
   "description": "The main petition form - establishes the bankruptcy case",
-  "instructions_pages": "1-15",
   "fields": [
     {
-      "pdf_field": "District",
-      "human_label": "Bankruptcy District",
-      "profile_path": null,
-      "default_value": "Central District of California",
-      "instructions_page": 2,
-      "required": true,
-      "format": "text",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Name of Debtor 1",
-      "human_label": "Your full legal name",
+      "pdf_field": "Debtor",
+      "human_label": "Debtor 1 full legal name",
       "profile_path": "personal_info.full_name",
-      "instructions_page": 2,
       "required": true,
       "format": "text",
       "sensitive": false
     },
     {
-      "pdf_field": "First Name Debtor 1",
-      "human_label": "First name",
-      "profile_path": "personal_info.first_name",
-      "instructions_page": 2,
-      "required": true,
-      "format": "text",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Last Name Debtor 1",
-      "human_label": "Last name",
-      "profile_path": "personal_info.last_name",
-      "instructions_page": 2,
-      "required": true,
-      "format": "text",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "All other names Debtor 1",
-      "human_label": "Other names used in the last 8 years",
-      "profile_path": "personal_info.other_names",
-      "instructions_page": 2,
+      "pdf_field": "Case number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
       "required": false,
       "format": "text",
       "sensitive": false
     },
     {
-      "pdf_field": "SSN Debtor 1",
-      "human_label": "Social Security Number",
+      "pdf_field": "Bankruptcy District Information",
+      "human_label": "Bankruptcy district",
+      "profile_path": null,
+      "default_value": "Central District of California",
+      "required": true,
+      "format": "dropdown",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "District",
+      "human_label": "District (text field)",
+      "profile_path": null,
+      "default_value": "Central District of California",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Debtor1 Tax Payer IDNum",
+      "human_label": "Social Security Number / Tax ID",
       "profile_path": "personal_info.ssn",
-      "instructions_page": 2,
       "required": true,
       "format": "XXX-XX-XXXX",
       "sensitive": true,
       "notes": "NEVER auto-fill. User must provide at fill time."
     },
     {
-      "pdf_field": "Street Address Debtor 1",
+      "pdf_field": "Street_6",
       "human_label": "Street address",
       "profile_path": "personal_info.address",
-      "instructions_page": 3,
       "required": true,
       "format": "text",
       "sensitive": false
     },
     {
-      "pdf_field": "City Debtor 1",
+      "pdf_field": "City_2",
       "human_label": "City",
-      "profile_path": "personal_info.city",
-      "instructions_page": 3,
+      "profile_path": null,
+      "default_value": "LOS ANGELES",
       "required": true,
       "format": "text",
       "sensitive": false
     },
     {
-      "pdf_field": "State Debtor 1",
+      "pdf_field": "State_6",
       "human_label": "State",
-      "profile_path": "personal_info.state",
-      "instructions_page": 3,
+      "profile_path": null,
+      "default_value": "CA",
       "required": true,
-      "format": "XX",
+      "format": "text",
       "sensitive": false
     },
     {
-      "pdf_field": "Zip Debtor 1",
+      "pdf_field": "ZIP Code_4",
       "human_label": "ZIP Code",
-      "profile_path": "personal_info.zip",
-      "instructions_page": 3,
+      "profile_path": null,
+      "default_value": "90004",
       "required": true,
-      "format": "XXXXX",
+      "format": "text",
       "sensitive": false
     },
     {
-      "pdf_field": "County Debtor 1",
+      "pdf_field": "County_2",
       "human_label": "County of residence",
-      "profile_path": "personal_info.county",
-      "instructions_page": 3,
+      "profile_path": null,
+      "default_value": "Los Angeles",
       "required": true,
       "format": "text",
       "sensitive": false
     },
     {
-      "pdf_field": "Mailing Address Debtor 1",
-      "human_label": "Mailing address (if different from street address)",
-      "profile_path": "personal_info.mailing_address",
-      "instructions_page": 3,
-      "required": false,
-      "format": "text",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Chapter Filed Under",
-      "human_label": "Chapter filing under",
+      "pdf_field": "Check Box7",
+      "human_label": "Chapter 7 filing",
       "profile_path": null,
-      "default_value": "7",
-      "instructions_page": 4,
-      "required": true,
-      "format": "number",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Tax ID Type",
-      "human_label": "Type of debtor (individual, corporation, etc.)",
-      "profile_path": null,
-      "default_value": "Individual",
-      "instructions_page": 4,
-      "required": true,
-      "format": "text",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Filing Fee Status",
-      "human_label": "Filing fee status",
-      "profile_path": null,
-      "instructions_page": 5,
+      "default_value": "Yes",
       "required": true,
       "format": "checkbox",
       "sensitive": false
     },
     {
-      "pdf_field": "Estimated Number of Creditors",
-      "human_label": "Estimated number of creditors",
-      "profile_path": "debts.creditor_count",
-      "instructions_page": 6,
-      "required": true,
-      "format": "range",
-      "sensitive": false
+      "pdf_field": "Name of business if any",
+      "human_label": "Name of business (if any)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false,
+      "notes": "Self-employed massage therapist - may or may not have business name"
     },
     {
-      "pdf_field": "Estimated Assets",
-      "human_label": "Estimated assets",
-      "profile_path": "assets.total_estimated",
-      "instructions_page": 6,
+      "pdf_field": "Executed on",
+      "human_label": "Date signed",
+      "profile_path": null,
       "required": true,
-      "format": "range",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Estimated Liabilities",
-      "human_label": "Estimated liabilities",
-      "profile_path": "debts.total_estimated",
-      "instructions_page": 6,
-      "required": true,
-      "format": "range",
+      "format": "date",
       "sensitive": false
     }
   ],
-  "notes": "This is a starter mapping. Actual PDF field names must be verified by running PDFFormReader.read_form_fields() on the downloaded form. Field names may differ from this template."
+  "notes": "PDF field names verified via PDFFormReader on uscourts.gov form_b101.pdf. Form has 79 total fields - this mapping covers the most common auto-fillable ones."
 }

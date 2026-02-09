@@ -1,10 +1,10 @@
 {
   "form_id": "122a_1",
-  "form_name": "Chapter 7 Means Test Calculation",
+  "form_name": "Chapter 7 Statement of Your Current Monthly Income",
   "description": "Determines whether debtor's income is low enough to qualify for Chapter 7",
   "fields": [
     {
-      "pdf_field": "Debtor1_Name",
+      "pdf_field": "Debtor1",
       "human_label": "Debtor 1 name",
       "profile_path": "personal_info.full_name",
       "required": true,
@@ -12,7 +12,7 @@
       "sensitive": false
     },
     {
-      "pdf_field": "Case_Number",
+      "pdf_field": "Case number1",
       "human_label": "Case number (if known)",
       "profile_path": null,
       "required": false,
@@ -20,36 +20,36 @@
       "sensitive": false
     },
     {
-      "pdf_field": "District",
+      "pdf_field": "Bankruptcy District Information",
       "human_label": "Bankruptcy district",
       "profile_path": null,
       "default_value": "Central District of California",
       "required": true,
-      "format": "text",
+      "format": "dropdown",
       "sensitive": false
     },
     {
-      "pdf_field": "Marital_Filing_Status",
-      "human_label": "Check one: not married, married filing jointly, married not filing jointly",
+      "pdf_field": "CheckBox1",
+      "human_label": "Unmarried (includes single, divorced, widowed)",
       "profile_path": "personal_info.filing_status",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Single = not married"
+      "notes": "Single filing status = check this box"
     },
     {
-      "pdf_field": "Line2_Gross_Wages",
-      "human_label": "Line 2: Gross wages, salary, tips, etc.",
+      "pdf_field": "terrorism If necessary list other sources on a separate page and put the total below 1",
+      "human_label": "Line 2: Gross wages, salary, tips (6-month avg)",
       "profile_path": null,
-      "default_value": 0,
+      "default_value": "0.00",
       "required": true,
       "format": "currency",
       "sensitive": false,
       "notes": "Debtor is self-employed, no W-2 wages"
     },
     {
-      "pdf_field": "Line3_Business_Income",
-      "human_label": "Line 3: Net income from business/profession/farm",
+      "pdf_field": "terrorism If necessary list other sources on a separate page and put the total below 2",
+      "human_label": "Line 3-10: Other income sources (6-month avg)",
       "profile_path": "computed_totals.for_means_test_b122a1.schedule_c_monthly",
       "required": true,
       "format": "currency",
@@ -57,81 +57,17 @@
       "notes": "Schedule C net profit / 12 months = monthly business income"
     },
     {
-      "pdf_field": "Line4_Rental_Income",
-      "human_label": "Line 4: Rental and other real property income",
-      "profile_path": null,
-      "default_value": 0,
-      "required": true,
-      "format": "currency",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Line5_Interest_Dividends",
-      "human_label": "Line 5: Interest, dividends, and royalties",
-      "profile_path": null,
-      "default_value": 0,
-      "required": true,
-      "format": "currency",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Line6_Pension_Retirement",
-      "human_label": "Line 6: Pension and retirement income",
-      "profile_path": null,
-      "default_value": 0,
-      "required": true,
-      "format": "currency",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Line7_Other_Income",
-      "human_label": "Line 7: Any amounts paid on a regular basis for household expenses (non-debtor contributions)",
-      "profile_path": null,
-      "default_value": 0,
-      "required": true,
-      "format": "currency",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Line8_Unemployment",
-      "human_label": "Line 8: Unemployment compensation",
-      "profile_path": null,
-      "default_value": 0,
-      "required": false,
-      "format": "currency",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Line9_Other_Sources",
-      "human_label": "Line 9: Income from all other sources (specify)",
-      "profile_path": null,
-      "default_value": 0,
-      "required": false,
-      "format": "currency",
-      "sensitive": false
-    },
-    {
-      "pdf_field": "Line10_Spouse_Income",
-      "human_label": "Line 10: Spouse's income (if filing jointly or not separate)",
-      "profile_path": null,
-      "default_value": 0,
-      "required": false,
-      "format": "currency",
-      "sensitive": false,
-      "notes": "Single filer - no spouse income"
-    },
-    {
-      "pdf_field": "Line11_Total_CMI",
-      "human_label": "Line 11: Total current monthly income (sum lines 2-10)",
+      "pdf_field": "Quest11",
+      "human_label": "Line 11: Total current monthly income",
       "profile_path": "computed_totals.for_means_test_b122a1.schedule_c_monthly",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "For single self-employed filer, this equals Line 3"
+      "notes": "Sum of all income lines. For self-employed single filer = Schedule C monthly"
     },
     {
-      "pdf_field": "Line12_Annualized_CMI",
-      "human_label": "Line 12: Annualized CMI (Line 11 x 12)",
+      "pdf_field": "12B",
+      "human_label": "Line 12b: Annualized CMI (Line 11 x 12)",
       "profile_path": "computed_totals.for_means_test_b122a1.annualized_from_bus_deposits",
       "required": true,
       "format": "currency",
@@ -139,33 +75,42 @@
       "notes": "Line 11 x 12. Compare to applicable median family income."
     },
     {
-      "pdf_field": "Line13_Household_Size",
-      "human_label": "Line 13: Household size",
+      "pdf_field": "13A",
+      "human_label": "Line 13a: Household size",
       "profile_path": null,
-      "default_value": 1,
+      "default_value": "1",
       "required": true,
       "format": "number",
       "sensitive": false,
       "notes": "Single filer, no dependents indicated"
     },
     {
-      "pdf_field": "Line14_State_Median",
-      "human_label": "Line 14: Applicable median family income for household size",
+      "pdf_field": "13B",
+      "human_label": "Line 13b: Applicable median family income",
       "profile_path": null,
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Look up CA median for 1-person household. As of 2025: ~$67,433"
+      "notes": "Look up CA median for 1-person household. Census Bureau data."
     },
     {
-      "pdf_field": "Line15_Comparison",
-      "human_label": "Line 15: Is Line 12 less than or equal to Line 14?",
+      "pdf_field": "13C",
+      "human_label": "Line 13c: State of debtor's domicile",
+      "profile_path": null,
+      "default_value": "California",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "14a",
+      "human_label": "Line 14: Is Line 12b <= Line 13b? (presumption does not arise)",
       "profile_path": null,
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "If yes, presumption of abuse does not arise. Check applicable box."
+      "notes": "If annualized CMI <= median, check this - no presumption of abuse"
     }
   ],
-  "notes": "Uses 6-month lookback period for CMI. Key question is whether annualized CMI exceeds state median. Debtor is self-employed sole proprietor (Schedule C). PDF field names are placeholders - verify with PDFFormReader."
+  "notes": "Uses 6-month lookback for CMI. PDF field names verified via PDFFormReader on uscourts.gov blank form. Field names like 'terrorism If necessary...' are official PDF field names from the form."
 }
