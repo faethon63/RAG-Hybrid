@@ -21,7 +21,7 @@ import clsx from 'clsx';
 
 interface MessageItemProps {
   message: Message;
-  onEdit?: (id: string, content: string) => void;
+  onEdit?: (id: string, content: string, regenerate: boolean) => void;
   onDelete?: (id: string) => void;
 }
 
@@ -51,7 +51,7 @@ export function MessageItem({ message, onEdit, onDelete }: MessageItemProps) {
 
   const handleSaveEdit = () => {
     if (editContent.trim() && onEdit) {
-      onEdit(message.id, editContent);
+      onEdit(message.id, editContent, isUser);
     }
     setIsEditing(false);
   };
@@ -186,7 +186,7 @@ export function MessageItem({ message, onEdit, onDelete }: MessageItemProps) {
                   className="flex items-center gap-1 px-3 py-1.5 bg-[var(--color-primary)] text-white rounded-lg text-xs hover:opacity-90 transition-opacity"
                 >
                   <CheckIcon className="w-3 h-3" />
-                  Save
+                  {isUser ? 'Save & Resend' : 'Save'}
                 </button>
                 <button
                   onClick={handleCancelEdit}

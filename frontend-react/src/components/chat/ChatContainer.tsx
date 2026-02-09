@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { MessageItem } from './MessageItem';
 import { ChatInput } from './ChatInput';
 import { LoaderIcon, SparklesIcon } from '../common/icons';
@@ -10,13 +11,20 @@ export function ChatContainer() {
   const isLoading = useChatStore((s) => s.isLoading);
   const error = useChatStore((s) => s.error);
   const editMessage = useChatStore((s) => s.editMessage);
+  const editAndRegenerate = useChatStore((s) => s.editAndRegenerate);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const currentProject = useProjectStore((s) => s.currentProject);
+  const mode = useSettingsStore((s) => s.mode);
+  const model = useSettingsStore((s) => s.model);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const handleEdit = useCallback((id: string, content: string) => {
-    editMessage(id, content, currentProject);
-  }, [editMessage, currentProject]);
+  const handleEdit = useCallback((id: string, content: string, regenerate: boolean) => {
+    if (regenerate) {
+      editAndRegenerate(id, content, mode, model, currentProject);
+    } else {
+      editMessage(id, content, currentProject);
+    }
+  }, [editMessage, editAndRegenerate, mode, model, currentProject]);
 
   const handleDelete = useCallback((id: string) => {
     deleteMessage(id, currentProject);

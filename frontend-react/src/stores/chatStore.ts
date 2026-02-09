@@ -33,6 +33,7 @@ interface ChatState {
 
   // Message editing
   editMessage: (messageId: string, newContent: string, project?: string | null) => Promise<void>;
+  editAndRegenerate: (messageId: string, newContent: string, mode: string, model: string, project: string | null) => Promise<void>;
   deleteMessage: (messageId: string, project?: string | null) => Promise<void>;
 
   // API operations
@@ -97,6 +98,78 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ),
     }));
     await get().saveChat(project);
+  },
+
+  editAndRegenerate: async (messageId, newContent, mode, model, project) => {
+    const { messages, saveChat, lastAttachedFiles } = get();
+    const idx = messages.findIndex((m) => m.id === messageId);
+    if (idx === -1) return;
+
+    // Keep messages up to and including the edited one, with updated content
+    const truncated = messages.slice(0, idx + 1).map((m) =>
+      m.id === messageId ? { ...m, content: newContent } : m
+    );
+    set({ messages: truncated, isLoading: true, error: null });
+
+    try {
+      // Build conversation history from messages before the edited one
+      const history = truncated.slice(0, -1).slice(-6).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      // Strip "[Attached: ...]" suffix to get the raw query text
+      const query = newContent.replace(/\n\n\[Attached:.*\]$/, '');
+
+      const filesPayload = lastAttachedFiles?.length > 0 ? lastAttachedFiles.map(f => ({
+        name: f.name,
+        type: f.type,
+        data: f.data,
+        isImage: f.isImage,
+      })) : undefined;
+
+      const response = await api.query({
+        query: query || 'Analyze the attached file(s)',
+        mode: mode as 'auto' | 'private' | 'research' | 'deep_agent',
+        model,
+        project,
+        max_results: 5,
+        include_sources: true,
+        conversation_history: history,
+        files: filesPayload,
+      });
+
+      const assistantMessage: Message = {
+        id: generateMessageId(),
+        role: 'assistant',
+        content: response.answer,
+        timestamp: response.timestamp,
+        metadata: {
+          mode: response.mode,
+          model_used: response.model_used,
+          processing_time: response.processing_time,
+          confidence: response.confidence,
+          tokens: response.tokens,
+          estimated_cost: response.estimated_cost,
+          sources: response.sources,
+          agent_steps: response.agent_steps,
+          routing_info: response.routing_info,
+        },
+      };
+
+      set((state) => ({
+        messages: [...state.messages, assistantMessage],
+        isLoading: false,
+        lastSources: response.sources || [],
+        lastAgentSteps: response.agent_steps || [],
+      }));
+
+      await saveChat(project);
+    } catch (err) {
+      console.error('Regeneration failed:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Regeneration failed';
+      set({ isLoading: false, error: errorMessage });
+    }
   },
 
   deleteMessage: async (messageId, project) => {
