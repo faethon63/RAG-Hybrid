@@ -164,6 +164,46 @@ When making backend changes, follow this exact sequence:
 powershell.exe -Command 'Invoke-RestMethod -Uri "http://localhost:8000/api/v1/query" -Method POST -Body $body -ContentType "application/json"'
 ```
 
+## Mandatory Verification Protocol (NEVER SKIP)
+
+**NEVER declare a change "done" until it is verified working on VPS.** Pushing code is not delivery. A passing deploy is not delivery. Only a verified end-to-end test is delivery.
+
+### After Every Push
+
+1. **Wait for deploy** - `gh run list --repo faethon63/RAG-Hybrid --limit 1` must show `success`
+2. **Verify code landed** - SSH to VPS and confirm the change is present (grep for new code, check git log)
+3. **Run end-to-end test on VPS** - not locally, ON THE VPS where the user will see it
+4. **Check VPS logs** - `ssh root@72.60.27.167 "pm2 logs rag-backend --lines 30 --nostream"` to confirm new code path executed
+5. **Only then report to user**
+
+### Verification by Change Type
+
+| Change Type | How to Verify |
+|-------------|--------------|
+| **Frontend display** | Check built JS contains new code + test the API that feeds data to it |
+| **Backend routing/logic** | Send test query via VPS API, check response content AND logs |
+| **Data persistence** | Write via API, read back from DB (`sudo -u postgres psql`) |
+| **Tool/agent behavior** | Send query that triggers the tool, verify tool appears in logs and response metadata |
+
+### What "Verify" Means (Examples)
+
+- Timestamp display: Check that `message.timestamp` exists in DB after saving a chat, not just that the UI code renders it
+- Groq tool routing: Send a Ch7 query via VPS, check logs show `get_data_profile` was called, check response contains actual numbers
+- Any bug fix: Reproduce the original bug scenario on VPS and confirm it no longer occurs
+
+### When Verification Fails
+
+Do NOT report partial success. Fix the issue, push again, and re-verify. The user should only hear about a change when it is confirmed working.
+
+### Agent Teams for Complex Changes
+
+For multi-step changes that touch frontend + backend + database, use the Task tool to spawn an agent team:
+- **Coordinator** (main agent): Plans the change, holds full conversation context, assigns tasks
+- **Coder**: Makes targeted file edits
+- **Tester**: After deploy, runs VPS verification (API calls, log checks, DB queries)
+
+The coordinator bridges context between agents. Use teams when a change requires 3+ files or crosses frontend/backend/DB boundaries. For simple single-file edits, self-test is sufficient.
+
 ## Running (Windows)
 
 ### Quick Start (Recommended)
