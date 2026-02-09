@@ -21,11 +21,12 @@ import clsx from 'clsx';
 
 interface MessageItemProps {
   message: Message;
+  isFirstMessage?: boolean;
   onEdit?: (id: string, content: string, regenerate: boolean) => void;
   onDelete?: (id: string) => void;
 }
 
-export function MessageItem({ message, onEdit, onDelete }: MessageItemProps) {
+export function MessageItem({ message, isFirstMessage, onEdit, onDelete }: MessageItemProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -106,8 +107,13 @@ export function MessageItem({ message, onEdit, onDelete }: MessageItemProps) {
         {/* Content */}
         <div className="flex-1 min-w-0">
           {/* Role label */}
-          <div className="text-sm font-medium mb-1 text-[var(--color-text-secondary)]">
-            {isUser ? 'You' : 'Assistant'}
+          <div className="text-sm font-medium mb-1 text-[var(--color-text-secondary)] flex items-center gap-2">
+            <span>{isUser ? 'You' : 'Assistant'}</span>
+            {isFirstMessage && isUser && message.timestamp && (
+              <span className="text-xs font-normal text-[var(--color-text-secondary)]/60">
+                {new Date(message.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+              </span>
+            )}
           </div>
 
           {/* Thinking block */}

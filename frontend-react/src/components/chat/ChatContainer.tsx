@@ -53,8 +53,8 @@ export function ChatContainer() {
           </div>
         ) : (
           <div className="pb-4">
-            {messages.map((message) => (
-              <MessageItem key={message.id} message={message} onEdit={handleEdit} onDelete={handleDelete} />
+            {messages.map((message, index) => (
+              <MessageItem key={message.id} message={message} isFirstMessage={index === 0} onEdit={handleEdit} onDelete={handleDelete} />
             ))}
 
             {/* Loading indicator */}
