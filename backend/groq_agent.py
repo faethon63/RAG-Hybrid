@@ -497,6 +497,23 @@ class GroqAgent:
         {
             "type": "function",
             "function": {
+                "name": "download_bankruptcy_form",
+                "description": "Download an official blank bankruptcy form from uscourts.gov. Use when user needs a form that isn't in the KB yet. Available forms: 101, 106A/B, 106C, 106D, 106E/F, 106G, 106H, 106I, 106J, 106Sum, 106Dec, 107, 108, 121, 122A-1, 122A-2.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "form_id": {
+                            "type": "string",
+                            "description": "Form identifier (e.g., '101', '106A', '122A-1')"
+                        }
+                    },
+                    "required": ["form_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "get_data_profile",
                 "description": "Read the extracted data profile (truth file) containing structured financial data from tax returns and bank statements. Use this FIRST when answering questions about the debtor's income, expenses, bank balances, or any form field values. Returns personal info, tax data, bank statement summaries, and computed totals.",
                 "parameters": {

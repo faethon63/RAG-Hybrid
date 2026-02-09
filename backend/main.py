@@ -1285,7 +1285,27 @@ async def _tool_get_data_profile(section: str = "all") -> Dict[str, Any]:
         return {"answer": f"Error reading data profile: {e}", "sources": []}
 
 
+async def _tool_download_bankruptcy_form(form_id: str) -> Dict[str, Any]:
+    """Handle download_bankruptcy_form tool calls."""
+    logger = logging.getLogger(__name__)
+    logger.info(f"download_bankruptcy_form: form_id={form_id}")
+    try:
+        from pdf_tools import PDFDownloader
+        project_name = get_current_project() or "Chapter_7_Assistant"
+        output_dir = str(Path(get_project_kb_path()) / project_name / "blank_forms")
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        result = await PDFDownloader.download_form(form_id, output_dir)
+        if result.get("success"):
+            msg = result.get("message", f"Downloaded form {form_id}")
+            return {"answer": msg, "sources": []}
+        else:
+            return {"answer": f"Error: {result.get('error', 'download failed')}", "sources": []}
+    except Exception as e:
+        logger.error(f"download_bankruptcy_form error: {e}")
+        return {"answer": f"Download error: {str(e)}", "sources": []}
+
 groq_agent.register_tool_handler("fill_bankruptcy_form", _tool_fill_bankruptcy_form)
+groq_agent.register_tool_handler("download_bankruptcy_form", _tool_download_bankruptcy_form)
 groq_agent.register_tool_handler("build_data_profile", _tool_build_data_profile)
 groq_agent.register_tool_handler("check_data_consistency", _tool_check_data_consistency)
 groq_agent.register_tool_handler("get_data_profile", _tool_get_data_profile)

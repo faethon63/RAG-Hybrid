@@ -1,0 +1,34 @@
+{
+  "form_id": "122a_2",
+  "form_name": "Chapter 7 Means Test Calculation (122A-2)",
+  "description": "Detailed means test calculation - only required if 122A-1 shows income above median",
+  "fields": [
+    {
+      "pdf_field": "Case number1",
+      "human_label": "Case number",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Bankruptcy District Information",
+      "human_label": "Bankruptcy district",
+      "profile_path": null,
+      "default_value": "Central District of California",
+      "required": true,
+      "format": "dropdown",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "CheckBox1",
+      "human_label": "Not required (income below median on 122A-1)",
+      "profile_path": null,
+      "required": false,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "If 122A-1 Line 12b <= Line 13b, this entire form may not be needed"
+    }
+  ],
+  "notes": "This form has 135 fields for detailed expense deductions. Most fields need user input (rent, food, transportation, etc.). Only required if income exceeds state median on Form 122A-1. PDF field names verified via PDFFormReader."
+}

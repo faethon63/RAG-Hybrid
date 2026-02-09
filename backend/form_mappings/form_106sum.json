@@ -1,0 +1,89 @@
+{
+  "form_id": "106sum",
+  "form_name": "Summary of Schedules (106Sum)",
+  "description": "Summary table listing totals from each schedule (A/B through J)",
+  "fields": [
+    {
+      "pdf_field": "Debtor 1",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case number",
+      "human_label": "Case number",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Bankruptcy District Information",
+      "human_label": "Bankruptcy district",
+      "profile_path": null,
+      "default_value": "Central District of California",
+      "required": true,
+      "format": "dropdown",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "1a",
+      "human_label": "Schedule A/B: Real property (current value)",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "1b",
+      "human_label": "Schedule A/B: Personal property (current value)",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "2",
+      "human_label": "Schedule D: Secured claims",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "3a",
+      "human_label": "Schedule E/F: Priority unsecured claims",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "3b",
+      "human_label": "Schedule E/F: Nonpriority unsecured claims",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "9a",
+      "human_label": "Schedule I: Current monthly income",
+      "profile_path": "computed_totals.for_means_test_b122a1.schedule_c_monthly",
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "9b",
+      "human_label": "Schedule J: Current monthly expenditures",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    }
+  ],
+  "notes": "Summary of all schedules. Most fields require completing individual schedules first. PDF field names verified via PDFFormReader."
+}

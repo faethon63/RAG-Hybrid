@@ -1,0 +1,60 @@
+{
+  "form_id": "121",
+  "form_name": "Statement About Your Social Security Numbers (121)",
+  "description": "Declares debtor's Social Security number(s) for the court",
+  "fields": [
+    {
+      "pdf_field": "Debtor1",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case number1",
+      "human_label": "Case number",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Bankruptcy District Information",
+      "human_label": "Bankruptcy district",
+      "profile_path": null,
+      "default_value": "Central District of California",
+      "required": true,
+      "format": "dropdown",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Debtor1a",
+      "human_label": "Debtor 1 SSN (full)",
+      "profile_path": "personal_info.ssn",
+      "required": true,
+      "format": "XXX-XX-XXXX",
+      "sensitive": true,
+      "notes": "NEVER auto-fill. User must provide."
+    },
+    {
+      "pdf_field": "Debtor1b",
+      "human_label": "Debtor 1 ITIN (if applicable)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": true,
+      "notes": "Only if debtor uses ITIN instead of SSN"
+    },
+    {
+      "pdf_field": "Check Box1",
+      "human_label": "I have an SSN",
+      "profile_path": null,
+      "default_value": "Yes",
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    }
+  ],
+  "notes": "Simple form - just SSN declaration. PDF field names verified via PDFFormReader."
+}

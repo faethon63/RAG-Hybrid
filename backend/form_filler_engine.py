@@ -455,23 +455,53 @@ async def handle_fill_form_tool(
             normalized = form_id.lstrip("Bb").lower().replace("-", "_")
             download_key = FORM_ID_TO_DOWNLOAD_KEY.get(normalized, form_id.upper())
 
-            # Directories for blank and filled forms
+            # Map form IDs to known local filenames in KB documents
+            FORM_ID_TO_LOCAL_FILENAME = {
+                "101": "Bankruptcy initial form_b_101_0624_fillable_clean.pdf",
+                "106ab": "form_b106ab Assets.pdf",
+                "106c": "form_b_106c.pdf",
+                "106d": "form_b106d.pdf",
+                "106ef": "form_b106ef.pdf",
+                "106g": "form_b106g.pdf",
+                "106h": "B 106H Schedule H.pdf",
+                "106i": "form_b106i_Schedule_I.pdf",
+                "106j": "form_b106j.pdf",
+                "106dec": "form_b106dec.pdf",
+                "106sum": "form_b106sum.pdf",
+                "107": "form_b107.pdf",
+                "108": "form_b108.pdf",
+                "119": "form_b119.pdf",
+                "121": "form_b121.pdf",
+                "122a_1": "form_b122a-1.pdf",
+                "122a_2": "form_b122a-2.pdf",
+            }
+
+            # Directories
+            from config import get_synced_kb_path
             kb_path = Path(get_project_kb_path()) / project_name
+            docs_dir = Path(get_synced_kb_path()) / project_name / "documents"
             blank_dir = kb_path / "blank_forms"
             filled_dir = kb_path / "filled_forms"
             blank_dir.mkdir(parents=True, exist_ok=True)
             filled_dir.mkdir(parents=True, exist_ok=True)
 
             if not input_pdf:
-                # Try to download the blank form
-                blank_path = blank_dir / f"form_{download_key}.pdf"
-                if not blank_path.exists():
-                    dl_result = await PDFDownloader.download_form(download_key, str(blank_dir))
-                    if not dl_result.get("success"):
-                        return {"success": False, "error": f"Could not get blank form: {dl_result.get('error', 'download failed')}"}
-                    input_pdf = dl_result.get("path", str(blank_path))
+                # 1. Try local KB documents folder first
+                local_filename = FORM_ID_TO_LOCAL_FILENAME.get(normalized)
+                if local_filename and (docs_dir / local_filename).exists():
+                    input_pdf = str(docs_dir / local_filename)
+                    logger.info(f"Using local blank form: {input_pdf}")
                 else:
-                    input_pdf = str(blank_path)
+                    # 2. Try blank_forms cache
+                    blank_path = blank_dir / f"form_{download_key}.pdf"
+                    if blank_path.exists():
+                        input_pdf = str(blank_path)
+                    else:
+                        # 3. Download from uscourts.gov as last resort
+                        dl_result = await PDFDownloader.download_form(download_key, str(blank_dir))
+                        if not dl_result.get("success"):
+                            return {"success": False, "error": f"Could not get blank form: {dl_result.get('error', 'download failed')}"}
+                        input_pdf = dl_result.get("path", str(blank_path))
 
             if not output_pdf:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
