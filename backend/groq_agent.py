@@ -986,6 +986,8 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
         perplexity_direct_answer = None
         # Store Claude answer for direct passthrough (Groq ignores Claude's good answers)
         claude_direct_answer = None
+        # Store form fill plan for direct passthrough (Groq rewrites good tables into vague summaries)
+        form_fill_direct_answer = None
 
         # Agentic loop - Groq may call tools multiple times
         for iteration in range(max_tool_calls + 1):
@@ -1105,6 +1107,14 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                                         # Add Perplexity citations to sources
                                         all_sources.extend(citations)
                                         logger.info(f"Added {len(citations)} Perplexity citations to all_sources")
+
+                                # For fill_bankruptcy_form, store plan for direct passthrough
+                                # Groq rewrites detailed fill plan tables into vague summaries
+                                if func_name == "fill_bankruptcy_form" and isinstance(result, dict):
+                                    plan_text = result.get("answer", "")
+                                    if plan_text and "Fill Plan:" in plan_text and "Error:" not in plan_text:
+                                        form_fill_direct_answer = plan_text
+                                        logger.info(f"Stored form fill plan for passthrough: {len(form_fill_direct_answer)} chars")
 
                                 # For complex_reasoning (Claude), store answer for direct passthrough
                                 # Groq tends to ignore Claude's good answers and make excuses
@@ -1242,6 +1252,12 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         if groq_is_excuse or groq_is_incomplete:
                             print(f"[DEBUG] CLAUDE PASSTHROUGH: groq_excuse={groq_is_excuse}, groq_incomplete={groq_is_incomplete}", flush=True)
                             answer = claude_direct_answer
+
+                    # If fill_bankruptcy_form was called and returned a fill plan, pass it through
+                    # Groq rewrites detailed markdown tables into vague summaries
+                    if form_fill_direct_answer and any(tc["tool"] == "fill_bankruptcy_form" for tc in all_tool_calls):
+                        print("[DEBUG] FORM FILL PASSTHROUGH ACTIVATED!", flush=True)
+                        answer = form_fill_direct_answer
 
                     # AUTOMATIC FALLBACK: If Groq's answer is truncated and no tools were called,
                     # call Claude Haiku to fix it
