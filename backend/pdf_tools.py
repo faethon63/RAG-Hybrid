@@ -15,23 +15,25 @@ logger = logging.getLogger(__name__)
 
 # Bankruptcy form download URLs (uscourts.gov)
 BANKRUPTCY_FORM_URLS = {
-    # Official Bankruptcy Forms
-    "101": "https://www.uscourts.gov/sites/default/files/form_b_101.pdf",
-    "106A": "https://www.uscourts.gov/sites/default/files/form_b_106a_b.pdf",
-    "106C": "https://www.uscourts.gov/sites/default/files/form_b_106c.pdf",
-    "106D": "https://www.uscourts.gov/sites/default/files/form_b_106d.pdf",
-    "106E": "https://www.uscourts.gov/sites/default/files/form_b_106e_f.pdf",
-    "106G": "https://www.uscourts.gov/sites/default/files/form_b_106g.pdf",
-    "106H": "https://www.uscourts.gov/sites/default/files/form_b_106h.pdf",
-    "106I": "https://www.uscourts.gov/sites/default/files/form_b_106i.pdf",
-    "106J": "https://www.uscourts.gov/sites/default/files/form_b_106j.pdf",
-    "106Sum": "https://www.uscourts.gov/sites/default/files/form_b_106sum.pdf",
-    "107": "https://www.uscourts.gov/sites/default/files/form_b_107.pdf",
-    "106Dec": "https://www.uscourts.gov/sites/default/files/form_b_106dec.pdf",
-    "108": "https://www.uscourts.gov/sites/default/files/form_b_108.pdf",
-    "121": "https://www.uscourts.gov/sites/default/files/form_b_121.pdf",
-    "122A-1": "https://www.uscourts.gov/sites/default/files/form_b_122a-1.pdf",
-    "122A-2": "https://www.uscourts.gov/sites/default/files/form_b_122a-2.pdf",
+    # Official Bankruptcy Forms (uscourts.gov verified URLs)
+    "101": "https://www.uscourts.gov/sites/default/files/form_b101.pdf",
+    "106A": "https://www.uscourts.gov/sites/default/files/form_b106ab.pdf",
+    "106AB": "https://www.uscourts.gov/sites/default/files/form_b106ab.pdf",
+    "106C": "https://www.uscourts.gov/sites/default/files/form_b106c.pdf",
+    "106D": "https://www.uscourts.gov/sites/default/files/form_b106d.pdf",
+    "106E": "https://www.uscourts.gov/sites/default/files/form_b106ef.pdf",
+    "106EF": "https://www.uscourts.gov/sites/default/files/form_b106ef.pdf",
+    "106G": "https://www.uscourts.gov/sites/default/files/form_b106g.pdf",
+    "106H": "https://www.uscourts.gov/sites/default/files/form_b106h.pdf",
+    "106I": "https://www.uscourts.gov/sites/default/files/form_b106i.pdf",
+    "106J": "https://www.uscourts.gov/sites/default/files/form_b106j.pdf",
+    "106SUM": "https://www.uscourts.gov/sites/default/files/form_b106sum.pdf",
+    "106DEC": "https://www.uscourts.gov/sites/default/files/form_b106dec.pdf",
+    "107": "https://www.uscourts.gov/sites/default/files/form_b107.pdf",
+    "108": "https://www.uscourts.gov/sites/default/files/form_b108.pdf",
+    "121": "https://www.uscourts.gov/sites/default/files/form_b121.pdf",
+    "122A-1": "https://www.uscourts.gov/sites/default/files/form_b122a-1.pdf",
+    "122A-2": "https://www.uscourts.gov/sites/default/files/form_b122a-2.pdf",
 }
 
 # Form instructions PDF
