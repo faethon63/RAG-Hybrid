@@ -202,10 +202,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await api.getChat(chatId);
-      // Ensure every message has a unique ID (server may not store them)
+      // Ensure every message has a unique ID and timestamp (server may not store them)
+      const chatCreatedAt = response.chat.created_at;
       const messages = (response.chat.messages || []).map((m: Message, idx: number) => ({
         ...m,
         id: m.id || `msg_loaded_${chatId}_${idx}`,
+        // Fallback: use chat created_at for first message if no timestamp stored
+        timestamp: m.timestamp || (idx === 0 && chatCreatedAt ? chatCreatedAt : undefined),
       }));
       set({
         currentChatId: chatId,
@@ -229,6 +232,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           id: m.id,
           role: m.role,
           content: m.content,
+          timestamp: m.timestamp,
           metadata: m.metadata,
         })),
       };
