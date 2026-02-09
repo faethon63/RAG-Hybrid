@@ -1,0 +1,57 @@
+{
+  "form_id": "106h",
+  "form_name": "Schedule H: Your Codebtors",
+  "description": "Lists anyone else who is also liable on debtor's debts",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Has_Codebtors",
+      "human_label": "Do you have any codebtors?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "Cosigners, guarantors, joint account holders"
+    },
+    {
+      "pdf_field": "Codebtor1_Name",
+      "human_label": "Codebtor name (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Codebtor1_Address",
+      "human_label": "Codebtor address (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Codebtor1_Creditor",
+      "human_label": "Name of creditor (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    }
+  ],
+  "notes": "Single filer with no spouse indicated. May have no codebtors. All fields need user input. PDF field names are placeholders."
+}

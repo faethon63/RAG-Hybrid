@@ -1,0 +1,149 @@
+{
+  "form_id": "106i",
+  "form_name": "Schedule I: Your Income",
+  "description": "Details the debtor's current income from all sources",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Employment_Status",
+      "human_label": "Employment status",
+      "profile_path": null,
+      "default_value": "Self-employed",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Debtor1_Occupation",
+      "human_label": "Occupation",
+      "profile_path": "personal_info.occupation",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Debtor1_Employer_Name",
+      "human_label": "Employer name",
+      "profile_path": null,
+      "default_value": "Self-employed",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Debtor1_Employer_Address",
+      "human_label": "Employer address",
+      "profile_path": "personal_info.address",
+      "required": false,
+      "format": "text",
+      "sensitive": false,
+      "notes": "Self-employed, use home address"
+    },
+    {
+      "pdf_field": "Debtor1_Employed_How_Long",
+      "human_label": "How long employed",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line1_Gross_Wages",
+      "human_label": "Line 1: Gross wages/salary/commissions",
+      "profile_path": null,
+      "default_value": 0,
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Self-employed, no W-2 wages"
+    },
+    {
+      "pdf_field": "Line2_Estimated_Tax",
+      "human_label": "Line 2: Estimated taxes",
+      "profile_path": null,
+      "default_value": 0,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line8a_Net_Business_Income",
+      "human_label": "Line 8a: Net income from business/profession/farm",
+      "profile_path": "computed_totals.for_means_test_b122a1.schedule_c_monthly",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Schedule C annual net / 12 = monthly business income"
+    },
+    {
+      "pdf_field": "Line8b_Gross_Business_Income",
+      "human_label": "Line 8b: Gross income from business",
+      "profile_path": "computed_totals.business_checking.avg_monthly_credits",
+      "required": false,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Average monthly bank deposits as gross income proxy"
+    },
+    {
+      "pdf_field": "Line8c_Business_Expenses",
+      "human_label": "Line 8c: Ordinary business expenses",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Gross minus net. Compute from tax data."
+    },
+    {
+      "pdf_field": "Line9_Interest_Dividends",
+      "human_label": "Line 9: Interest and dividends",
+      "profile_path": null,
+      "default_value": 0,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line12_Other_Monthly_Income",
+      "human_label": "Line 12: Other monthly income (specify)",
+      "profile_path": null,
+      "default_value": 0,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line13_Total_Monthly_Income",
+      "human_label": "Line 13: Total monthly income",
+      "profile_path": "computed_totals.for_means_test_b122a1.schedule_c_monthly",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Sum of all income lines. For self-employed single filer = net business income."
+    },
+    {
+      "pdf_field": "Line14_Spouse_Combined",
+      "human_label": "Line 14: Combined monthly income (if joint)",
+      "profile_path": null,
+      "default_value": 0,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    }
+  ],
+  "notes": "Schedule I captures current monthly income. For self-employed debtors, business income goes on Line 8a-c. PDF field names are placeholders."
+}

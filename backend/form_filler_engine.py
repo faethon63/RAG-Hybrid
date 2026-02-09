@@ -35,11 +35,16 @@ class FormMapping:
     def load(cls, form_id: str) -> Optional[Dict[str, Any]]:
         """Load a form mapping by form ID."""
         # Try exact match first, then variations
+        # Strip common "B" prefix (e.g. "B122A-1" -> "122A-1")
+        stripped = form_id.lstrip("Bb")
+        normalized = stripped.lower().replace("-", "_")
         candidates = [
             cls.MAPPINGS_DIR / f"form_{form_id}.json",
             cls.MAPPINGS_DIR / f"form_{form_id.lower()}.json",
-            cls.MAPPINGS_DIR / f"form_{form_id.upper()}.json",
             cls.MAPPINGS_DIR / f"form_{form_id.replace('-', '_')}.json",
+            cls.MAPPINGS_DIR / f"form_{normalized}.json",
+            cls.MAPPINGS_DIR / f"form_{stripped}.json",
+            cls.MAPPINGS_DIR / f"form_{stripped.lower()}.json",
         ]
 
         for path in candidates:

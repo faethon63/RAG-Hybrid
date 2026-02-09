@@ -1,0 +1,208 @@
+{
+  "form_id": "107",
+  "form_name": "Statement of Financial Affairs for Individuals Filing for Bankruptcy",
+  "description": "Comprehensive disclosure of debtor's financial history",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part1_Q1_Gross_Income_This_Year",
+      "human_label": "Part 1, Q1: Gross income this year to filing date",
+      "profile_path": "tax_data_2025.schedule_c_business_income",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Schedule C business income for current year"
+    },
+    {
+      "pdf_field": "Part1_Q1_Income_Source",
+      "human_label": "Part 1, Q1: Source of income",
+      "profile_path": "personal_info.occupation",
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "Massage therapy self-employment"
+    },
+    {
+      "pdf_field": "Part1_Q2_Gross_Income_Prior_Year",
+      "human_label": "Part 1, Q2: Gross income for prior year (2025)",
+      "profile_path": "tax_data_2025.schedule_c_business_income",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "2025 Schedule C income"
+    },
+    {
+      "pdf_field": "Part1_Q3_Gross_Income_Two_Years_Prior",
+      "human_label": "Part 1, Q3: Gross income for 2 years prior (2024)",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "2024 tax return not OCR'd due to API credits"
+    },
+    {
+      "pdf_field": "Part2_Q4_Has_Payments_To_Creditors",
+      "human_label": "Part 2, Q4: Payments to creditors >$600 in 90 days before filing?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part2_Q5_Has_Payments_To_Insiders",
+      "human_label": "Part 2, Q5: Payments to insiders within 1 year of filing?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part3_Q6_Has_Lawsuits",
+      "human_label": "Part 3, Q6: Been party to any lawsuit in 1 year of filing?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part3_Q7_Has_Garnishments",
+      "human_label": "Part 3, Q7: Had property attached, garnished, or seized?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part4_Q10_Has_Bank_Accounts",
+      "human_label": "Part 4, Q10: Bank accounts within 1 year of filing",
+      "profile_path": null,
+      "default_value": "Yes",
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part4_Q10_Bank_Name",
+      "human_label": "Part 4, Q10: Bank name",
+      "profile_path": "bank_data.bank_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part4_Q10_Bank_Address",
+      "human_label": "Part 4, Q10: Bank address",
+      "profile_path": "bank_data.bank_address",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part4_Q10_Account1_Type",
+      "human_label": "Account type: Business checking",
+      "profile_path": "bank_data.business_checking.account_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part4_Q10_Account1_Number",
+      "human_label": "Account number: Business checking",
+      "profile_path": "bank_data.business_checking.account_number",
+      "required": true,
+      "format": "text",
+      "sensitive": true
+    },
+    {
+      "pdf_field": "Part4_Q10_Account2_Type",
+      "human_label": "Account type: Personal checking",
+      "profile_path": "bank_data.personal_checking.account_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part4_Q10_Account2_Number",
+      "human_label": "Account number: Personal checking",
+      "profile_path": "bank_data.personal_checking.account_number",
+      "required": true,
+      "format": "text",
+      "sensitive": true
+    },
+    {
+      "pdf_field": "Part4_Q10_Account3_Type",
+      "human_label": "Account type: Share savings",
+      "profile_path": "bank_data.share_savings.account_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part4_Q10_Account3_Number",
+      "human_label": "Account number: Share savings",
+      "profile_path": "bank_data.share_savings.account_number",
+      "required": true,
+      "format": "text",
+      "sensitive": true
+    },
+    {
+      "pdf_field": "Part5_Q14_Property_Transfers",
+      "human_label": "Part 5, Q14: Property transfers within 2 years?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part8_Q22_Business_Name",
+      "human_label": "Part 8, Q22: Business name (self-employed within 4 years)",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "Sole proprietor uses own name"
+    },
+    {
+      "pdf_field": "Part8_Q22_Business_Nature",
+      "human_label": "Part 8, Q22: Nature of business",
+      "profile_path": "personal_info.occupation",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part8_Q22_Business_Address",
+      "human_label": "Part 8, Q22: Business address",
+      "profile_path": "personal_info.address",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part11_Q25_Credit_Counseling",
+      "human_label": "Part 11, Q25: Credit counseling within 180 days?",
+      "profile_path": null,
+      "default_value": "Yes",
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "Debt counseling certificate exists in documents"
+    }
+  ],
+  "notes": "Large comprehensive form. Has good coverage for income, bank accounts, and business info. Lawsuit, transfer, and creditor history requires user input. PDF field names are placeholders."
+}

@@ -1,0 +1,89 @@
+{
+  "form_id": "108",
+  "form_name": "Statement of Intention for Individuals Filing Under Chapter 7",
+  "description": "Declares debtor's intentions regarding secured debts and leases",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part1_Has_Secured_Debts",
+      "human_label": "Part 1: Do you have debts secured by property?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "User must indicate if any secured debts exist"
+    },
+    {
+      "pdf_field": "Part1_Creditor1_Name",
+      "human_label": "Secured creditor name (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part1_Creditor1_Property",
+      "human_label": "Description of property (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part1_Creditor1_Intention",
+      "human_label": "Intention: surrender, retain, redeem, or reaffirm (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part2_Has_Leases",
+      "human_label": "Part 2: Do you have unexpired leases of personal property?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part2_Lessor1_Name",
+      "human_label": "Lessor name (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part2_Lessor1_Property",
+      "human_label": "Description of leased property (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part2_Lessor1_Intention",
+      "human_label": "Intention: assume or reject lease (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    }
+  ],
+  "notes": "Almost entirely user input. Debtor must decide what to do with each secured debt and lease. PDF field names are placeholders."
+}

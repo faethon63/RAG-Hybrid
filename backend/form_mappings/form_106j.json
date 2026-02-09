@@ -1,0 +1,177 @@
+{
+  "form_id": "106j",
+  "form_name": "Schedule J: Your Expenses",
+  "description": "Lists the debtor's average monthly expenses",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Household_Size",
+      "human_label": "Number of people in household",
+      "profile_path": null,
+      "default_value": 1,
+      "required": true,
+      "format": "number",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line1_Rent_Mortgage",
+      "human_label": "Line 1: Rent or home mortgage payment",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Debtor is a renter. User must provide monthly rent amount."
+    },
+    {
+      "pdf_field": "Line2_Real_Property_Taxes",
+      "human_label": "Line 2: Real property taxes",
+      "profile_path": null,
+      "default_value": 0,
+      "required": false,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Renter - likely $0"
+    },
+    {
+      "pdf_field": "Line3_Insurance",
+      "human_label": "Line 3: Property insurance (renters insurance)",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line4a_Electricity_Gas",
+      "human_label": "Line 4a: Electricity, gas, heating fuel",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line4b_Water_Sewer",
+      "human_label": "Line 4b: Water, sewer, garbage",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line4c_Phone_Internet",
+      "human_label": "Line 4c: Telephone, cell, internet, cable",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line5_Food",
+      "human_label": "Line 5: Food and housekeeping supplies",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line7_Laundry",
+      "human_label": "Line 7: Laundry and dry cleaning",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line8_Medical_Dental",
+      "human_label": "Line 8: Medical and dental expenses",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line9_Transportation",
+      "human_label": "Line 9: Transportation (gas, repairs, parking, tolls, bus)",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line10_Entertainment",
+      "human_label": "Line 10: Entertainment",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line13_Health_Insurance",
+      "human_label": "Line 13: Health insurance",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Debtor had excess PTC repayment on tax return - likely has ACA plan"
+    },
+    {
+      "pdf_field": "Line14_Vehicle_Insurance",
+      "human_label": "Line 14: Vehicle insurance",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Line17_Taxes",
+      "human_label": "Line 17: Taxes (not deducted from wages)",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Self-employed - estimated tax payments"
+    },
+    {
+      "pdf_field": "Line22_Total_Expenses",
+      "human_label": "Line 22: Total monthly expenses",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Sum of all expense lines"
+    },
+    {
+      "pdf_field": "Line23_Monthly_Income",
+      "human_label": "Line 23: Monthly net income (from Schedule I)",
+      "profile_path": "computed_totals.for_means_test_b122a1.schedule_c_monthly",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Copy from Schedule I total"
+    },
+    {
+      "pdf_field": "Line24_Net_Disposable",
+      "human_label": "Line 24: Monthly net income minus expenses",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Line 23 minus Line 22. Should be low/negative for Ch7 qualification."
+    }
+  ],
+  "notes": "Most expense fields need user input. Only income line can be pre-filled from profile. PDF field names are placeholders."
+}

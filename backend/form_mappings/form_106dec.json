@@ -1,0 +1,51 @@
+{
+  "form_id": "106dec",
+  "form_name": "Declaration About an Individual Debtor's Schedules",
+  "description": "Under penalty of perjury declaration for all schedules",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Penalty_Checkbox_Debtor1",
+      "human_label": "Debtor 1 declares under penalty of perjury",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "Requires debtor signature"
+    },
+    {
+      "pdf_field": "Signature_Date",
+      "human_label": "Date of signature",
+      "profile_path": null,
+      "required": true,
+      "format": "date",
+      "sensitive": false,
+      "notes": "Must be date of actual signing"
+    },
+    {
+      "pdf_field": "Debtor1_Signature",
+      "human_label": "Debtor 1 signature",
+      "profile_path": null,
+      "required": true,
+      "format": "signature",
+      "sensitive": true,
+      "notes": "Must be signed by debtor"
+    }
+  ],
+  "notes": "Simple declaration form. Most fields are signatures and dates that must be done at signing time. PDF field names are placeholders."
+}

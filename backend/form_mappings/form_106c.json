@@ -1,0 +1,67 @@
+{
+  "form_id": "106c",
+  "form_name": "Schedule C: The Property You Claim as Exempt",
+  "description": "Lists property debtor claims as exempt from the bankruptcy estate",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Exemption_System",
+      "human_label": "Which set of exemptions is debtor claiming?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "California debtors choose CCP 703 (System 1) or CCP 704 (System 2). System 1 is more common for renters without real property."
+    },
+    {
+      "pdf_field": "Exempt_Property_1_Description",
+      "human_label": "Description of exempt property (row 1)",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "User must list each asset claimed exempt with exemption statute"
+    },
+    {
+      "pdf_field": "Exempt_Property_1_Value",
+      "human_label": "Current value of property (row 1)",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Exempt_Property_1_Exemption_Law",
+      "human_label": "Exemption law (row 1)",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "e.g. CCP 703.140(b)(5) for wildcard, CCP 703.140(b)(6) for tools of trade"
+    },
+    {
+      "pdf_field": "Exempt_Property_1_Amount_Claimed",
+      "human_label": "Amount of exemption claimed (row 1)",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    }
+  ],
+  "notes": "Exemption elections are strategic decisions requiring legal knowledge. Most fields need user input. PDF field names are placeholders."
+}

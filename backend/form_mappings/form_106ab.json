@@ -1,0 +1,172 @@
+{
+  "form_id": "106ab",
+  "form_name": "Schedule A/B: Property",
+  "description": "Lists all real and personal property interests of the debtor",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part1_Real_Property",
+      "human_label": "Part 1: Does debtor own/have interest in real property?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "User must indicate if they own real estate"
+    },
+    {
+      "pdf_field": "Part2_Q4_Checking_Accounts",
+      "human_label": "Part 2, Q4: Checking, savings, or other financial accounts",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "List each bank account"
+    },
+    {
+      "pdf_field": "Bank_Name",
+      "human_label": "Bank name",
+      "profile_path": "bank_data.bank_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Business_Checking_Balance",
+      "human_label": "Business checking account balance",
+      "profile_path": "bank_data.business_checking.statements.Jan 2026.ending_balance",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Most recent statement ending balance"
+    },
+    {
+      "pdf_field": "Personal_Checking_Balance",
+      "human_label": "Personal checking account balance",
+      "profile_path": "bank_data.personal_checking.statements.Jan 2026.ending_balance",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Most recent statement ending balance"
+    },
+    {
+      "pdf_field": "Savings_Balance",
+      "human_label": "Share savings account balance",
+      "profile_path": "bank_data.share_savings.statements.Jan 2026.ending_balance",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Most recent statement ending balance"
+    },
+    {
+      "pdf_field": "Business_Checking_AcctNum",
+      "human_label": "Business checking account number",
+      "profile_path": "bank_data.business_checking.account_number",
+      "required": true,
+      "format": "text",
+      "sensitive": true,
+      "notes": "Account number is sensitive"
+    },
+    {
+      "pdf_field": "Personal_Checking_AcctNum",
+      "human_label": "Personal checking account number",
+      "profile_path": "bank_data.personal_checking.account_number",
+      "required": true,
+      "format": "text",
+      "sensitive": true,
+      "notes": "Account number is sensitive"
+    },
+    {
+      "pdf_field": "Savings_AcctNum",
+      "human_label": "Savings account number",
+      "profile_path": "bank_data.share_savings.account_number",
+      "required": true,
+      "format": "text",
+      "sensitive": true,
+      "notes": "Account number is sensitive"
+    },
+    {
+      "pdf_field": "Part2_Q5_Cash_On_Hand",
+      "human_label": "Part 2, Q5: Cash and virtual currency",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "User must estimate cash on hand"
+    },
+    {
+      "pdf_field": "Part2_Q6_Business_Assets",
+      "human_label": "Part 2, Q6: Self-employment assets, tools of trade",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "Massage therapy equipment/supplies"
+    },
+    {
+      "pdf_field": "Part2_Q7_Household_Goods",
+      "human_label": "Part 2, Q7: Household goods and furnishings",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "User must list and value household items"
+    },
+    {
+      "pdf_field": "Part2_Q9_Electronics",
+      "human_label": "Part 2, Q9: Electronics",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part2_Q10_Clothing",
+      "human_label": "Part 2, Q10: Clothing",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part2_Q13_Vehicles",
+      "human_label": "Part 2, Q13: Automobiles, trucks, etc.",
+      "profile_path": null,
+      "required": true,
+      "format": "text",
+      "sensitive": false,
+      "notes": "User must list vehicles with year/make/model and value"
+    },
+    {
+      "pdf_field": "Part2_Q33_Other_Property",
+      "human_label": "Part 2, Q33: Other personal property",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Total_Personal_Property",
+      "human_label": "Total value of all personal property",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    }
+  ],
+  "notes": "Large form with many categories of property. Bank account data available from profile; other assets require user input. PDF field names are placeholders."
+}

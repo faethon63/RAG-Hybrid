@@ -101,8 +101,10 @@ class DataProfile:
         "debts",
         "means_test",
         "tax_data",
+        "tax_data_2025",
         "bank_data",
         "credit_counseling",
+        "computed_totals",
     ]
 
     def __init__(self, project_name: str = "Chapter_7_Assistant"):
@@ -119,6 +121,20 @@ class DataProfile:
         base = Path(get_project_kb_path()) / self.project_name
         base.mkdir(parents=True, exist_ok=True)
         return base / "data_profile.json"
+
+    @staticmethod
+    def _flatten_dict(d: dict, prefix: str = "") -> dict:
+        """Recursively flatten nested dicts into dotted field names.
+        e.g. {"a": {"b": 1}} -> {"a.b": 1}
+        """
+        result = {}
+        for k, v in d.items():
+            key = f"{prefix}.{k}" if prefix else k
+            if isinstance(v, dict):
+                result.update(DataProfile._flatten_dict(v, key))
+            else:
+                result[key] = v
+        return result
 
     def set_field(self, section: str, field_name: str, field: DataField) -> None:
         """Set a field value with provenance."""
@@ -229,13 +245,31 @@ class DataProfile:
                 data = json.load(f)
 
             self._metadata = data.get("metadata", self._metadata)
-            for section, fields in data.get("sections", {}).items():
-                if section in self.SECTIONS:
-                    self._data[section] = {
-                        name: DataField.from_dict(field_data)
-                        for name, field_data in fields.items()
-                    }
-            logger.info(f"Loaded data profile from {self._profile_path}")
+
+            if "sections" in data:
+                # DataField format: {"sections": {"personal_info": {"full_name": {"value": ..., "confidence": ...}}}}
+                for section, fields in data["sections"].items():
+                    if section in self.SECTIONS:
+                        self._data[section] = {
+                            name: DataField.from_dict(field_data)
+                            for name, field_data in fields.items()
+                        }
+            else:
+                # Flat format: {"personal_info": {"full_name": "GEORGE..."}, "tax_data_2025": {...}}
+                # Flatten nested dicts and wrap plain values into DataField objects
+                source = "data_profile"
+                if self._metadata.get("documents_used"):
+                    source = ", ".join(self._metadata["documents_used"][:3])
+                for section in self.SECTIONS:
+                    if section in data:
+                        flat = self._flatten_dict(data[section])
+                        self._data[section] = {
+                            name: DataField(value=val, source=source, confidence=0.9)
+                            for name, val in flat.items()
+                        }
+
+            total = sum(len(f) for f in self._data.values())
+            logger.info(f"Loaded data profile from {self._profile_path} ({total} fields)")
             return True
         except Exception as e:
             logger.error(f"Failed to load data profile: {e}")

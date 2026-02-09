@@ -1,0 +1,99 @@
+{
+  "form_id": "106ef",
+  "form_name": "Schedule E/F: Creditors Who Have Unsecured Claims",
+  "description": "Lists priority (E) and nonpriority (F) unsecured creditors",
+  "fields": [
+    {
+      "pdf_field": "Debtor1_Name",
+      "human_label": "Debtor 1 name",
+      "profile_path": "personal_info.full_name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Case_Number",
+      "human_label": "Case number (if known)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Part1_Has_Priority",
+      "human_label": "Part 1: Do you have any priority unsecured creditors?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "Priority debts include taxes owed, domestic support, etc."
+    },
+    {
+      "pdf_field": "Priority_Taxes_IRS",
+      "human_label": "Priority tax debt: IRS amount owed",
+      "profile_path": "tax_data_2025.amount_owed",
+      "required": false,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "2025 tax return shows $7,453 owed. May be priority if recent."
+    },
+    {
+      "pdf_field": "Part2_Has_Nonpriority",
+      "human_label": "Part 2: Do you have any nonpriority unsecured creditors?",
+      "profile_path": null,
+      "required": true,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "Credit cards, medical bills, personal loans, etc."
+    },
+    {
+      "pdf_field": "Creditor1_Name",
+      "human_label": "Unsecured creditor name (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Creditor1_Address",
+      "human_label": "Unsecured creditor mailing address (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Creditor1_Account",
+      "human_label": "Account number (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "text",
+      "sensitive": true
+    },
+    {
+      "pdf_field": "Creditor1_Amount",
+      "human_label": "Amount of claim (row 1)",
+      "profile_path": null,
+      "required": false,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Total_Priority_Claims",
+      "human_label": "Total of all priority claims",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Total_Nonpriority_Claims",
+      "human_label": "Total of all nonpriority claims",
+      "profile_path": null,
+      "required": true,
+      "format": "currency",
+      "sensitive": false
+    }
+  ],
+  "notes": "Tax debt from data profile can pre-fill IRS priority claim. Other creditors require user input. PDF field names are placeholders."
+}
