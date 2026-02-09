@@ -447,7 +447,13 @@ class PDFVerifier:
                     missing.append(field_name)
                 else:
                     actual_value = filled_fields[field_name].get("value", "")
-                    if actual_value == expected_value:
+                    # Strip pdfrw parentheses wrapper for comparison
+                    clean_actual = actual_value
+                    if clean_actual.startswith("\\(") and clean_actual.endswith("\\)"):
+                        clean_actual = clean_actual[2:-2]
+                    elif clean_actual.startswith("(") and clean_actual.endswith(")"):
+                        clean_actual = clean_actual[1:-1]
+                    if clean_actual == expected_value or actual_value == expected_value:
                         matches.append(field_name)
                     else:
                         mismatches.append({
