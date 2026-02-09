@@ -972,6 +972,41 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
         if (project_config and project_config.get("name") == "Chapter_7_Assistant"
                 and "fill_bankruptcy_form" in self._tool_handlers):
             query_lower = query.lower()
+
+            # APPROVAL INTERCEPTOR: detect "approve" after a fill plan was shown
+            approve_patterns = ["approve", "looks good", "go ahead", "fill it", "proceed",
+                                "yes, fill", "yes fill", "execute the fill", "execute fill",
+                                "do it", "confirmed", "confirm"]
+            last_assistant_msg = ""
+            if conversation_history:
+                for msg in reversed(conversation_history):
+                    if msg.get("role") == "assistant":
+                        last_assistant_msg = msg.get("content", "")
+                        break
+
+            if (any(p in query_lower for p in approve_patterns)
+                    and "Fill Plan:" in last_assistant_msg):
+                # Extract form_id from the previous fill plan
+                import re
+                plan_form_match = re.search(r'Fill Plan: Form (\S+)', last_assistant_msg)
+                if plan_form_match:
+                    form_id = plan_form_match.group(1)
+                    try:
+                        logger.info(f"Form fill approval interceptor: form_id={form_id}, executing fill")
+                        result = await self._tool_handlers["fill_bankruptcy_form"](action="fill", form_id=form_id)
+                        answer = result.get("answer", "")
+                        if answer and "Error:" not in answer:
+                            return {
+                                "answer": answer,
+                                "sources": [],
+                                "usage": {"input_tokens": 0, "output_tokens": 0},
+                                "tool_results": [{"tool": "fill_bankruptcy_form", "args": {"action": "fill", "form_id": form_id}}],
+                            }
+                        logger.warning(f"Form fill approval: tool returned error: {answer}")
+                    except Exception as e:
+                        logger.warning(f"Form fill approval interceptor failed: {e}")
+
+            # PLAN INTERCEPTOR: detect fill requests
             fill_patterns = ["fill out", "fill in", "fill the form", "fill form", "fill plan",
                              "generate fill", "generate a fill", "complete the form", "complete form"]
             if any(p in query_lower for p in fill_patterns):

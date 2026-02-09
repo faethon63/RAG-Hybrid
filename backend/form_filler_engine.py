@@ -438,8 +438,44 @@ async def handle_fill_form_tool(
         return await engine.opus_audit_plan(plan_result["plan"])
 
     elif action == "fill":
+        # Auto-resolve paths if not provided
         if not input_pdf or not output_pdf:
-            return {"success": False, "error": "input_pdf and output_pdf paths required for fill action"}
+            from pdf_tools import PDFDownloader, BANKRUPTCY_FORM_URLS
+
+            # Map our internal form IDs to download keys
+            FORM_ID_TO_DOWNLOAD_KEY = {
+                "101": "101", "122a_1": "122A-1", "122a_2": "122A-2",
+                "106ab": "106A", "106c": "106C", "106d": "106D",
+                "106ef": "106E", "106g": "106G", "106h": "106H",
+                "106i": "106I", "106j": "106J", "106sum": "106Sum",
+                "106dec": "106Dec", "107": "107", "108": "108", "121": "121",
+            }
+
+            # Normalize form_id for lookup
+            normalized = form_id.lstrip("Bb").lower().replace("-", "_")
+            download_key = FORM_ID_TO_DOWNLOAD_KEY.get(normalized, form_id.upper())
+
+            # Directories for blank and filled forms
+            kb_path = Path(get_project_kb_path()) / project_name
+            blank_dir = kb_path / "blank_forms"
+            filled_dir = kb_path / "filled_forms"
+            blank_dir.mkdir(parents=True, exist_ok=True)
+            filled_dir.mkdir(parents=True, exist_ok=True)
+
+            if not input_pdf:
+                # Try to download the blank form
+                blank_path = blank_dir / f"form_{download_key}.pdf"
+                if not blank_path.exists():
+                    dl_result = await PDFDownloader.download_form(download_key, str(blank_dir))
+                    if not dl_result.get("success"):
+                        return {"success": False, "error": f"Could not get blank form: {dl_result.get('error', 'download failed')}"}
+                    input_pdf = dl_result.get("path", str(blank_path))
+                else:
+                    input_pdf = str(blank_path)
+
+            if not output_pdf:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_pdf = str(filled_dir / f"form_{normalized}_filled_{timestamp}.pdf")
 
         # Generate plan (with any corrections applied)
         plan_result = await engine.generate_fill_plan(form_id)

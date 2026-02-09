@@ -27,6 +27,7 @@ BANKRUPTCY_FORM_URLS = {
     "106J": "https://www.uscourts.gov/sites/default/files/form_b_106j.pdf",
     "106Sum": "https://www.uscourts.gov/sites/default/files/form_b_106sum.pdf",
     "107": "https://www.uscourts.gov/sites/default/files/form_b_107.pdf",
+    "106Dec": "https://www.uscourts.gov/sites/default/files/form_b_106dec.pdf",
     "108": "https://www.uscourts.gov/sites/default/files/form_b_108.pdf",
     "121": "https://www.uscourts.gov/sites/default/files/form_b_121.pdf",
     "122A-1": "https://www.uscourts.gov/sites/default/files/form_b_122a-1.pdf",

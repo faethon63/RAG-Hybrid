@@ -24,6 +24,7 @@ from config import (
 )
 
 from fastapi import FastAPI, HTTPException, status, UploadFile, File as FastAPIFile, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
@@ -1168,7 +1169,18 @@ async def _tool_fill_bankruptcy_form(
                 "sources": [],
             }
         elif result.get("success"):
-            return {"answer": result.get("message", json.dumps(result)), "sources": []}
+            msg = result.get("message", json.dumps(result))
+            # Add download link for filled forms
+            output_pdf = result.get("output_pdf", "")
+            if output_pdf:
+                filename = Path(output_pdf).name
+                verification = result.get("verification", {})
+                verified = verification.get("verified", False)
+                v_detail = verification.get("message", "")
+                download_url = f"/api/v1/projects/{project_name}/forms/download/{filename}"
+                msg += f"\n\n**Verification:** {'PASSED' if verified else 'CHECK NEEDED'} - {v_detail}"
+                msg += f"\n\n**[Download filled form]({download_url})**"
+            return {"answer": msg, "sources": []}
         else:
             return {"answer": f"Error: {result.get('error', 'Unknown error')}", "sources": []}
 
@@ -2464,6 +2476,45 @@ async def index_project_files(
 # ============================================================================
 # PROJECT KB FILE ENDPOINTS
 # ============================================================================
+
+@app.get("/api/v1/projects/{name}/forms/download/{filename}")
+async def download_filled_form(name: str, filename: str):
+    """Download a filled form PDF."""
+    # Sanitize filename to prevent path traversal
+    safe_name = Path(filename).name
+    if safe_name != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    filled_dir = Path(get_project_kb_path()) / name / "filled_forms"
+    file_path = filled_dir / safe_name
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {safe_name}")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_name,
+        media_type="application/pdf",
+    )
+
+
+@app.get("/api/v1/projects/{name}/forms/list")
+async def list_filled_forms(name: str):
+    """List available filled form PDFs."""
+    filled_dir = Path(get_project_kb_path()) / name / "filled_forms"
+    if not filled_dir.exists():
+        return {"forms": [], "count": 0}
+
+    forms = []
+    for f in sorted(filled_dir.glob("*.pdf"), key=lambda p: p.stat().st_mtime, reverse=True):
+        forms.append({
+            "filename": f.name,
+            "size": f.stat().st_size,
+            "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            "download_url": f"/api/v1/projects/{name}/forms/download/{f.name}",
+        })
+    return {"forms": forms, "count": len(forms)}
+
 
 @app.get("/api/v1/projects/{name}/files")
 async def list_project_files(name: str):

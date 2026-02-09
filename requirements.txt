@@ -31,6 +31,8 @@ pandas>=2.0.0
 
 # PDF Support
 pypdf>=4.0.0
+pdfrw>=0.4
+reportlab>=4.0
 python-multipart
 
 # Web Scraping & Browser Automation
