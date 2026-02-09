@@ -967,6 +967,48 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                 except Exception as e:
                     logger.warning(f"Failed to auto-inject data profile: {e}")
 
+        # AUTO-FILL INTERCEPTOR: When user asks to fill a form, call the tool directly
+        # Groq generates fake form text instead of calling fill_bankruptcy_form
+        if (project_config and project_config.get("name") == "Chapter_7_Assistant"
+                and "fill_bankruptcy_form" in self._tool_handlers):
+            query_lower = query.lower()
+            fill_patterns = ["fill out", "fill in", "fill the form", "fill form", "fill plan",
+                             "generate fill", "generate a fill", "complete the form", "complete form"]
+            if any(p in query_lower for p in fill_patterns):
+                # Extract form ID from query
+                import re
+                form_match = re.search(r'\b(?:form\s*)?(?:b?\s*)?(\d{3}[a-z]?(?:[_\-][a-z0-9]+)?)\b', query_lower)
+                if not form_match:
+                    # Try common form names
+                    form_id_map = {"means test": "122a_1", "schedule i": "106i", "schedule j": "106j",
+                                   "petition": "101", "assets": "106ab", "property": "106ab",
+                                   "income": "106i", "expenses": "106j", "creditor": "106ef",
+                                   "financial affairs": "107", "intention": "108", "exempt": "106c"}
+                    detected_form = None
+                    for kw, fid in form_id_map.items():
+                        if kw in query_lower:
+                            detected_form = fid
+                            break
+                    form_id = detected_form
+                else:
+                    form_id = form_match.group(1).replace(" ", "")
+
+                if form_id:
+                    try:
+                        logger.info(f"Form fill interceptor: detected form_id={form_id}, calling fill_bankruptcy_form directly")
+                        result = await self._tool_handlers["fill_bankruptcy_form"](action="plan", form_id=form_id)
+                        answer = result.get("answer", "")
+                        if answer and "Error:" not in answer:
+                            return {
+                                "answer": answer,
+                                "sources": [],
+                                "usage": {"input_tokens": 0, "output_tokens": 0},
+                                "tool_results": [{"tool": "fill_bankruptcy_form", "args": {"action": "plan", "form_id": form_id}}],
+                            }
+                        logger.warning(f"Form fill interceptor: tool returned error, falling through to Groq: {answer}")
+                    except Exception as e:
+                        logger.warning(f"Form fill interceptor failed, falling through to Groq: {e}")
+
         # Build messages
         messages = [{"role": "system", "content": system_prompt + data_profile_context}]
 
