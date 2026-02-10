@@ -399,12 +399,38 @@ CRITICAL: If ANY field has severity "error", set approved to false."""
         with open(audit_path, "w") as f:
             json.dump(audit_log, f, indent=2)
 
+        # Sync filled form to Postgres
+        try:
+            from form_sync import save_filled_form_to_db
+            save_filled_form_to_db(
+                project_name=self.project_name,
+                form_id=form_id,
+                filename=Path(output_pdf_path).name,
+                pdf_path=output_pdf_path,
+                metadata=audit_log,
+            )
+        except Exception as e:
+            logger.warning(f"DB sync failed for filled form: {e}")
+
+        # Copy to Windows folder if allowed_paths configured
+        windows_copy = None
+        try:
+            from form_sync import copy_to_windows_folder
+            from groq_agent import get_current_project_config
+            config = get_current_project_config() or {}
+            windows_copy = copy_to_windows_folder(
+                output_pdf_path, config.get("allowed_paths", [])
+            )
+        except Exception as e:
+            logger.warning(f"Windows folder copy failed: {e}")
+
         return {
             "success": True,
             "output_pdf": output_pdf_path,
             "fields_filled": fill_result.get("fields_filled", 0),
             "verification": verify_result,
             "audit_log": str(audit_path),
+            "windows_copy": windows_copy,
             "message": f"Form {form_id} filled with {len(fields_to_fill)} fields. Audit log saved to {audit_path}",
         }
 

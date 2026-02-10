@@ -232,13 +232,31 @@ class DataProfile:
         with open(self._profile_path, "w") as f:
             json.dump(data, f, indent=2)
         logger.info(f"Saved data profile to {self._profile_path}")
+
+        # Sync to Postgres
+        try:
+            from form_sync import save_data_profile_to_db
+            save_data_profile_to_db(self.project_name, data)
+        except Exception as e:
+            logger.warning(f"Failed to sync data profile to DB: {e}")
+
         return self._profile_path
 
     def load(self) -> bool:
         """Load profile from disk. Returns True if loaded successfully."""
         if not self._profile_path.exists():
-            logger.info(f"No existing profile at {self._profile_path}")
-            return False
+            # Try pulling from Postgres before giving up
+            try:
+                from form_sync import sync_data_profile_from_db
+                if sync_data_profile_from_db(self.project_name):
+                    logger.info(f"Loaded data profile from Postgres for {self.project_name}")
+                    # File now exists, fall through to load it
+                else:
+                    logger.info(f"No existing profile at {self._profile_path}")
+                    return False
+            except Exception as e:
+                logger.info(f"No existing profile at {self._profile_path} (DB check failed: {e})")
+                return False
 
         try:
             with open(self._profile_path) as f:

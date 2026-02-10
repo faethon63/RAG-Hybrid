@@ -1184,6 +1184,9 @@ async def _tool_fill_bankruptcy_form(
                 download_url = f"/api/v1/projects/{project_name}/forms/download/{filename}"
                 msg += f"\n\n**Verification:** {'PASSED' if verified else 'CHECK NEEDED'} - {v_detail}"
                 msg += f"\n\n**[Download filled form]({download_url})**"
+                windows_copy = result.get("windows_copy")
+                if windows_copy:
+                    msg += f"\n\nSaved to: `{windows_copy}`"
             return {"answer": msg, "sources": []}
         else:
             return {"answer": f"Error: {result.get('error', 'Unknown error')}", "sources": []}
@@ -2550,6 +2553,14 @@ async def download_filled_form(name: str, filename: str):
     filled_dir = Path(get_project_kb_path()) / name / "filled_forms"
     file_path = filled_dir / safe_name
 
+    # If not found locally, try pulling from Postgres
+    if not file_path.exists():
+        try:
+            from form_sync import sync_filled_forms_from_db
+            sync_filled_forms_from_db(name)
+        except Exception:
+            pass
+
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {safe_name}")
 
@@ -2558,6 +2569,26 @@ async def download_filled_form(name: str, filename: str):
         filename=safe_name,
         media_type="application/pdf",
     )
+
+
+@app.post("/api/v1/projects/{name}/forms/sync")
+async def sync_project_forms(name: str):
+    """Manually trigger sync of filled forms and data profile from Postgres."""
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+    try:
+        from form_sync import sync_filled_forms_from_db, sync_data_profile_from_db
+        allowed_paths = config.get("allowed_paths", [])
+        forms_synced = sync_filled_forms_from_db(name, allowed_paths)
+        profile_synced = sync_data_profile_from_db(name)
+        return {
+            "status": "success",
+            "forms_synced": forms_synced,
+            "data_profile_synced": profile_synced,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/projects/{name}/forms/list")
@@ -3135,6 +3166,25 @@ async def startup_event():
     # Auto-index all projects that have allowed_paths configured
     # NOTE: Skipped on startup for faster boot. Use POST /api/v1/projects/{name}/index to index manually.
     # await auto_index_projects()
+
+    # Sync filled forms and data profiles from Postgres
+    try:
+        from form_sync import ensure_sync_tables, sync_filled_forms_from_db, sync_data_profile_from_db
+        ensure_sync_tables()
+        projects = await rag_core.list_projects()
+        for project in projects:
+            name = project.get("name")
+            if not name:
+                continue
+            config = await rag_core.get_project_config(name)
+            allowed_paths = config.get("allowed_paths", []) if config else []
+            synced = sync_filled_forms_from_db(name, allowed_paths)
+            if synced:
+                print(f"  Synced {synced} filled form(s) for {name}")
+            if sync_data_profile_from_db(name):
+                print(f"  Synced data profile for {name}")
+    except Exception as e:
+        print(f"  Form sync check failed (non-fatal): {e}")
 
     # Check all services
     health = await health_check()
