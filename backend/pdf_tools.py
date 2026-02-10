@@ -46,54 +46,90 @@ class PDFFormReader:
     @staticmethod
     def read_form_fields(pdf_path: str) -> Dict[str, Any]:
         """
-        Read all form fields from a PDF.
+        Read all form fields from a PDF using pypdf.
+        Returns dotted field names (e.g. 'Debtor1.Name').
 
         Returns:
             Dict with field names, types, and current values.
         """
         try:
-            from pdfrw import PdfReader
+            from pypdf import PdfReader
 
             reader = PdfReader(pdf_path)
             fields = {}
+            raw_fields = reader.get_fields() or {}
 
-            if reader.Root.AcroForm:
-                form_fields = reader.Root.AcroForm.Fields or []
-                for field in form_fields:
-                    field_name = field.T if field.T else "unnamed"
-                    # Clean the field name (remove parentheses wrapper)
-                    if isinstance(field_name, str):
-                        if field_name.startswith("(") and field_name.endswith(")"):
-                            field_name = field_name[1:-1]
-                    else:
-                        field_name = str(field_name)
+            for field_name, field_data in raw_fields.items():
+                field_type = field_data.get("/FT", "unknown")
+                current_value = field_data.get("/V", "")
+                if current_value is None:
+                    current_value = ""
+                else:
+                    current_value = str(current_value)
 
-                    field_type = str(field.FT) if field.FT else "unknown"
-                    current_value = str(field.V) if field.V else ""
-                    if current_value.startswith("(") and current_value.endswith(")"):
-                        current_value = current_value[1:-1]
-
-                    fields[field_name] = {
-                        "type": field_type,
-                        "value": current_value,
-                    }
+                fields[field_name] = {
+                    "type": str(field_type),
+                    "value": current_value,
+                }
 
             return {
                 "success": True,
                 "path": pdf_path,
                 "fields": fields,
                 "field_count": len(fields),
-                "has_form": bool(reader.Root.AcroForm),
+                "has_form": len(fields) > 0,
             }
         except ImportError:
-            return {"success": False, "error": "pdfrw not installed. Run: pip install pdfrw"}
+            return {"success": False, "error": "pypdf not installed. Run: pip install pypdf"}
         except Exception as e:
             logger.error(f"Error reading PDF form fields: {e}")
             return {"success": False, "error": str(e)}
 
 
 class PDFFormFiller:
-    """Fill PDF forms programmatically."""
+    """Fill PDF forms programmatically using pypdf."""
+
+    @staticmethod
+    def _get_full_name(annot_obj) -> str:
+        """Get fully qualified field name by walking parent chain."""
+        parts = []
+        current = annot_obj
+        while current:
+            t = current.get("/T")
+            if t:
+                parts.insert(0, str(t))
+            parent = current.get("/Parent")
+            if parent:
+                current = parent.get_object() if hasattr(parent, "get_object") else parent
+            else:
+                break
+        return ".".join(parts)
+
+    @staticmethod
+    def _set_checkbox(annot_obj, value: str):
+        """Set checkbox to the specified state value (e.g. '/Not married')."""
+        from pypdf.generic import NameObject
+        # Find the correct kid widget that has this state
+        kids = annot_obj.get("/Kids")
+        if kids:
+            for kid in kids:
+                k = kid.get_object() if hasattr(kid, "get_object") else kid
+                ap = k.get("/AP")
+                if ap and hasattr(ap, "get"):
+                    n_dict = ap.get("/N")
+                    if n_dict and hasattr(n_dict, "keys"):
+                        states = list(n_dict.keys())
+                        if value in states:
+                            k[NameObject("/AS")] = NameObject(value)
+                            k[NameObject("/V")] = NameObject(value)
+                            logger.info(f"Checkbox set kid to state: {value}")
+                        elif "/Off" in states:
+                            k[NameObject("/AS")] = NameObject("/Off")
+            # Also set on parent
+            annot_obj[NameObject("/V")] = NameObject(value)
+        else:
+            annot_obj[NameObject("/V")] = NameObject(value)
+            annot_obj[NameObject("/AS")] = NameObject(value)
 
     @staticmethod
     def fill_form(
@@ -103,7 +139,10 @@ class PDFFormFiller:
         flatten: bool = False,
     ) -> Dict[str, Any]:
         """
-        Fill a PDF form with provided values.
+        Fill a PDF form with provided values using pypdf.
+
+        Handles text fields, dropdowns, and checkboxes.
+        Uses pypdf dotted field names (e.g. 'Debtor1.Name').
 
         Args:
             input_path: Path to input PDF with form fields
@@ -115,38 +154,63 @@ class PDFFormFiller:
             Dict with success status and details.
         """
         try:
-            from pdfrw import PdfReader, PdfWriter
+            from pypdf import PdfReader, PdfWriter
+            from pypdf.generic import NameObject, TextStringObject, BooleanObject
 
             reader = PdfReader(input_path)
+            writer = PdfWriter()
+            writer.append(reader)
 
-            if not reader.Root.AcroForm:
-                return {"success": False, "error": "PDF has no form fields"}
+            # Separate text/dropdown fields from checkbox fields
+            # Checkboxes need special handling (state names like '/Not married')
+            text_fields = {}
+            checkbox_fields = {}
 
-            # Set NeedAppearances flag so PDF viewers regenerate field visuals
-            from pdfrw import PdfName, PdfObject
-            reader.Root.AcroForm.NeedAppearances = PdfObject('true')
-
-            filled_count = 0
-            for field in reader.Root.AcroForm.Fields or []:
-                field_name = field.T if field.T else ""
-                if isinstance(field_name, str):
-                    if field_name.startswith("(") and field_name.endswith(")"):
-                        field_name = field_name[1:-1]
+            all_fields = reader.get_fields() or {}
+            for field_name, value in field_values.items():
+                if field_name in all_fields:
+                    ft = all_fields[field_name].get("/FT", "")
+                    if ft == "/Btn" or value.startswith("/"):
+                        checkbox_fields[field_name] = value
+                    else:
+                        text_fields[field_name] = value
                 else:
-                    field_name = str(field_name)
+                    # Field not found by pypdf - try as text anyway
+                    text_fields[field_name] = value
 
-                if field_name in field_values:
-                    # Set the value
-                    field.V = f"({field_values[field_name]})"
-                    # Clear appearance to force regeneration
-                    if hasattr(field, 'AP'):
-                        field.AP = None
+            # Fill text and dropdown fields using pypdf's built-in method
+            filled_count = 0
+            if text_fields:
+                for page in writer.pages:
+                    writer.update_page_form_field_values(page, text_fields, auto_regenerate=True)
+
+            # Count filled text fields by checking which ones matched
+            for field_name in text_fields:
+                if field_name in all_fields:
                     filled_count += 1
+                    logger.info(f"Text/dropdown field: {field_name} = {text_fields[field_name]}")
+
+            # Handle checkboxes by walking page annotations
+            if checkbox_fields:
+                for page in writer.pages:
+                    annots = page.get("/Annots")
+                    if not annots:
+                        continue
+                    for annot_ref in annots:
+                        annot = annot_ref.get_object() if hasattr(annot_ref, "get_object") else annot_ref
+                        full_name = PDFFormFiller._get_full_name(annot)
+                        if full_name in checkbox_fields:
+                            PDFFormFiller._set_checkbox(annot, checkbox_fields[full_name])
+                            filled_count += 1
+                            logger.info(f"Checkbox field: {full_name} = {checkbox_fields[full_name]}")
+
+            # Set NeedAppearances as fallback
+            if "/AcroForm" in writer._root_object:
+                writer._root_object["/AcroForm"][NameObject("/NeedAppearances")] = BooleanObject(True)
 
             # Write output
-            writer = PdfWriter(output_path)
-            writer.trailer = reader
-            writer.write()
+            with open(output_path, "wb") as f:
+                writer.write(f)
 
             return {
                 "success": True,
@@ -156,7 +220,7 @@ class PDFFormFiller:
                 "message": f"Filled {filled_count} fields, saved to {output_path}",
             }
         except ImportError:
-            return {"success": False, "error": "pdfrw not installed. Run: pip install pdfrw"}
+            return {"success": False, "error": "pypdf not installed. Run: pip install pypdf"}
         except Exception as e:
             logger.error(f"Error filling PDF form: {e}")
             return {"success": False, "error": str(e)}
@@ -394,7 +458,7 @@ class PDFVerifier:
             Dict with verification results.
         """
         try:
-            from pdfrw import PdfReader
+            from pypdf import PdfReader
 
             path = Path(pdf_path)
             if not path.exists():
@@ -404,13 +468,14 @@ class PDFVerifier:
                 return {"success": False, "valid": False, "error": "Not a PDF file"}
 
             reader = PdfReader(pdf_path)
+            fields = reader.get_fields() or {}
 
             return {
                 "success": True,
                 "valid": True,
                 "path": pdf_path,
                 "page_count": len(reader.pages),
-                "has_form": bool(reader.Root.AcroForm),
+                "has_form": len(fields) > 0,
                 "file_size": path.stat().st_size,
             }
         except Exception as e:
@@ -451,13 +516,7 @@ class PDFVerifier:
                     missing.append(field_name)
                 else:
                     actual_value = filled_fields[field_name].get("value", "")
-                    # Strip pdfrw parentheses wrapper for comparison
-                    clean_actual = actual_value
-                    if clean_actual.startswith("\\(") and clean_actual.endswith("\\)"):
-                        clean_actual = clean_actual[2:-2]
-                    elif clean_actual.startswith("(") and clean_actual.endswith(")"):
-                        clean_actual = clean_actual[1:-1]
-                    if clean_actual == expected_value or actual_value == expected_value:
+                    if actual_value == expected_value:
                         matches.append(field_name)
                     else:
                         mismatches.append({

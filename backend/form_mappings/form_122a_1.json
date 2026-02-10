@@ -4,7 +4,7 @@
   "description": "Determines whether debtor's income is low enough to qualify for Chapter 7",
   "fields": [
     {
-      "pdf_field": "Debtor1",
+      "pdf_field": "Debtor1.Name",
       "human_label": "Debtor 1 name",
       "profile_path": "personal_info.full_name",
       "required": true,
@@ -29,13 +29,14 @@
       "sensitive": false
     },
     {
-      "pdf_field": "CheckBox1",
-      "human_label": "Unmarried (includes single, divorced, widowed)",
-      "profile_path": "personal_info.filing_status",
+      "pdf_field": "CheckBox3",
+      "human_label": "Marital/filing status",
+      "profile_path": null,
+      "default_value": "/Not married",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Single filing status = check this box"
+      "notes": "States: [0]=/Married but not filing, [1]=/Not married, [2]=/Maried and filing. Single filer = /Not married"
     },
     {
       "pdf_field": "terrorism If necessary list other sources on a separate page and put the total below 1",
@@ -54,7 +55,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Schedule C net profit / 12 months = monthly business income"
+      "notes": "Schedule C net profit averaged over 6 months"
     },
     {
       "pdf_field": "Quest11",
@@ -91,7 +92,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Look up CA median for 1-person household. Census Bureau data."
+      "notes": "Look up CA median for 1-person household on census.gov/DOJ site"
     },
     {
       "pdf_field": "13C",
@@ -104,13 +105,13 @@
     },
     {
       "pdf_field": "14a",
-      "human_label": "Line 14: Is Line 12b <= Line 13b? (presumption does not arise)",
+      "human_label": "Line 14: Comparison result",
       "profile_path": null,
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "If annualized CMI <= median, check this - no presumption of abuse"
+      "notes": "States: [0]=/12b less or equal to 13, [1]=/12b more than 13. Check [0] if CMI <= median."
     }
   ],
-  "notes": "Uses 6-month lookback for CMI. PDF field names verified via PDFFormReader on uscourts.gov blank form. Field names like 'terrorism If necessary...' are official PDF field names from the form."
+  "notes": "Field names are pypdf dotted notation. CheckBox3 = marital status (NOT CheckBox1 which is abuse presumption). Checkbox values must be the /State name from the AP/N dictionary."
 }
