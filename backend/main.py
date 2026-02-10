@@ -72,8 +72,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if request.url.path in self.EXEMPT_PATHS:
             return await call_next(request)
 
-        # Skip auth for form downloads (user clicks link in chat)
-        if "/forms/download/" in request.url.path:
+        # Skip auth for form operations (downloads + sync)
+        if "/forms/download/" in request.url.path or "/forms/sync" in request.url.path:
             return await call_next(request)
 
         # Check API key from header or query param
