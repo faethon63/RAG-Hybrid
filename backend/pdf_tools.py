@@ -122,6 +122,10 @@ class PDFFormFiller:
             if not reader.Root.AcroForm:
                 return {"success": False, "error": "PDF has no form fields"}
 
+            # Set NeedAppearances flag so PDF viewers regenerate field visuals
+            from pdfrw import PdfName, PdfObject
+            reader.Root.AcroForm.NeedAppearances = PdfObject('true')
+
             filled_count = 0
             for field in reader.Root.AcroForm.Fields or []:
                 field_name = field.T if field.T else ""
