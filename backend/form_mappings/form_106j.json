@@ -31,128 +31,139 @@
     {
       "pdf_field": "Line1_Rent_Mortgage",
       "human_label": "Line 1: Rent or home mortgage payment",
-      "profile_path": null,
+      "profile_path": "expenses.rent",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Debtor is a renter. User must provide monthly rent amount."
+      "notes": "SMMGMT-ROSECH property management, 6-mo avg $1,552.55"
     },
     {
       "pdf_field": "Line2_Real_Property_Taxes",
       "human_label": "Line 2: Real property taxes",
-      "profile_path": null,
+      "profile_path": "expenses.property_taxes",
       "default_value": 0,
       "required": false,
       "format": "currency",
       "sensitive": false,
-      "notes": "Renter - likely $0"
+      "notes": "Renter - $0"
     },
     {
       "pdf_field": "Line3_Insurance",
       "human_label": "Line 3: Property insurance (renters insurance)",
-      "profile_path": null,
+      "profile_path": "expenses.renters_insurance",
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Allstate renters cancelled. $0"
     },
     {
       "pdf_field": "Line4a_Electricity_Gas",
       "human_label": "Line 4a: Electricity, gas, heating fuel",
-      "profile_path": null,
+      "profile_path": "expenses.electricity_water_ladwp",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "LADWP $96.16 (bi-monthly, covers elec+water) + SoCalGas $9.19. Combined on this line: $105.35"
     },
     {
       "pdf_field": "Line4b_Water_Sewer",
       "human_label": "Line 4b: Water, sewer, garbage",
       "profile_path": null,
+      "default_value": 0,
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Water included in LADWP on Line 4a"
     },
     {
       "pdf_field": "Line4c_Phone_Internet",
       "human_label": "Line 4c: Telephone, cell, internet, cable",
-      "profile_path": null,
+      "profile_path": "expenses.phone_internet_personal",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Personal portion only (~15%). $35/mo"
     },
     {
       "pdf_field": "Line5_Food",
       "human_label": "Line 5: Food and housekeeping supplies",
-      "profile_path": null,
+      "profile_path": "expenses.food_housekeeping",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Groceries ~$197 + restaurants ~$100 + household ~$20 = $317"
     },
     {
       "pdf_field": "Line7_Laundry",
       "human_label": "Line 7: Laundry and dry cleaning",
-      "profile_path": null,
+      "profile_path": "expenses.laundry",
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Coin-op/cash, user estimate $30/mo"
     },
     {
       "pdf_field": "Line8_Medical_Dental",
       "human_label": "Line 8: Medical and dental expenses",
-      "profile_path": null,
+      "profile_path": "expenses.medical_dental",
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "On Medi-Cal. $0 out-of-pocket"
     },
     {
       "pdf_field": "Line9_Transportation",
       "human_label": "Line 9: Transportation (gas, repairs, parking, tolls, bus)",
-      "profile_path": null,
+      "profile_path": "expenses.transportation",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "No vehicle. Lime $56 + Uber $20 + Lyft $11 + Waymo $13 + GBike $2 + gas $9 = $110"
     },
     {
       "pdf_field": "Line10_Entertainment",
       "human_label": "Line 10: Entertainment",
-      "profile_path": null,
+      "profile_path": "expenses.entertainment",
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Streaming ~$80 + movies/events ~$20 = $100"
     },
     {
       "pdf_field": "Line13_Health_Insurance",
       "human_label": "Line 13: Health insurance",
-      "profile_path": null,
+      "profile_path": "expenses.health_insurance",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Debtor had excess PTC repayment on tax return - likely has ACA plan"
+      "notes": "On Medi-Cal, $0 premium. Excess PTC repayment was for prior year."
     },
     {
       "pdf_field": "Line14_Vehicle_Insurance",
       "human_label": "Line 14: Vehicle insurance",
-      "profile_path": null,
+      "profile_path": "expenses.vehicle_insurance",
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "No vehicle. Allstate auto cancelled after repo. $0"
     },
     {
       "pdf_field": "Line17_Taxes",
       "human_label": "Line 17: Taxes (not deducted from wages)",
-      "profile_path": null,
+      "profile_path": "expenses.taxes_not_from_wages",
       "required": false,
       "format": "currency",
       "sensitive": false,
-      "notes": "Self-employed - estimated tax payments"
+      "notes": "IRS installments ~$304/mo + MN Dept of Revenue $150/mo = $454"
     },
     {
       "pdf_field": "Line22_Total_Expenses",
       "human_label": "Line 22: Total monthly expenses",
-      "profile_path": null,
+      "profile_path": "expenses.total_monthly_expenses",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Sum of all expense lines"
+      "notes": "Sum of all expense lines = $2,703.90"
     },
     {
       "pdf_field": "Line23_Monthly_Income",
@@ -166,12 +177,12 @@
     {
       "pdf_field": "Line24_Net_Disposable",
       "human_label": "Line 24: Monthly net income minus expenses",
-      "profile_path": null,
+      "profile_path": "expenses.net_disposable",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Line 23 minus Line 22. Should be low/negative for Ch7 qualification."
+      "notes": "$3,151.33 - $2,703.90 = $447.43. Low disposable supports Ch7 qualification."
     }
   ],
-  "notes": "Most expense fields need user input. Only income line can be pre-filled from profile. PDF field names are placeholders."
+  "notes": "All expense fields now pre-filled from data profile (expenses section). Values are 6-month averages from personal checking statements (Aug 2025 - Jan 2026)."
 }

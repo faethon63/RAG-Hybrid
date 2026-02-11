@@ -23,19 +23,45 @@
       "pdf_field": "Part1_Has_Priority",
       "human_label": "Part 1: Do you have any priority unsecured creditors?",
       "profile_path": null,
+      "default_value": true,
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Priority debts include taxes owed, domestic support, etc."
+      "notes": "Yes - IRS and MN Dept of Revenue tax debts"
     },
     {
-      "pdf_field": "Priority_Taxes_IRS",
-      "human_label": "Priority tax debt: IRS amount owed",
-      "profile_path": "tax_data_2025.amount_owed",
-      "required": false,
+      "pdf_field": "Priority_Creditor1_Name",
+      "human_label": "Priority creditor 1: Internal Revenue Service",
+      "profile_path": "creditors.priority_unsecured.0.name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Priority_Creditor1_Amount",
+      "human_label": "Priority creditor 1: IRS amount owed",
+      "profile_path": "creditors.priority_unsecured.0.amount_from_return",
+      "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "2025 tax return shows $7,453 owed. May be priority if recent."
+      "notes": "2025 tax return shows $7,453 owed. Total balance TBD (may include prior years)."
+    },
+    {
+      "pdf_field": "Priority_Creditor2_Name",
+      "human_label": "Priority creditor 2: Minnesota Department of Revenue",
+      "profile_path": "creditors.priority_unsecured.1.name",
+      "required": true,
+      "format": "text",
+      "sensitive": false
+    },
+    {
+      "pdf_field": "Priority_Creditor2_Amount",
+      "human_label": "Priority creditor 2: MN Dept of Revenue amount owed",
+      "profile_path": "creditors.priority_unsecured.1.total_balance",
+      "required": true,
+      "format": "currency",
+      "sensitive": false,
+      "notes": "Monthly installments $150/mo. Total balance TBD."
     },
     {
       "pdf_field": "Part2_Has_Nonpriority",
@@ -44,7 +70,7 @@
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Credit cards, medical bills, personal loans, etc."
+      "notes": "TBD - need to ask user about credit cards, medical bills, personal loans, car deficiency"
     },
     {
       "pdf_field": "Creditor1_Name",
@@ -52,7 +78,8 @@
       "profile_path": null,
       "required": false,
       "format": "text",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "TBD - awaiting user input on debts"
     },
     {
       "pdf_field": "Creditor1_Address",
@@ -95,5 +122,5 @@
       "sensitive": false
     }
   ],
-  "notes": "Tax debt from data profile can pre-fill IRS priority claim. Other creditors require user input. PDF field names are placeholders."
+  "notes": "IRS and MN Dept of Revenue priority claims pre-filled from creditors section. Total balances TBD. Nonpriority creditors await user input (credit cards, medical bills, car deficiency)."
 }
