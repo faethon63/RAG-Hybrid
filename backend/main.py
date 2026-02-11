@@ -72,8 +72,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if request.url.path in self.EXEMPT_PATHS:
             return await call_next(request)
 
-        # Skip auth for form operations (downloads + sync)
-        if "/forms/download/" in request.url.path or "/forms/sync" in request.url.path:
+        # Skip auth for form operations (downloads + sync) and tracker
+        if "/forms/download/" in request.url.path or "/forms/sync" in request.url.path or "/tracker/" in request.url.path:
             return await call_next(request)
 
         # Check API key from header or query param
@@ -1355,6 +1355,72 @@ groq_agent.register_tool_handler("build_data_profile", _tool_build_data_profile)
 groq_agent.register_tool_handler("check_data_consistency", _tool_check_data_consistency)
 groq_agent.register_tool_handler("get_data_profile", _tool_get_data_profile)
 
+
+async def _tool_update_filing_data(updates: dict, source: str = "user_provided") -> Dict[str, Any]:
+    """Update one or more fields in the data profile from user-provided data."""
+    logger = logging.getLogger(__name__)
+    project_name = get_current_project() or "Chapter_7_Assistant"
+
+    try:
+        from data_profile import DataProfile, DataField
+
+        profile = DataProfile(project_name)
+        profile.load()
+
+        updated_fields = []
+        for path, value in updates.items():
+            parts = path.split(".", 1)
+            if len(parts) != 2:
+                logger.warning(f"Invalid field path (no section.field): {path}")
+                continue
+
+            section, field_name = parts
+            # Auto-add section if valid
+            if section not in profile.SECTIONS:
+                logger.warning(f"Unknown section '{section}', skipping field {path}")
+                continue
+
+            field = DataField(
+                value=value,
+                source=source,
+                confidence=0.9 if source != "user_provided" else 1.0,
+                verified_by="user" if source == "user_provided" else None,
+            )
+            profile.set_field(section, field_name, field)
+            updated_fields.append(f"{path} = {value}")
+
+        if updated_fields:
+            profile.save()
+            field_list = "\n".join(f"- {f}" for f in updated_fields)
+            return {
+                "answer": f"Updated {len(updated_fields)} field(s) in data profile:\n{field_list}\n\nData saved and synced.",
+                "sources": [],
+            }
+        else:
+            return {"answer": "No valid fields to update. Use format: section.field_name (e.g., expenses.rent)", "sources": []}
+
+    except Exception as e:
+        logger.error(f"update_filing_data error: {e}")
+        return {"answer": f"Error updating data: {e}", "sources": []}
+
+
+async def _tool_get_filing_status() -> Dict[str, Any]:
+    """Return the filing completion status as formatted markdown."""
+    logger = logging.getLogger(__name__)
+    project_name = get_current_project() or "Chapter_7_Assistant"
+
+    try:
+        from filing_tracker_export import format_missing_summary
+        summary = format_missing_summary(project_name)
+        return {"answer": summary, "sources": []}
+    except Exception as e:
+        logger.error(f"get_filing_status error: {e}")
+        return {"answer": f"Error getting filing status: {e}", "sources": []}
+
+
+groq_agent.register_tool_handler("update_filing_data", _tool_update_filing_data)
+groq_agent.register_tool_handler("get_filing_status", _tool_get_filing_status)
+
 # ============================================================================
 # REQUEST/RESPONSE MODELS
 # ============================================================================
@@ -2607,6 +2673,41 @@ async def list_filled_forms(name: str):
             "download_url": f"/api/v1/projects/{name}/forms/download/{f.name}",
         })
     return {"forms": forms, "count": len(forms)}
+
+
+# ============================================================================
+# FILING TRACKER ENDPOINTS
+# ============================================================================
+
+@app.get("/api/v1/projects/{name}/tracker/status")
+async def tracker_status(name: str):
+    """Return filing completion statistics as JSON."""
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+    try:
+        from filing_tracker_export import get_tracker_status
+        return get_tracker_status(name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/projects/{name}/tracker/export")
+async def tracker_export(name: str):
+    """Download the filing tracker as a CSV file."""
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+    try:
+        from filing_tracker_export import generate_tracker_csv
+        csv_content = generate_tracker_csv(name)
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=filing_tracker_{name}.csv"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/projects/{name}/files")

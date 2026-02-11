@@ -105,6 +105,16 @@ class DataProfile:
         "bank_data",
         "credit_counseling",
         "computed_totals",
+        # Extended sections for full Chapter 7 filing
+        "creditors_secured",      # Schedule D - secured debts (mortgages, car loans)
+        "creditors_priority",     # Schedule E - priority unsecured (IRS, child support)
+        "creditors_nonpriority",  # Schedule F - nonpriority unsecured (credit cards, medical)
+        "exemptions",             # Schedule C - California exemption elections
+        "contracts_leases",       # Schedule G - unexpired leases and contracts
+        "codebtors",              # Schedule H - cosigners/codebtors
+        "financial_history",      # Form 107 - recent payments, transfers, prior filings
+        "filing_decisions",       # Administrative: pro se, district, fee method, exemption system
+        "tracker",                # Per-form completion status and overall progress
     ]
 
     def __init__(self, project_name: str = "Chapter_7_Assistant"):

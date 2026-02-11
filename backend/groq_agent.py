@@ -518,6 +518,40 @@ class GroqAgent:
         {
             "type": "function",
             "function": {
+                "name": "update_filing_data",
+                "description": "Update one or more fields in the debtor's data profile. Use when the user provides new information (expenses, creditor details, assets, etc.). Pass structured key-value pairs to update. The system will save and sync automatically.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "updates": {
+                            "type": "object",
+                            "description": "Dict of {section.field_name: value} pairs to update. Example: {'expenses.rent': 1850, 'expenses.electric': 120, 'creditors_nonpriority.creditor1_name': 'Chase Bank'}",
+                            "additionalProperties": True
+                        },
+                        "source": {
+                            "type": "string",
+                            "description": "Where this data came from. e.g. 'user_provided', 'creditor_letter', 'tax_return'"
+                        }
+                    },
+                    "required": ["updates"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_filing_status",
+                "description": "Show filing completion status - what data has been collected, what's missing, and completion percentage. Use when user asks 'what's missing', 'what do I still need', 'filing status', 'completion', or 'progress'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "get_data_profile",
                 "description": "Read the extracted data profile (truth file) containing structured financial data from tax returns and bank statements. Use this FIRST when answering questions about the debtor's income, expenses, bank balances, or any form field values. Returns personal info, tax data, bank statement summaries, and computed totals.",
                 "parameters": {
@@ -525,7 +559,11 @@ class GroqAgent:
                     "properties": {
                         "section": {
                             "type": "string",
-                            "enum": ["all", "personal_info", "tax_data_2025", "bank_data", "computed_totals"],
+                            "enum": ["all", "personal_info", "income", "expenses", "assets", "debts",
+                                     "tax_data_2025", "bank_data", "computed_totals",
+                                     "creditors_secured", "creditors_priority", "creditors_nonpriority",
+                                     "exemptions", "contracts_leases", "codebtors",
+                                     "financial_history", "filing_decisions", "tracker"],
                             "description": "Which section to return. Use 'all' for everything, or a specific section name."
                         }
                     },
@@ -977,6 +1015,8 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                 "122a", "106", "107", "108", "101", "schedule",
                 "collect", "gather", "deduce", "information", "data", "need",
                 "cmi", "monthly", "means test", "median",
+                "rent", "creditor", "asset", "debt", "filing", "missing",
+                "progress", "tracker", "exempt", "lease", "vehicle",
             ]
             if any(kw in query_lower for kw in financial_keywords):
                 try:
@@ -1127,6 +1167,31 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         logger.warning(f"Form fill interceptor: tool returned error, falling through to Groq: {answer}")
                     except Exception as e:
                         logger.warning(f"Form fill interceptor failed, falling through to Groq: {e}")
+
+        # DATA COLLECTION INTERCEPTOR: detect "what's missing" / "filing status" queries
+        if (project_config and project_config.get("name") == "Chapter_7_Assistant"
+                and "get_filing_status" in self._tool_handlers):
+            query_lower = query.lower()
+            status_patterns = [
+                "what's missing", "whats missing", "what is missing",
+                "what do i need", "what do i still need", "what else do i need",
+                "filing status", "completion status", "how complete",
+                "filing progress", "what's left", "whats left",
+                "show me progress", "show progress", "tracker status",
+            ]
+            if any(p in query_lower for p in status_patterns):
+                try:
+                    result = await self._tool_handlers["get_filing_status"]()
+                    answer = result.get("answer", "")
+                    if answer:
+                        return {
+                            "answer": answer,
+                            "sources": [],
+                            "usage": {"input_tokens": 0, "output_tokens": 0},
+                            "tool_results": [{"tool": "get_filing_status", "args": {}}],
+                        }
+                except Exception as e:
+                    logger.warning(f"Filing status interceptor failed: {e}")
 
         # Build messages
         messages = [{"role": "system", "content": system_prompt + data_profile_context}]
