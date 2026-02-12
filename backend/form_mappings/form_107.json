@@ -26,7 +26,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Schedule C business income for current year"
+      "notes": "2026 YTD income from Schedule C business. Will need to update at filing."
     },
     {
       "pdf_field": "Part1_Q1_Income_Source",
@@ -34,8 +34,7 @@
       "profile_path": "personal_info.occupation",
       "required": true,
       "format": "text",
-      "sensitive": false,
-      "notes": "Massage therapy self-employment"
+      "sensitive": false
     },
     {
       "pdf_field": "Part1_Q2_Gross_Income_Prior_Year",
@@ -44,48 +43,52 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "2025 Schedule C income"
+      "notes": "2025 Schedule C: $37,816"
     },
     {
       "pdf_field": "Part1_Q3_Gross_Income_Two_Years_Prior",
       "human_label": "Part 1, Q3: Gross income for 2 years prior (2024)",
-      "profile_path": null,
+      "profile_path": "tax_data_2024.schedule_c_gross_income",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "2024 tax return not OCR'd due to API credits"
+      "notes": "2024 Schedule C gross: $34,134"
     },
     {
       "pdf_field": "Part2_Q4_Has_Payments_To_Creditors",
       "human_label": "Part 2, Q4: Payments to creditors >$600 in 90 days before filing?",
-      "profile_path": null,
+      "profile_path": "financial_history.payments_to_creditors_90_days",
       "required": true,
       "format": "checkbox",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Yes - IRS installments ~$265/mo + MN DOR $150/mo"
     },
     {
       "pdf_field": "Part2_Q5_Has_Payments_To_Insiders",
       "human_label": "Part 2, Q5: Payments to insiders within 1 year of filing?",
-      "profile_path": null,
+      "profile_path": "financial_history.payments_to_insiders_1_year",
       "required": true,
       "format": "checkbox",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "No"
     },
     {
       "pdf_field": "Part3_Q6_Has_Lawsuits",
       "human_label": "Part 3, Q6: Been party to any lawsuit in 1 year of filing?",
-      "profile_path": null,
+      "profile_path": "financial_history.lawsuits_1_year",
       "required": true,
       "format": "checkbox",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Yes - 2 Crown Asset Management suits (collection)"
     },
     {
       "pdf_field": "Part3_Q7_Has_Garnishments",
       "human_label": "Part 3, Q7: Had property attached, garnished, or seized?",
-      "profile_path": null,
+      "profile_path": "financial_history.property_garnished_seized",
       "required": true,
       "format": "checkbox",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Yes - vehicle repossessed 2025"
     },
     {
       "pdf_field": "Part4_Q10_Has_Bank_Accounts",
@@ -163,10 +166,11 @@
     {
       "pdf_field": "Part5_Q14_Property_Transfers",
       "human_label": "Part 5, Q14: Property transfers within 2 years?",
-      "profile_path": null,
+      "profile_path": "financial_history.property_transfers_2_years",
       "required": true,
       "format": "checkbox",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "No"
     },
     {
       "pdf_field": "Part8_Q22_Business_Name",
@@ -201,8 +205,8 @@
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Debt counseling certificate exists in documents"
+      "notes": "MUST REDO - prior certificate expired April 2025"
     }
   ],
-  "notes": "Large comprehensive form. Has good coverage for income, bank accounts, and business info. Lawsuit, transfer, and creditor history requires user input. PDF field names are placeholders."
+  "notes": "Comprehensive financial history. Most data now in profile. 2024 income, lawsuits, garnishments, creditor payments all documented."
 }

@@ -22,11 +22,11 @@
     {
       "pdf_field": "Has_Codebtors",
       "human_label": "Do you have any codebtors?",
-      "profile_path": null,
+      "profile_path": "codebtors.has_codebtors",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Cosigners, guarantors, joint account holders"
+      "notes": "No codebtors. Single filer, no cosigners or guarantors."
     },
     {
       "pdf_field": "Codebtor1_Name",
@@ -53,5 +53,5 @@
       "sensitive": false
     }
   ],
-  "notes": "Single filer with no spouse indicated. May have no codebtors. All fields need user input. PDF field names are placeholders."
+  "notes": "No codebtors. Single filer, no cosigners or joint account holders."
 }

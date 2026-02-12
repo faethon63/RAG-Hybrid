@@ -36,7 +36,7 @@
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "States: [0]=/Married but not filing, [1]=/Not married, [2]=/Maried and filing. Single filer = /Not married"
+      "notes": "Single filer = /Not married"
     },
     {
       "pdf_field": "terrorism If necessary list other sources on a separate page and put the total below 1",
@@ -55,7 +55,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Schedule C net profit averaged over 6 months"
+      "notes": "Schedule C net profit averaged over 6 months = $3,151.33"
     },
     {
       "pdf_field": "Quest11",
@@ -63,8 +63,7 @@
       "profile_path": "computed_totals.for_means_test_b122a1.schedule_c_monthly",
       "required": true,
       "format": "currency",
-      "sensitive": false,
-      "notes": "Sum of all income lines. For self-employed single filer = Schedule C monthly"
+      "sensitive": false
     },
     {
       "pdf_field": "12B",
@@ -73,7 +72,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Line 11 x 12. Compare to applicable median family income."
+      "notes": "$37,816 annualized"
     },
     {
       "pdf_field": "13A",
@@ -82,17 +81,16 @@
       "default_value": "1",
       "required": true,
       "format": "number",
-      "sensitive": false,
-      "notes": "Single filer, no dependents indicated"
+      "sensitive": false
     },
     {
       "pdf_field": "13B",
       "human_label": "Line 13b: Applicable median family income",
-      "profile_path": null,
+      "profile_path": "computed_totals.for_means_test_b122a1.ca_median_1_person",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Look up CA median for 1-person household on census.gov/DOJ site"
+      "notes": "$77,221 CA median for 1-person household"
     },
     {
       "pdf_field": "13C",
@@ -106,12 +104,21 @@
     {
       "pdf_field": "14a",
       "human_label": "Line 14: Comparison result",
-      "profile_path": null,
+      "profile_path": "computed_totals.for_means_test_b122a1.below_median",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "States: [0]=/12b less or equal to 13, [1]=/12b more than 13. Check [0] if CMI <= median."
+      "notes": "Below median - check box [0]. No 122A-2 required."
+    },
+    {
+      "pdf_field": "Not_Required",
+      "human_label": "Not required (income below median on 122A-1)",
+      "profile_path": "computed_totals.for_means_test_b122a1.below_median",
+      "required": false,
+      "format": "checkbox",
+      "sensitive": false,
+      "notes": "Form 122A-2 not required since income is below median"
     }
   ],
-  "notes": "Field names are pypdf dotted notation. CheckBox3 = marital status (NOT CheckBox1 which is abuse presumption). Checkbox values must be the /State name from the AP/N dictionary."
+  "notes": "Means test PASSES. $37,816 annualized CMI vs $77,221 CA median. No Form 122A-2 needed."
 }

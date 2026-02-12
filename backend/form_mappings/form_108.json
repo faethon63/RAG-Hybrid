@@ -22,16 +22,16 @@
     {
       "pdf_field": "Part1_Has_Secured_Debts",
       "human_label": "Part 1: Do you have debts secured by property?",
-      "profile_path": null,
+      "profile_path": "statement_of_intention.has_secured_debts",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "User must indicate if any secured debts exist"
+      "notes": "Yes - Wells Fargo Auto (vehicle already repossessed)"
     },
     {
       "pdf_field": "Part1_Creditor1_Name",
       "human_label": "Secured creditor name (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.secured.0.name",
       "required": false,
       "format": "text",
       "sensitive": false
@@ -39,7 +39,7 @@
     {
       "pdf_field": "Part1_Creditor1_Property",
       "human_label": "Description of property (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.secured.0.property",
       "required": false,
       "format": "text",
       "sensitive": false
@@ -47,18 +47,20 @@
     {
       "pdf_field": "Part1_Creditor1_Intention",
       "human_label": "Intention: surrender, retain, redeem, or reaffirm (row 1)",
-      "profile_path": null,
+      "profile_path": "statement_of_intention.secured_debts.0.intention",
       "required": false,
       "format": "text",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Surrender - vehicle already repossessed"
     },
     {
       "pdf_field": "Part2_Has_Leases",
       "human_label": "Part 2: Do you have unexpired leases of personal property?",
-      "profile_path": null,
+      "profile_path": "statement_of_intention.has_unexpired_personal_property_leases",
       "required": true,
       "format": "checkbox",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "No unexpired leases of personal property"
     },
     {
       "pdf_field": "Part2_Lessor1_Name",
@@ -85,5 +87,5 @@
       "sensitive": false
     }
   ],
-  "notes": "Almost entirely user input. Debtor must decide what to do with each secured debt and lease. PDF field names are placeholders."
+  "notes": "Surrender vehicle (already repossessed). No personal property leases. Residential lease is on Schedule G, not here."
 }

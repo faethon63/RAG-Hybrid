@@ -22,20 +22,20 @@
     {
       "pdf_field": "Part1_Real_Property",
       "human_label": "Part 1: Does debtor own/have interest in real property?",
-      "profile_path": null,
+      "profile_path": "assets.part1_real_estate.owns_real_estate",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "User must indicate if they own real estate"
+      "notes": "No - debtor rents"
     },
     {
       "pdf_field": "Part2_Q4_Checking_Accounts",
       "human_label": "Part 2, Q4: Checking, savings, or other financial accounts",
-      "profile_path": null,
+      "profile_path": "assets.part4_financial.bank_deposits.ccu_personal_checking.account",
       "required": true,
       "format": "text",
       "sensitive": false,
-      "notes": "List each bank account"
+      "notes": "CCU personal checking, business checking, savings + 4 TruStone accounts"
     },
     {
       "pdf_field": "Bank_Name",
@@ -52,7 +52,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Most recent statement ending balance"
+      "notes": "Most recent statement ending balance. Finalize at filing."
     },
     {
       "pdf_field": "Personal_Checking_Balance",
@@ -61,7 +61,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Most recent statement ending balance"
+      "notes": "Most recent statement ending balance. Finalize at filing."
     },
     {
       "pdf_field": "Savings_Balance",
@@ -70,7 +70,7 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Most recent statement ending balance"
+      "notes": "Most recent statement ending balance. Finalize at filing."
     },
     {
       "pdf_field": "Business_Checking_AcctNum",
@@ -78,8 +78,7 @@
       "profile_path": "bank_data.business_checking.account_number",
       "required": true,
       "format": "text",
-      "sensitive": true,
-      "notes": "Account number is sensitive"
+      "sensitive": true
     },
     {
       "pdf_field": "Personal_Checking_AcctNum",
@@ -87,8 +86,7 @@
       "profile_path": "bank_data.personal_checking.account_number",
       "required": true,
       "format": "text",
-      "sensitive": true,
-      "notes": "Account number is sensitive"
+      "sensitive": true
     },
     {
       "pdf_field": "Savings_AcctNum",
@@ -96,40 +94,38 @@
       "profile_path": "bank_data.share_savings.account_number",
       "required": true,
       "format": "text",
-      "sensitive": true,
-      "notes": "Account number is sensitive"
+      "sensitive": true
     },
     {
       "pdf_field": "Part2_Q5_Cash_On_Hand",
       "human_label": "Part 2, Q5: Cash and virtual currency",
-      "profile_path": null,
+      "profile_path": "assets.part4_financial.cash_on_hand.value",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "User must estimate cash on hand"
+      "notes": "Estimate $37. Finalize on filing day."
     },
     {
       "pdf_field": "Part2_Q6_Business_Assets",
       "human_label": "Part 2, Q6: Self-employment assets, tools of trade",
-      "profile_path": null,
+      "profile_path": "assets.part5_business.office_equipment.items",
       "required": true,
       "format": "text",
       "sensitive": false,
-      "notes": "Massage therapy equipment/supplies"
+      "notes": "Massage table $500, Massage stool $180 = $680"
     },
     {
       "pdf_field": "Part2_Q7_Household_Goods",
       "human_label": "Part 2, Q7: Household goods and furnishings",
-      "profile_path": null,
+      "profile_path": "assets.part3_personal_household.household_goods.items",
       "required": true,
       "format": "text",
-      "sensitive": false,
-      "notes": "User must list and value household items"
+      "sensitive": false
     },
     {
       "pdf_field": "Part2_Q9_Electronics",
       "human_label": "Part 2, Q9: Electronics",
-      "profile_path": null,
+      "profile_path": "assets.part3_personal_household.electronics.items",
       "required": true,
       "format": "text",
       "sensitive": false
@@ -137,7 +133,7 @@
     {
       "pdf_field": "Part2_Q10_Clothing",
       "human_label": "Part 2, Q10: Clothing",
-      "profile_path": null,
+      "profile_path": "assets.part3_personal_household.clothes.items",
       "required": true,
       "format": "text",
       "sensitive": false
@@ -145,16 +141,16 @@
     {
       "pdf_field": "Part2_Q13_Vehicles",
       "human_label": "Part 2, Q13: Automobiles, trucks, etc.",
-      "profile_path": null,
+      "profile_path": "assets.part2_vehicles.owns_vehicles",
       "required": true,
       "format": "text",
       "sensitive": false,
-      "notes": "User must list vehicles with year/make/model and value"
+      "notes": "No vehicles. Car repossessed, motorcycle totalled."
     },
     {
       "pdf_field": "Part2_Q33_Other_Property",
       "human_label": "Part 2, Q33: Other personal property",
-      "profile_path": null,
+      "profile_path": "assets.part7_other.value",
       "required": false,
       "format": "text",
       "sensitive": false
@@ -162,11 +158,11 @@
     {
       "pdf_field": "Total_Personal_Property",
       "human_label": "Total value of all personal property",
-      "profile_path": null,
+      "profile_path": "assets.grand_total_known",
       "required": true,
       "format": "currency",
       "sensitive": false
     }
   ],
-  "notes": "Large form with many categories of property. Bank account data available from profile; other assets require user input. PDF field names are placeholders."
+  "notes": "All asset data now in data_profile.json assets section. Bank balances need updating at filing day."
 }

@@ -31,42 +31,47 @@
     {
       "pdf_field": "1a",
       "human_label": "Schedule A/B: Real property (current value)",
-      "profile_path": null,
+      "profile_path": "assets.part1_real_estate.total",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "$0 - no real property"
     },
     {
       "pdf_field": "1b",
       "human_label": "Schedule A/B: Personal property (current value)",
-      "profile_path": null,
+      "profile_path": "assets.grand_total_known",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "~$8,671 + CCU balances TBD"
     },
     {
       "pdf_field": "2",
       "human_label": "Schedule D: Secured claims",
-      "profile_path": null,
+      "profile_path": "creditors.secured.0.last_known_balance",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Wells Fargo Auto $22,987.98 (deficiency TBD)"
     },
     {
       "pdf_field": "3a",
       "human_label": "Schedule E/F: Priority unsecured claims",
-      "profile_path": null,
+      "profile_path": "creditors.priority_unsecured.0.total_balance",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "IRS $28,046 + MN DOR $5,258 = ~$33,304"
     },
     {
       "pdf_field": "3b",
       "human_label": "Schedule E/F: Nonpriority unsecured claims",
-      "profile_path": null,
+      "profile_path": "creditors.nonpriority_unsecured.0.balance",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "~$41,456 total across all nonpriority creditors"
     },
     {
       "pdf_field": "9a",
@@ -79,11 +84,12 @@
     {
       "pdf_field": "9b",
       "human_label": "Schedule J: Current monthly expenditures",
-      "profile_path": null,
+      "profile_path": "expenses.total_monthly_expenses",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "$2,703.90/mo"
     }
   ],
-  "notes": "Summary of all schedules. Most fields require completing individual schedules first. PDF field names verified via PDFFormReader."
+  "notes": "Summary computed from individual schedules. Most values now available in data_profile."
 }

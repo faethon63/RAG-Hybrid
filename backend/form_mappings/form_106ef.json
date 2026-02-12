@@ -22,12 +22,12 @@
     {
       "pdf_field": "Part1_Has_Priority",
       "human_label": "Part 1: Do you have any priority unsecured creditors?",
-      "profile_path": null,
+      "profile_path": "creditors.priority_unsecured.0.name",
       "default_value": true,
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Yes - IRS and MN Dept of Revenue tax debts"
+      "notes": "Yes - IRS ($28,046) and MN Dept of Revenue ($5,258)"
     },
     {
       "pdf_field": "Priority_Creditor1_Name",
@@ -40,11 +40,11 @@
     {
       "pdf_field": "Priority_Creditor1_Amount",
       "human_label": "Priority creditor 1: IRS amount owed",
-      "profile_path": "creditors.priority_unsecured.0.amount_from_return",
+      "profile_path": "creditors.priority_unsecured.0.total_balance",
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "2025 tax return shows $7,453 owed. Total balance TBD (may include prior years)."
+      "notes": "$28,046.13 total across 2018-2025. 2025 ($7,453) not yet assessed."
     },
     {
       "pdf_field": "Priority_Creditor2_Name",
@@ -61,30 +61,29 @@
       "required": true,
       "format": "currency",
       "sensitive": false,
-      "notes": "Monthly installments $150/mo. Total balance TBD."
+      "notes": "$5,257.91 total. Sales tax from closed LLC."
     },
     {
       "pdf_field": "Part2_Has_Nonpriority",
       "human_label": "Part 2: Do you have any nonpriority unsecured creditors?",
-      "profile_path": null,
+      "profile_path": "creditors.nonpriority_unsecured.0.name",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "TBD - need to ask user about credit cards, medical bills, personal loans, car deficiency"
+      "notes": "Yes - WF cards, RGS/Wings, Capital One, TNA/Upgrade, TrueAccord, student loans"
     },
     {
       "pdf_field": "Creditor1_Name",
       "human_label": "Unsecured creditor name (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.nonpriority_unsecured.0.name",
       "required": false,
       "format": "text",
-      "sensitive": false,
-      "notes": "TBD - awaiting user input on debts"
+      "sensitive": false
     },
     {
       "pdf_field": "Creditor1_Address",
       "human_label": "Unsecured creditor mailing address (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.notes.collection_agencies.radius_global_solutions.address",
       "required": false,
       "format": "text",
       "sensitive": false
@@ -92,7 +91,7 @@
     {
       "pdf_field": "Creditor1_Account",
       "human_label": "Account number (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.nonpriority_unsecured.0.account",
       "required": false,
       "format": "text",
       "sensitive": true
@@ -100,7 +99,7 @@
     {
       "pdf_field": "Creditor1_Amount",
       "human_label": "Amount of claim (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.nonpriority_unsecured.0.balance",
       "required": false,
       "format": "currency",
       "sensitive": false
@@ -108,19 +107,21 @@
     {
       "pdf_field": "Total_Priority_Claims",
       "human_label": "Total of all priority claims",
-      "profile_path": null,
+      "profile_path": "creditors.priority_unsecured.0.total_balance",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "IRS $28,046 + MN DOR $5,258 = $33,304 total priority"
     },
     {
       "pdf_field": "Total_Nonpriority_Claims",
       "human_label": "Total of all nonpriority claims",
-      "profile_path": null,
+      "profile_path": "creditors.nonpriority_unsecured.0.balance",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "~$41,456 total nonpriority unsecured (includes non-dischargeable student loans $9,631)"
     }
   ],
-  "notes": "IRS and MN Dept of Revenue priority claims pre-filled from creditors section. Total balances TBD. Nonpriority creditors await user input (credit cards, medical bills, car deficiency)."
+  "notes": "All creditor data now in data_profile.json. IRS and MN DOR are priority. 10 nonpriority creditors documented with balances and contact info."
 }

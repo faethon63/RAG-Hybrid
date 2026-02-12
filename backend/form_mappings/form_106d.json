@@ -22,16 +22,16 @@
     {
       "pdf_field": "Has_Secured_Creditors",
       "human_label": "Do you have any creditors with secured claims?",
-      "profile_path": null,
+      "profile_path": "statement_of_intention.has_secured_debts",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "User must indicate yes/no"
+      "notes": "Yes - Wells Fargo Auto (repossessed vehicle)"
     },
     {
       "pdf_field": "Creditor1_Name",
       "human_label": "Secured creditor name (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.secured.0.name",
       "required": false,
       "format": "text",
       "sensitive": false
@@ -39,7 +39,7 @@
     {
       "pdf_field": "Creditor1_Address",
       "human_label": "Secured creditor mailing address (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.secured.0.contact.address",
       "required": false,
       "format": "text",
       "sensitive": false
@@ -50,12 +50,13 @@
       "profile_path": null,
       "required": false,
       "format": "text",
-      "sensitive": true
+      "sensitive": true,
+      "notes": "Auto loan account number TBD - call Wells Fargo"
     },
     {
       "pdf_field": "Creditor1_Property_Description",
       "human_label": "Description of property securing the claim (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.secured.0.property",
       "required": false,
       "format": "text",
       "sensitive": false
@@ -63,19 +64,21 @@
     {
       "pdf_field": "Creditor1_Claim_Amount",
       "human_label": "Amount of claim (row 1)",
-      "profile_path": null,
+      "profile_path": "creditors.secured.0.last_known_balance",
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "$22,987.98 pre-repo. Deficiency balance TBD after auction."
     },
     {
       "pdf_field": "Creditor1_Property_Value",
       "human_label": "Value of collateral (row 1)",
-      "profile_path": null,
+      "profile_path": "assets.part2_vehicles.total",
       "required": false,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "$0 - vehicle was repossessed, debtor no longer has it"
     }
   ],
-  "notes": "No secured creditor data in data profile. All creditor fields require user input. PDF field names are placeholders."
+  "notes": "Wells Fargo Auto is only secured creditor. Vehicle repossessed 2025. Deficiency balance TBD."
 }

@@ -22,38 +22,38 @@
     {
       "pdf_field": "Has_Contracts_Leases",
       "human_label": "Do you have any executory contracts or unexpired leases?",
-      "profile_path": null,
+      "profile_path": "lease.has_unexpired_lease",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "Includes residential lease, vehicle leases, gym memberships, etc."
+      "notes": "Yes - residential lease at Rosewood Ave"
     },
     {
       "pdf_field": "Contract1_Other_Party",
       "human_label": "Name and address of other party (row 1)",
-      "profile_path": null,
+      "profile_path": "lease.residential_lease.landlord",
       "required": false,
       "format": "text",
-      "sensitive": false,
-      "notes": "Landlord name/address for residential lease"
+      "sensitive": false
     },
     {
       "pdf_field": "Contract1_Description",
       "human_label": "Description of contract/lease (row 1)",
-      "profile_path": null,
+      "profile_path": "lease.residential_lease.address",
       "required": false,
       "format": "text",
       "sensitive": false,
-      "notes": "e.g. Residential lease for 4846 Rosewood Ave Apt 5"
+      "notes": "Residential lease, 4846 Rosewood Ave Apt 5"
     },
     {
       "pdf_field": "Contract1_Nature",
       "human_label": "What does it cover? (row 1)",
-      "profile_path": null,
+      "profile_path": "lease.residential_lease.term",
       "required": false,
       "format": "text",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "Month-to-month residential lease, ~$1,552/mo"
     }
   ],
-  "notes": "Debtor likely has a residential lease (renter at apartment). All contract details need user input. PDF field names are placeholders."
+  "notes": "Residential lease at Rosewood Ave. Month-to-month, intention to assume (keep living there)."
 }

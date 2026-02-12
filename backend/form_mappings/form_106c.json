@@ -22,25 +22,25 @@
     {
       "pdf_field": "Exemption_System",
       "human_label": "Which set of exemptions is debtor claiming?",
-      "profile_path": null,
+      "profile_path": "exemptions_plan.system",
       "required": true,
       "format": "checkbox",
       "sensitive": false,
-      "notes": "California debtors choose CCP 703 (System 1) or CCP 704 (System 2). System 1 is more common for renters without real property."
+      "notes": "California System 2 (CCP 703.140)"
     },
     {
       "pdf_field": "Exempt_Property_1_Description",
       "human_label": "Description of exempt property (row 1)",
-      "profile_path": null,
+      "profile_path": "assets.part3_personal_household.household_goods.items",
       "required": true,
       "format": "text",
       "sensitive": false,
-      "notes": "User must list each asset claimed exempt with exemption statute"
+      "notes": "All personal property claimed exempt under wildcard"
     },
     {
       "pdf_field": "Exempt_Property_1_Value",
       "human_label": "Current value of property (row 1)",
-      "profile_path": null,
+      "profile_path": "assets.grand_total_known",
       "required": true,
       "format": "currency",
       "sensitive": false
@@ -48,20 +48,21 @@
     {
       "pdf_field": "Exempt_Property_1_Exemption_Law",
       "human_label": "Exemption law (row 1)",
-      "profile_path": null,
+      "profile_path": "exemptions_plan.system",
       "required": true,
       "format": "text",
       "sensitive": false,
-      "notes": "e.g. CCP 703.140(b)(5) for wildcard, CCP 703.140(b)(6) for tools of trade"
+      "notes": "CCP 703.140(b)(5) wildcard for most items, (b)(3) for household, (b)(6) for tools of trade"
     },
     {
       "pdf_field": "Exempt_Property_1_Amount_Claimed",
       "human_label": "Amount of exemption claimed (row 1)",
-      "profile_path": null,
+      "profile_path": "assets.grand_total_known",
       "required": true,
       "format": "currency",
-      "sensitive": false
+      "sensitive": false,
+      "notes": "100% exempt - total assets well under wildcard limit"
     }
   ],
-  "notes": "Exemption elections are strategic decisions requiring legal knowledge. Most fields need user input. PDF field names are placeholders."
+  "notes": "CA System 2 wildcard (~$34,525) covers all assets (~$8,671). Everything fully exempt."
 }
