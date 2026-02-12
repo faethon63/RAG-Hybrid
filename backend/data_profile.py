@@ -101,18 +101,23 @@ class DataProfile:
         "debts",
         "means_test",
         "tax_data",
+        "tax_data_2024",
         "tax_data_2025",
         "bank_data",
         "credit_counseling",
         "computed_totals",
         # Extended sections for full Chapter 7 filing
+        "creditors",              # All creditors (secured, priority, nonpriority) in data_profile
         "creditors_secured",      # Schedule D - secured debts (mortgages, car loans)
         "creditors_priority",     # Schedule E - priority unsecured (IRS, child support)
         "creditors_nonpriority",  # Schedule F - nonpriority unsecured (credit cards, medical)
         "exemptions",             # Schedule C - California exemption elections
+        "exemptions_plan",        # Exemption strategy and wildcard calculation
         "contracts_leases",       # Schedule G - unexpired leases and contracts
+        "lease",                  # Lease data (residential lease)
         "codebtors",              # Schedule H - cosigners/codebtors
         "financial_history",      # Form 107 - recent payments, transfers, prior filings
+        "statement_of_intention", # Form 108 - intentions for secured debts and leases
         "filing_decisions",       # Administrative: pro se, district, fee method, exemption system
         "tracker",                # Per-form completion status and overall progress
     ]
