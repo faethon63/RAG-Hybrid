@@ -86,6 +86,38 @@ class RAGCore:
         self._initialized = True
         logger.info("RAG core initialized.")
 
+        # Backfill chat titles into ChromaDB if collection is empty
+        try:
+            titles_coll = self._get_chat_titles_collection()
+            if titles_coll.count() == 0:
+                logger.info("Backfilling chat titles into ChromaDB...")
+                conn = self._get_db_connection()
+                if conn:
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT id, name, project FROM chats WHERE name IS NOT NULL AND name != 'New Chat'")
+                            rows = cur.fetchall()
+                        if rows:
+                            ids = [r[0] for r in rows]
+                            titles = [r[1] for r in rows]
+                            metadatas = [{"project": r[2]} if r[2] else {} for r in rows]
+                            embeddings = self.embed(titles)
+                            # Batch upsert in chunks of 100
+                            for i in range(0, len(ids), 100):
+                                titles_coll.upsert(
+                                    ids=ids[i:i+100],
+                                    embeddings=embeddings[i:i+100],
+                                    documents=titles[i:i+100],
+                                    metadatas=metadatas[i:i+100],
+                                )
+                            logger.info(f"Backfilled {len(ids)} chat titles")
+                    except Exception as e:
+                        logger.warning(f"Chat title backfill failed: {e}")
+                    finally:
+                        conn.close()
+        except Exception as e:
+            logger.warning(f"Chat title collection init failed: {e}")
+
     async def cleanup(self):
         """Cleanup resources."""
         if self._http_client:
@@ -147,6 +179,32 @@ class RAGCore:
             name=name[:63],
             metadata={"hnsw:space": "cosine"},
         )
+
+    def _get_chat_titles_collection(self) -> chromadb.Collection:
+        """Get or create the ChromaDB collection for chat title embeddings."""
+        return self._chroma_client.get_or_create_collection(
+            name="chat_titles",
+            metadata={"hnsw:space": "cosine"},
+        )
+
+    def _index_chat_title(self, chat_id: str, title: str, project: str = None):
+        """Upsert a chat title into the chat_titles ChromaDB collection."""
+        if not title or title == "New Chat":
+            return
+        try:
+            collection = self._get_chat_titles_collection()
+            embedding = self.embed([title])[0]
+            metadata = {}
+            if project:
+                metadata["project"] = project
+            collection.upsert(
+                ids=[chat_id],
+                embeddings=[embedding],
+                documents=[title],
+                metadatas=[metadata],
+            )
+        except Exception as e:
+            logger.warning(f"Failed to index chat title for {chat_id}: {e}")
 
     # ------------------------------------------------------------------
     # Document indexing
@@ -1866,16 +1924,158 @@ Assistant:"""
         chats_dir.mkdir(parents=True, exist_ok=True)
         return chats_dir
 
+    async def search_chats(
+        self,
+        query: str,
+        limit: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search chats using PostgreSQL full-text search + ChromaDB semantic search.
+        Returns results from ALL projects, ranked by combined score.
+        """
+        import re
+        results_by_id: Dict[str, Dict[str, Any]] = {}
+
+        # --- Layer 1: PostgreSQL FTS ---
+        conn = self._get_db_connection()
+        if conn:
+            try:
+                # Sanitize words for tsquery: only alphanumeric
+                words = [re.sub(r'[^a-zA-Z0-9]', '', w) for w in query.split()]
+                words = [w for w in words if w]
+                if words:
+                    # AND logic with prefix matching
+                    tsquery = " & ".join(f"{w}:*" for w in words)
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT id, name, project, created_at, updated_at,
+                                   jsonb_array_length(messages) as message_count,
+                                   ts_rank(
+                                       setweight(to_tsvector('english', COALESCE(name, '')), 'A') ||
+                                       setweight(to_tsvector('english', COALESCE(messages::text, '')), 'B'),
+                                       to_tsquery('english', %s)
+                                   ) as rank
+                            FROM chats
+                            WHERE (
+                                to_tsvector('english', COALESCE(name, '')) ||
+                                to_tsvector('english', COALESCE(messages::text, ''))
+                            ) @@ to_tsquery('english', %s)
+                            ORDER BY rank DESC
+                            LIMIT %s
+                        """, (tsquery, tsquery, limit))
+                        rows = cur.fetchall()
+                        if rows:
+                            max_rank = max(r[6] for r in rows) or 1.0
+                            for r in rows:
+                                normalized = r[6] / max_rank
+                                results_by_id[r[0]] = {
+                                    "id": r[0],
+                                    "name": r[1] or "Untitled",
+                                    "project": r[2],
+                                    "created_at": r[3].isoformat() + "Z" if r[3] else None,
+                                    "updated_at": r[4].isoformat() + "Z" if r[4] else None,
+                                    "message_count": r[5] or 0,
+                                    "fts_score": normalized,
+                                    "semantic_score": 0.0,
+                                }
+            except Exception as e:
+                logger.error(f"FTS search error: {e}")
+            finally:
+                conn.close()
+
+        # --- Layer 2: ChromaDB semantic search on titles ---
+        try:
+            collection = self._get_chat_titles_collection()
+            if collection.count() > 0:
+                query_embedding = self.embed([query])[0]
+                n = min(limit, collection.count())
+                chroma_results = collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=n,
+                    include=["documents", "metadatas", "distances"],
+                )
+                if chroma_results["ids"] and chroma_results["ids"][0]:
+                    for cid, doc, meta, dist in zip(
+                        chroma_results["ids"][0],
+                        chroma_results["documents"][0],
+                        chroma_results["metadatas"][0],
+                        chroma_results["distances"][0],
+                    ):
+                        score = 1.0 - (dist / 2.0)
+                        if score < 0.3:
+                            continue
+                        if cid in results_by_id:
+                            results_by_id[cid]["semantic_score"] = score
+                        else:
+                            results_by_id[cid] = {
+                                "id": cid,
+                                "name": doc or "Untitled",
+                                "project": meta.get("project") if meta else None,
+                                "created_at": None,
+                                "updated_at": None,
+                                "message_count": 0,
+                                "fts_score": 0.0,
+                                "semantic_score": score,
+                            }
+        except Exception as e:
+            logger.warning(f"Semantic search error: {e}")
+
+        # --- Merge: combined score ---
+        for item in results_by_id.values():
+            item["score"] = round(0.5 * item.get("fts_score", 0) + 0.5 * item.get("semantic_score", 0), 4)
+            # Clean up internal scores
+            item.pop("fts_score", None)
+            item.pop("semantic_score", None)
+
+        # Sort by combined score descending
+        sorted_results = sorted(results_by_id.values(), key=lambda x: x.get("score", 0), reverse=True)
+
+        # For semantic-only results missing metadata, try to enrich from DB
+        if conn is None:
+            pass  # no DB to enrich from
+        else:
+            missing_ids = [r["id"] for r in sorted_results if r.get("created_at") is None]
+            if missing_ids:
+                conn2 = self._get_db_connection()
+                if conn2:
+                    try:
+                        with conn2.cursor() as cur:
+                            cur.execute("""
+                                SELECT id, name, project, created_at, updated_at,
+                                       jsonb_array_length(messages) as message_count
+                                FROM chats WHERE id = ANY(%s)
+                            """, (missing_ids,))
+                            for r in cur.fetchall():
+                                if r[0] in results_by_id:
+                                    results_by_id[r[0]].update({
+                                        "name": r[1] or results_by_id[r[0]]["name"],
+                                        "project": r[2],
+                                        "created_at": r[3].isoformat() + "Z" if r[3] else None,
+                                        "updated_at": r[4].isoformat() + "Z" if r[4] else None,
+                                        "message_count": r[5] or 0,
+                                    })
+                    except Exception as e:
+                        logger.warning(f"Failed to enrich semantic results: {e}")
+                    finally:
+                        conn2.close()
+
+        logger.info(f"Chat search for '{query}': {len(sorted_results)} results")
+        return sorted_results[:limit]
+
     async def list_chats(
         self,
         project: Optional[str] = None,
         limit: int = 50,
+        search: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         List chat summaries, optionally filtered by project.
+        If search is provided, delegates to search_chats (cross-project).
         Returns list sorted by updated_at (newest first).
         Uses PostgreSQL if configured, otherwise falls back to files.
         """
+        if search:
+            return await self.search_chats(search, limit=limit)
         conn = self._get_db_connection()
         if conn:
             try:
@@ -2150,6 +2350,9 @@ Assistant:"""
             if not chat.get("name"):
                 chat["name"] = "New Chat"
 
+        # Index chat title for semantic search
+        self._index_chat_title(chat_id, chat.get("name", ""), chat.get("project"))
+
         # Try PostgreSQL first
         conn = self._get_db_connection()
         if conn:
@@ -2191,6 +2394,11 @@ Assistant:"""
 
     async def delete_chat(self, chat_id: str) -> bool:
         """Delete a chat by ID. Uses PostgreSQL if configured."""
+        try:
+            collection = self._get_chat_titles_collection()
+            collection.delete(ids=[chat_id])
+        except Exception:
+            pass
         conn = self._get_db_connection()
         if conn:
             try:
@@ -2221,6 +2429,7 @@ Assistant:"""
 
     async def rename_chat(self, chat_id: str, new_name: str) -> bool:
         """Rename a chat. Uses PostgreSQL if configured."""
+        self._index_chat_title(chat_id, new_name)
         conn = self._get_db_connection()
         if conn:
             try:

@@ -58,10 +58,11 @@ export const api = {
     }),
 
   // Chats
-  listChats: (project?: string, limit = 50) => {
+  listChats: (project?: string, limit = 50, search?: string) => {
     const params = new URLSearchParams();
     if (project) params.set('project', project);
     if (limit) params.set('limit', String(limit));
+    if (search) params.set('search', search);
     return request<import('../types/api').ChatsResponse>(`/chats?${params}`);
   },
 

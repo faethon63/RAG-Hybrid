@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { api } from '../../api/client';
-import { ChatIcon, TrashIcon, LoaderIcon, EditIcon, CheckIcon, CloseIcon, MoveIcon } from '../common/icons';
+import { ChatIcon, TrashIcon, LoaderIcon, EditIcon, CheckIcon, CloseIcon, MoveIcon, SearchIcon } from '../common/icons';
 import clsx from 'clsx';
 
 export function ChatList() {
@@ -12,6 +12,12 @@ export function ChatList() {
   const loadChats = useChatStore((s) => s.loadChats);
   const loadChat = useChatStore((s) => s.loadChat);
   const deleteChat = useChatStore((s) => s.deleteChat);
+  const searchQuery = useChatStore((s) => s.searchQuery);
+  const searchResults = useChatStore((s) => s.searchResults);
+  const searchLoading = useChatStore((s) => s.searchLoading);
+  const searchChats = useChatStore((s) => s.searchChats);
+  const clearSearch = useChatStore((s) => s.clearSearch);
+  const setSearchQuery = useChatStore((s) => s.setSearchQuery);
   const currentProject = useProjectStore((s) => s.currentProject);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -21,11 +27,24 @@ export function ChatList() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const editRef = useRef<HTMLInputElement>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>();
   const projects = useProjectStore((s) => s.projects);
+
+  const isSearching = searchQuery.length >= 2;
 
   useEffect(() => {
     loadChats(currentProject);
   }, [currentProject, loadChats]);
+
+  const handleSearchInput = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (value.length >= 2) {
+      searchDebounceRef.current = setTimeout(() => searchChats(value), 300);
+    } else {
+      clearSearch();
+    }
+  }, [searchChats, clearSearch, setSearchQuery]);
 
   // Click outside cancels edit mode
   useEffect(() => {
@@ -166,10 +185,35 @@ export function ChatList() {
     );
   }
 
+  const displayChats = isSearching ? searchResults : filteredChats;
+
   return (
     <div className="space-y-1">
+      {/* Search input */}
+      <div className="relative px-1 mb-1">
+        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--color-text-secondary)] pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => handleSearchInput(e.target.value)}
+          placeholder="Search chats..."
+          className="w-full pl-8 pr-7 py-1.5 text-sm bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg outline-none focus:border-[var(--color-primary)] placeholder:text-[var(--color-text-secondary)]"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => { clearSearch(); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 hover:bg-[var(--color-border)] rounded transition-colors"
+          >
+            <CloseIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
+          </button>
+        )}
+        {searchLoading && (
+          <LoaderIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-[var(--color-text-secondary)]" />
+        )}
+      </div>
+
       {/* Selection mode toolbar */}
-      {selectionMode ? (
+      {!isSearching && selectionMode ? (
         <div className="sticky top-0 z-10 flex items-center gap-1 px-2 py-1.5 mb-1 bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)]">
           <span className="text-xs text-[var(--color-text-secondary)] flex-1">
             {selectedIds.size} selected
@@ -200,7 +244,7 @@ export function ChatList() {
             <CloseIcon className="w-3 h-3 text-[var(--color-text-secondary)]" />
           </button>
         </div>
-      ) : filteredChats.length > 0 && (
+      ) : !isSearching && filteredChats.length > 0 && (
         <div className="flex justify-end mb-1">
           <button
             onClick={() => setSelectionMode(true)}
@@ -211,16 +255,19 @@ export function ChatList() {
         </div>
       )}
 
-      {filteredChats.length === 0 ? (
+      {displayChats.length === 0 ? (
         <div className="text-sm text-[var(--color-text-secondary)] py-2 px-2">
-          No chats yet
+          {isSearching ? 'No matching chats' : 'No chats yet'}
         </div>
       ) : (
-        filteredChats.slice(0, 20).map((chat) => (
+        displayChats.slice(0, 20).map((chat) => (
           <div
             key={chat.id}
             onClick={() => {
-              if (selectionMode) {
+              if (isSearching) {
+                loadChat(chat.id);
+                clearSearch();
+              } else if (selectionMode) {
                 toggleSelection({ stopPropagation: () => {} } as React.MouseEvent, chat.id);
               } else if (editingId !== chat.id) {
                 loadChat(chat.id);
@@ -274,10 +321,17 @@ export function ChatList() {
               </>
             ) : (
               <>
-                <span className="flex-1 text-sm truncate" title={chat.name}>
-                  {chat.name}
+                <span className="flex-1 min-w-0">
+                  <span className="text-sm truncate block" title={chat.name}>
+                    {chat.name}
+                  </span>
+                  {isSearching && chat.project && (
+                    <span className="text-[10px] text-[var(--color-text-secondary)] truncate block opacity-70">
+                      {chat.project}
+                    </span>
+                  )}
                 </span>
-                {!selectionMode && (
+                {!selectionMode && !isSearching && (
                   <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity relative">
                     <button
                       onClick={(e) => handleStartRename(e, chat.id, chat.name)}

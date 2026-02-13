@@ -92,6 +92,7 @@ export interface ChatSummary {
   project?: string | null;
   created_at: string;
   updated_at: string;
+  score?: number;
 }
 
 export interface ProjectConfig {

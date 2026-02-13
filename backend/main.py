@@ -2907,9 +2907,9 @@ class ChatRenameRequest(BaseModel):
 
 
 @app.get("/api/v1/chats")
-async def list_chats(project: Optional[str] = None, limit: int = 50):
-    """List chat summaries, optionally filtered by project."""
-    chats = await rag_core.list_chats(project=project, limit=limit)
+async def list_chats(project: Optional[str] = None, limit: int = 50, search: Optional[str] = None):
+    """List chat summaries, optionally filtered by project. Pass search for full-text + semantic search."""
+    chats = await rag_core.list_chats(project=project, limit=limit, search=search)
     return {
         "chats": chats,
         "count": len(chats),

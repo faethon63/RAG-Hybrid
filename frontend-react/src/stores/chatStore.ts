@@ -13,6 +13,11 @@ interface ChatState {
   chats: ChatSummary[];
   chatsLoading: boolean;
 
+  // Search
+  searchQuery: string;
+  searchResults: ChatSummary[];
+  searchLoading: boolean;
+
   // Last query metadata
   lastSources: Source[];
   lastAgentSteps: AgentStep[];
@@ -35,6 +40,11 @@ interface ChatState {
   editMessage: (messageId: string, newContent: string, project?: string | null) => Promise<void>;
   editAndRegenerate: (messageId: string, newContent: string, mode: string, model: string, project: string | null) => Promise<void>;
   deleteMessage: (messageId: string, project?: string | null) => Promise<void>;
+
+  // Search
+  searchChats: (query: string) => Promise<void>;
+  clearSearch: () => void;
+  setSearchQuery: (query: string) => void;
 
   // API operations
   loadChats: (project?: string | null) => Promise<void>;
@@ -64,6 +74,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   error: null,
   chats: [],
   chatsLoading: false,
+  searchQuery: '',
+  searchResults: [],
+  searchLoading: false,
   lastSources: [],
   lastAgentSteps: [],
   lastAttachedFiles: [],
@@ -186,6 +199,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
     await get().saveChat(project);
   },
+
+  searchChats: async (query) => {
+    if (!query || query.length < 2) {
+      set({ searchResults: [], searchLoading: false });
+      return;
+    }
+    set({ searchLoading: true });
+    try {
+      const response = await api.listChats(undefined, 30, query);
+      set({ searchResults: response.chats, searchLoading: false });
+    } catch (err) {
+      console.error('Failed to search chats:', err);
+      set({ searchLoading: false });
+    }
+  },
+
+  clearSearch: () => set({ searchQuery: '', searchResults: [], searchLoading: false }),
+
+  setSearchQuery: (query) => set({ searchQuery: query }),
 
   loadChats: async (project) => {
     set({ chatsLoading: true });
