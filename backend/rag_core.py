@@ -38,6 +38,7 @@ from config import (
     get_chats_path,
     get_database_url,
     get_claude_haiku_model,
+    get_groq_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -2050,6 +2051,66 @@ Assistant:"""
 
         return content if content else "New Chat"
 
+    async def _generate_smart_title(self, messages: List[Dict]) -> Optional[str]:
+        """Use Groq (FREE) to generate a concise chat title from conversation context."""
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        if not groq_key:
+            return None
+
+        # Collect first user message + first assistant response for context
+        user_msg = ""
+        assistant_msg = ""
+        for msg in messages:
+            if msg.get("role") == "user" and not user_msg:
+                user_msg = msg.get("content", "")[:500]
+            elif msg.get("role") == "assistant" and not assistant_msg:
+                assistant_msg = msg.get("content", "")[:500]
+            if user_msg and assistant_msg:
+                break
+
+        if not user_msg:
+            return None
+
+        context = f"User: {user_msg}"
+        if assistant_msg:
+            context += f"\nAssistant: {assistant_msg}"
+
+        prompt = (
+            "Generate a very short chat title (max 6 words) that captures the main idea "
+            "of this conversation. Be specific and concise — like a file name or bookmark. "
+            "Do NOT use quotes, colons, or punctuation. Just the title words.\n\n"
+            f"{context}"
+        )
+
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {groq_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": get_groq_model(),
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 30,
+                        "temperature": 0.3,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                if data.get("choices"):
+                    title = data["choices"][0].get("message", {}).get("content", "").strip()
+                    # Clean up: remove quotes, trailing punctuation
+                    title = title.strip('"\'`').strip('.:!?').strip()
+                    if title and len(title) <= 60:
+                        logger.info(f"Smart title generated: {title}")
+                        return title
+        except Exception as e:
+            logger.debug(f"Smart title generation failed: {e}")
+
+        return None
+
     async def save_chat(self, chat: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create or update a chat. Uses PostgreSQL if configured.
@@ -2072,14 +2133,20 @@ Assistant:"""
             chat["created_at"] = now
         chat["updated_at"] = now
 
-        # Auto-generate name from first user message if not set
+        # Auto-generate name from conversation context if not set
         if not chat.get("name") or chat.get("name") == "New Chat":
             messages = chat.get("messages", [])
-            for msg in messages:
-                if msg.get("role") == "user":
-                    content = msg.get("content", "")
-                    chat["name"] = self._generate_chat_title(content)
-                    break
+            # Try smart title (Groq, free) first — uses full context
+            smart_title = await self._generate_smart_title(messages)
+            if smart_title:
+                chat["name"] = smart_title
+            else:
+                # Fallback: mechanical title from first user message
+                for msg in messages:
+                    if msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        chat["name"] = self._generate_chat_title(content)
+                        break
             if not chat.get("name"):
                 chat["name"] = "New Chat"
 
