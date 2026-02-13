@@ -124,6 +124,18 @@ class GroqAgent:
     # Use Llama 4 Scout for reliable tool calling (recommended by Groq)
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+    # Phrases that explicitly request KB/inventory lookup — shared between
+    # _should_force_web_search (guard) and _should_auto_inject_kb (trigger)
+    EXPLICIT_KB_PHRASES = [
+        "check your kb", "check the kb", "check kb", "from the kb",
+        "your instructions", "your knowledge base", "our inventory",
+        "existing eos", "our eos", "eos we have", "oils we have",
+        "what do we have", "what we have on hand", "our materials",
+        "our equipment", "do we have", "show our", "our supplies",
+        "in stock", "on hand", "what i have", "what i own",
+        "my inventory", "our ingredients",
+    ]
+
     @property
     def GROQ_MODEL(self):
         from config import get_groq_model
@@ -694,6 +706,11 @@ BAD RESPONSE (NEVER DO THIS):
         """
         query_lower = query.lower()
 
+        # GUARD: Explicit KB requests must NOT be hijacked by web search bypass
+        if any(phrase in query_lower for phrase in self.EXPLICIT_KB_PHRASES):
+            logger.info("Explicit KB request detected - NOT forcing web search")
+            return False
+
         # If query contains a URL, ALWAYS force web search to fetch that page
         if "https://" in query_lower or "http://" in query_lower or "www." in query_lower:
             logger.info("URL detected in query - forcing web_search")
@@ -773,6 +790,59 @@ BAD RESPONSE (NEVER DO THIS):
                 return True
 
         return False
+
+    def _should_auto_inject_kb(self, query: str, project_config: Optional[Dict]) -> bool:
+        """
+        Detect when KB documents should be auto-searched and injected into the
+        system prompt.  Two tiers:
+          1. Explicit KB phrases (always inject)
+          2. Domain overlap — query words overlap with project description/system_prompt
+        Returns False if no project, no KB tool, or no match.
+        """
+        if not project_config or not project_config.get("name"):
+            return False
+        if "search_knowledge_base" not in self._tool_handlers:
+            return False
+
+        query_lower = query.lower()
+
+        # Tier 1: explicit KB phrases → always inject
+        if any(phrase in query_lower for phrase in self.EXPLICIT_KB_PHRASES):
+            return True
+
+        # Tier 2: domain overlap — compare query words with project description words
+        proj_text = (
+            (project_config.get("description", "") or "")
+            + " "
+            + (project_config.get("system_prompt", "") or "")
+        ).lower()
+        # Extract "significant" words (4+ chars) from project config
+        proj_words = {w for w in re.findall(r'[a-z]{4,}', proj_text)}
+        if not proj_words:
+            return False
+        query_words = set(re.findall(r'[a-z]{4,}', query_lower))
+        overlap = query_words & proj_words
+        # Need at least 2 overlapping words to avoid false positives on generic queries
+        if len(overlap) >= 2:
+            logger.info(f"KB domain overlap detected: {overlap}")
+            return True
+
+        return False
+
+    @staticmethod
+    def _format_kb_context(kb_result: Any, max_chars: int = 6000) -> str:
+        """
+        Format KB search results for system prompt injection.
+        Returns empty string if no useful results.
+        """
+        if not kb_result:
+            return ""
+        answer = kb_result.get("answer", "") if isinstance(kb_result, dict) else str(kb_result)
+        if not answer or "No documents found" in answer or "no relevant" in answer.lower():
+            return ""
+        if len(answer) > max_chars:
+            answer = answer[:max_chars] + "\n... [KB results truncated]"
+        return f"\n\n--- PROJECT KNOWLEDGE BASE ---\n{answer}\n--- END PROJECT KNOWLEDGE BASE ---"
 
     async def chat(
         self,
@@ -972,6 +1042,17 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                 # Don't add sources section - Perplexity's answer already has inline citations
                 # The answer contains [1], [2] references with source names already
 
+                # If KB is also relevant, prepend KB context to the web answer
+                if self._should_auto_inject_kb(query, project_config):
+                    try:
+                        kb_result = await self._tool_handlers["search_knowledge_base"](query=query, top_k=3)
+                        bypass_kb = self._format_kb_context(kb_result, max_chars=3000)
+                        if bypass_kb:
+                            answer = f"**From your project knowledge base:**\n{kb_result.get('answer', '')}\n\n---\n\n**From web search:**\n{answer}"
+                            logger.info("KB context added to web_search bypass result")
+                    except Exception as e:
+                        logger.warning(f"KB injection in bypass path failed: {e}")
+
                 return {
                     "answer": answer,
                     "sources": citations,
@@ -1005,6 +1086,7 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
         kb_instructions = ""
         if project_config and project_config.get("name"):
             kb_instructions += "\nYou have access to search_knowledge_base tool. Use it FIRST for project-specific questions before using web search."
+            kb_instructions += "\nIf a '--- PROJECT KNOWLEDGE BASE ---' section appears below, it contains pre-fetched KB results. USE THIS DATA as your primary source. Do NOT ignore it or hallucinate alternatives."
         if project_config and project_config.get("allowed_paths"):
             paths_str = ", ".join(project_config["allowed_paths"])
             kb_instructions += f"\nYou have file tools (list_directory, read_file, search_files). Use them to check actual files. Allowed paths: {paths_str}"
@@ -1049,6 +1131,17 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         logger.info("Auto-injected data profile into Ch7 query context")
                 except Exception as e:
                     logger.warning(f"Failed to auto-inject data profile: {e}")
+
+        # AUTO-INJECT KB context for any project with indexed documents
+        kb_context = ""
+        if self._should_auto_inject_kb(query, project_config):
+            try:
+                kb_result = await self._tool_handlers["search_knowledge_base"](query=query, top_k=5)
+                kb_context = self._format_kb_context(kb_result)
+                if kb_context:
+                    logger.info(f"Auto-injected KB context ({len(kb_context)} chars) for project {project_config.get('name')}")
+            except Exception as e:
+                logger.warning(f"Failed to auto-inject KB context: {e}")
 
         # AUTO-FILL INTERCEPTOR: When user asks to fill a form, call the tool directly
         # Groq generates fake form text instead of calling fill_bankruptcy_form
@@ -1119,7 +1212,7 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                     logger.warning(f"Filing status interceptor failed: {e}")
 
         # Build messages
-        messages = [{"role": "system", "content": system_prompt + data_profile_context}]
+        messages = [{"role": "system", "content": system_prompt + data_profile_context + kb_context}]
 
         # Add conversation history
         if conversation_history:
