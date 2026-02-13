@@ -791,24 +791,30 @@ BAD RESPONSE (NEVER DO THIS):
 
         return False
 
-    def _should_auto_inject_kb(self, query: str, project_config: Optional[Dict]) -> bool:
+    def _should_auto_inject_kb(self, query: str, project_config: Optional[Dict],
+                               conversation_history: List[Dict[str, str]] = None) -> tuple:
         """
         Detect when KB documents should be auto-searched and injected into the
-        system prompt.  Two tiers:
+        system prompt.  Three tiers:
           1. Explicit KB phrases (always inject)
           2. Domain overlap — query words overlap with project description/system_prompt
-        Returns False if no project, no KB tool, or no match.
+          3. Conversation context — follow-ups inherit KB injection from recent messages
+
+        Returns (should_inject: bool, override_query: str | None).
+        - Tier 1/2: (True, None) — current query is fine as KB search term
+        - Tier 3: (True, "<original user message>") — use original query for KB search
+        - No match: (False, None)
         """
         if not project_config or not project_config.get("name"):
-            return False
+            return (False, None)
         if "search_knowledge_base" not in self._tool_handlers:
-            return False
+            return (False, None)
 
         query_lower = query.lower()
 
         # Tier 1: explicit KB phrases → always inject
         if any(phrase in query_lower for phrase in self.EXPLICIT_KB_PHRASES):
-            return True
+            return (True, None)
 
         # Tier 2: domain overlap — compare query words with project description words
         proj_text = (
@@ -819,15 +825,50 @@ BAD RESPONSE (NEVER DO THIS):
         # Extract "significant" words (4+ chars) from project config
         proj_words = {w for w in re.findall(r'[a-z]{4,}', proj_text)}
         if not proj_words:
-            return False
+            return (False, None)
         query_words = set(re.findall(r'[a-z]{4,}', query_lower))
         overlap = query_words & proj_words
         # Need at least 2 overlapping words to avoid false positives on generic queries
         if len(overlap) >= 2:
             logger.info(f"KB domain overlap detected: {overlap}")
-            return True
+            return (True, None)
 
-        return False
+        # Tier 3: conversation context — follow-ups inherit KB injection
+        # If a recent message triggered KB injection, short follow-ups like
+        # "try again" or "more" should also get KB context.
+        # We return the ORIGINAL user query that triggered KB, so ChromaDB
+        # gets a meaningful search term instead of "try again".
+        if conversation_history:
+            recent_msgs = conversation_history[-6:]
+            recent_text = " ".join(
+                m.get("content", "")[:500] for m in recent_msgs
+            ).lower()
+
+            has_kb_context = (
+                any(phrase in recent_text for phrase in self.EXPLICIT_KB_PHRASES)
+                or "project knowledge base" in recent_text
+            )
+
+            if has_kb_context:
+                # Find the most recent USER message that triggered KB
+                for msg in reversed(recent_msgs):
+                    if msg.get("role") == "user":
+                        msg_lower = msg.get("content", "").lower()
+                        if (any(phrase in msg_lower for phrase in self.EXPLICIT_KB_PHRASES)
+                                or len(set(re.findall(r'[a-z]{4,}', msg_lower)) & proj_words) >= 2):
+                            logger.info("KB injection inherited from conversation history (using original KB query)")
+                            return (True, msg.get("content", ""))
+                # Fallback: KB was in context but can't find the exact trigger
+                # Use the last substantive user message
+                for msg in reversed(recent_msgs):
+                    if msg.get("role") == "user" and len(msg.get("content", "")) > 20:
+                        logger.info("KB injection inherited from conversation history (using longest recent user msg)")
+                        return (True, msg.get("content", ""))
+                # Last resort: still inject but with current query
+                logger.info("KB injection inherited from conversation history (no override query found)")
+                return (True, None)
+
+        return (False, None)
 
     @staticmethod
     def _format_kb_context(kb_result: Any, max_chars: int = 6000) -> str:
@@ -1043,9 +1084,11 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                 # The answer contains [1], [2] references with source names already
 
                 # If KB is also relevant, prepend KB context to the web answer
-                if self._should_auto_inject_kb(query, project_config):
+                should_inject, kb_query_override = self._should_auto_inject_kb(query, project_config, conversation_history)
+                if should_inject:
                     try:
-                        kb_result = await self._tool_handlers["search_knowledge_base"](query=query, top_k=3)
+                        search_query = kb_query_override or query
+                        kb_result = await self._tool_handlers["search_knowledge_base"](query=search_query, top_k=3)
                         bypass_kb = self._format_kb_context(kb_result, max_chars=3000)
                         if bypass_kb:
                             answer = f"**From your project knowledge base:**\n{kb_result.get('answer', '')}\n\n---\n\n**From web search:**\n{answer}"
@@ -1134,9 +1177,13 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
 
         # AUTO-INJECT KB context for any project with indexed documents
         kb_context = ""
-        if self._should_auto_inject_kb(query, project_config):
+        should_inject, kb_query_override = self._should_auto_inject_kb(query, project_config, conversation_history)
+        if should_inject:
             try:
-                kb_result = await self._tool_handlers["search_knowledge_base"](query=query, top_k=5)
+                search_query = kb_query_override or query
+                if kb_query_override:
+                    logger.info(f"KB search using override query: '{search_query[:80]}...' (original: '{query[:40]}')")
+                kb_result = await self._tool_handlers["search_knowledge_base"](query=search_query, top_k=5)
                 kb_context = self._format_kb_context(kb_result)
                 if kb_context:
                     logger.info(f"Auto-injected KB context ({len(kb_context)} chars) for project {project_config.get('name')}")
