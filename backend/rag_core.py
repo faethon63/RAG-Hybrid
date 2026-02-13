@@ -100,7 +100,7 @@ class RAGCore:
                         if rows:
                             ids = [r[0] for r in rows]
                             titles = [r[1] for r in rows]
-                            metadatas = [{"project": r[2]} if r[2] else {} for r in rows]
+                            metadatas = [{"project": r[2] or "none"} for r in rows]
                             embeddings = self.embed(titles)
                             # Batch upsert in chunks of 100
                             for i in range(0, len(ids), 100):
@@ -194,9 +194,7 @@ class RAGCore:
         try:
             collection = self._get_chat_titles_collection()
             embedding = self.embed([title])[0]
-            metadata = {}
-            if project:
-                metadata["project"] = project
+            metadata = {"project": project or "none"}
             collection.upsert(
                 ids=[chat_id],
                 embeddings=[embedding],
