@@ -981,6 +981,15 @@ async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, A
     try:
         results = await rag_core.search(query=query, project=project_name, top_k=top_k)
         if not results:
+            # Self-healing: if collection is empty, try indexing then retry once
+            try:
+                idx = await rag_core.index_project_files(project_name, force_reindex=False)
+                if idx.get("files"):
+                    logger.info(f"On-demand indexed {len(idx['files'])} files for {project_name}, retrying search")
+                    results = await rag_core.search(query=query, project=project_name, top_k=top_k)
+            except Exception as idx_err:
+                logger.warning(f"On-demand indexing failed for {project_name}: {idx_err}")
+        if not results:
             return {"answer": f"No documents found in {project_name} knowledge base for: {query}", "sources": []}
 
         # Format results for Groq
@@ -3280,9 +3289,8 @@ async def startup_event():
     # Initialize RAG core
     await rag_core.initialize()
 
-    # Auto-index all projects that have allowed_paths configured
-    # NOTE: Skipped on startup for faster boot. Use POST /api/v1/projects/{name}/index to index manually.
-    # await auto_index_projects()
+    # Auto-index is triggered on-demand by search_knowledge_base when collection is empty.
+    # NOT run at startup — avoids blocking on large PDFs or failed OCR.
 
     # Sync filled forms and data profiles from Postgres
     try:
@@ -3312,20 +3320,31 @@ async def startup_event():
 
 
 async def auto_index_projects():
-    """Auto-index files from all projects' allowed_paths on startup."""
-    projects = await rag_core.list_projects()
-    for project in projects:
-        name = project.get("name")
-        if not name:
-            continue
-        config = await rag_core.get_project_config(name)
-        if config and config.get("allowed_paths"):
-            print(f"Auto-indexing project: {name}")
+    """Auto-index projects whose ChromaDB collection is empty on startup.
+
+    Only indexes projects with 0 documents in ChromaDB (e.g. after a fresh
+    deploy or DB wipe).  Projects that already have docs are skipped entirely
+    — no file scanning, no API calls, near-zero startup cost.
+    """
+    try:
+        projects = await rag_core.list_projects()
+        for project in projects:
+            name = project.get("name")
+            if not name:
+                continue
+            # Skip if collection already has documents
+            if project.get("document_count", 0) > 0:
+                continue
             try:
-                result = await rag_core.index_project_files(name)
-                print(f"  Indexed {result.get('indexed', 0)} chunks from {len(result.get('files', []))} files")
+                result = await rag_core.index_project_files(name, force_reindex=False)
+                chunks = result.get("indexed_chunks", result.get("indexed", 0))
+                files = result.get("files", [])
+                if files:
+                    print(f"  Auto-indexed {chunks} chunks from {len(files)} files for {name}")
             except Exception as e:
-                print(f"  Error indexing {name}: {e}")
+                logger.warning(f"Auto-index failed for {name}: {e}")
+    except Exception as e:
+        logger.warning(f"Auto-index startup task failed: {e}")
 
 
 async def cleanup_orphaned_collections():
