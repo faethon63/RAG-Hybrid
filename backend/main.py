@@ -1664,6 +1664,22 @@ async def query(request: Request, query_request: QueryRequest):
         elif query_request.mode == "research":
             # Detect supplier queries - use focused format instead of essay
             query_lower = query_request.query.lower()
+
+            # If query contains a URL, scrape page first so Perplexity has context
+            has_url = "https://" in query_lower or "http://" in query_lower
+            if has_url:
+                logging.getLogger(__name__).info("Research mode: URL detected, scraping page first")
+                try:
+                    page_result = await _tool_web_search(query_request.query, provider="tavily")
+                    page_content = page_result.get("answer", "")
+                    if page_content and len(page_content) > 200:
+                        enriched_query = f"{query_request.query}\n\nPage content:\n{page_content[:20000]}"
+                        query_request.query = enriched_query
+                        query_request.conversation_history = None  # Don't pass confusing history
+                        logging.getLogger(__name__).info(f"Research mode: scraped {len(page_content)} chars, enriching query")
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"Research mode URL scrape failed: {e}")
+
             supplier_keywords = [
                 "supplier", "vendor", "wholesale", "where to buy",
                 "isolate", "absolute", "terpene", "essential oil",

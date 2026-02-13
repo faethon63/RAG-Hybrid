@@ -713,15 +713,37 @@ BAD RESPONSE (NEVER DO THIS):
                 logger.info(f"Follow-up about URL from history: {history_url}")
                 return True
 
-        # Check for follow-up questions - these should NOT force web search
-        # They should be handled by Groq using conversation context
-        followup_indicators = [
+        # Check for follow-up questions
+        # Simple follow-ups should NOT force web search (Groq handles from context)
+        simple_followup = [
             "did you", "do you", "can you", "could you", "would you",
             "was it", "was that", "is it", "is that", "is this",
-            "what about", "how about", "tell me more", "more details",
         ]
-        if any(ind in query_lower for ind in followup_indicators):
-            logger.info("Follow-up question detected - not forcing web search")
+        if any(ind in query_lower for ind in simple_followup):
+            logger.info("Simple follow-up question detected - not forcing web search")
+            return False
+
+        # Research follow-ups ("what about X", "how about Y", "tell me more about Z")
+        # These SHOULD trigger web search if topic matches project keywords or recent search context
+        research_followup = ["what about", "how about", "tell me more", "more details"]
+        if any(ind in query_lower for ind in research_followup):
+            # Check project routing_keywords
+            project_config = _request_project_config.get()
+            if project_config:
+                routing_keywords = project_config.get("routing_keywords", [])
+                if any(kw.lower() in query_lower for kw in routing_keywords):
+                    logger.info(f"Research follow-up matches project routing keyword - forcing web search")
+                    return True
+
+            # Check if recent conversation had web search results (user is exploring a topic)
+            if conversation_history:
+                recent_msgs = conversation_history[-4:]  # Last 2 exchanges
+                recent_text = " ".join(m.get("content", "") for m in recent_msgs).lower()
+                if "sources:" in recent_text or "http" in recent_text:
+                    logger.info("Research follow-up after web search results - forcing web search")
+                    return True
+
+            logger.info("Research follow-up but no keyword/search context match - not forcing web search")
             return False
 
         # Keywords that indicate a NEW product/supplier search (must start with action)
@@ -1071,103 +1093,6 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         return m.group(1).replace("-", "_")
                 return None
 
-            # APPROVAL INTERCEPTOR: detect "approve" after a fill plan was shown
-            approve_patterns = ["approve", "looks good", "go ahead", "fill it", "proceed",
-                                "yes, fill", "yes fill", "execute the fill", "execute fill",
-                                "do it", "confirmed", "confirm", "fill out the form",
-                                "did you fill", "fill it out"]
-            last_assistant_msg = ""
-            if conversation_history:
-                for msg in reversed(conversation_history):
-                    if msg.get("role") == "assistant":
-                        last_assistant_msg = msg.get("content", "")
-                        break
-
-            # Check for approval OR direct "fill out the form" with context
-            is_approval = any(p in query_lower for p in approve_patterns)
-            has_fill_plan = "Fill Plan:" in last_assistant_msg
-            # Also trigger if recent conversation discussed a specific form
-            has_form_context = False
-            context_form_id = None
-            if is_approval and not has_fill_plan and conversation_history:
-                context_form_id = _extract_form_id_from_history(conversation_history)
-                has_form_context = context_form_id is not None
-
-            if is_approval and (has_fill_plan or has_form_context):
-                # Extract form_id from fill plan or conversation context
-                form_id = None
-                if has_fill_plan:
-                    plan_form_match = re.search(r'Fill Plan: Form (\S+)', last_assistant_msg)
-                    if plan_form_match:
-                        form_id = plan_form_match.group(1)
-                if not form_id:
-                    form_id = context_form_id
-
-                if form_id:
-                    try:
-                        # Run plan first, then fill - show both
-                        logger.info(f"Form fill interceptor: form_id={form_id}, running plan+fill")
-                        plan_result = await self._tool_handlers["fill_bankruptcy_form"](action="plan", form_id=form_id)
-                        plan_text = plan_result.get("answer", "")
-
-                        fill_result = await self._tool_handlers["fill_bankruptcy_form"](action="fill", form_id=form_id)
-                        fill_text = fill_result.get("answer", "")
-
-                        if fill_text and "Error:" not in fill_text:
-                            combined = f"{plan_text}\n\n---\n\n{fill_text}"
-                            return {
-                                "answer": combined,
-                                "sources": [],
-                                "usage": {"input_tokens": 0, "output_tokens": 0},
-                                "tool_results": [{"tool": "fill_bankruptcy_form", "args": {"action": "fill", "form_id": form_id}}],
-                            }
-                        logger.warning(f"Form fill approval: tool returned error: {fill_text}")
-                    except Exception as e:
-                        logger.warning(f"Form fill approval interceptor failed: {e}")
-
-            # PLAN INTERCEPTOR: detect fill requests
-            fill_patterns = ["fill out", "fill in", "fill the form", "fill form", "fill plan",
-                             "generate fill", "generate a fill", "complete the form", "complete form"]
-            if any(p in query_lower for p in fill_patterns):
-                # Extract form ID from query
-                form_match = re.search(r'\b(?:form\s*)?(?:b?\s*)?(\d{3}[a-z]?(?:[_\-][a-z0-9]+)?)\b', query_lower)
-                if not form_match:
-                    # Try common form names
-                    form_id_map = {"means test": "122a_1", "schedule i": "106i", "schedule j": "106j",
-                                   "petition": "101", "assets": "106ab", "property": "106ab",
-                                   "income": "106i", "expenses": "106j", "creditor": "106ef",
-                                   "financial affairs": "107", "intention": "108", "exempt": "106c",
-                                   "summary": "106sum", "ssn": "121", "social security": "121"}
-                    detected_form = None
-                    for kw, fid in form_id_map.items():
-                        if kw in query_lower:
-                            detected_form = fid
-                            break
-                    form_id = detected_form
-                    # If still no form ID, check conversation history
-                    if not form_id and conversation_history:
-                        form_id = _extract_form_id_from_history(conversation_history)
-                        if form_id:
-                            logger.info(f"Form fill interceptor: found form_id={form_id} from conversation context")
-                else:
-                    form_id = form_match.group(1).replace(" ", "")
-
-                if form_id:
-                    try:
-                        logger.info(f"Form fill interceptor: detected form_id={form_id}, calling fill_bankruptcy_form directly")
-                        result = await self._tool_handlers["fill_bankruptcy_form"](action="plan", form_id=form_id)
-                        answer = result.get("answer", "")
-                        if answer and "Error:" not in answer:
-                            return {
-                                "answer": answer,
-                                "sources": [],
-                                "usage": {"input_tokens": 0, "output_tokens": 0},
-                                "tool_results": [{"tool": "fill_bankruptcy_form", "args": {"action": "plan", "form_id": form_id}}],
-                            }
-                        logger.warning(f"Form fill interceptor: tool returned error, falling through to Groq: {answer}")
-                    except Exception as e:
-                        logger.warning(f"Form fill interceptor failed, falling through to Groq: {e}")
-
         # DATA COLLECTION INTERCEPTOR: detect "what's missing" / "filing status" queries
         if (project_config and project_config.get("name") == "Chapter_7_Assistant"
                 and "get_filing_status" in self._tool_handlers):
@@ -1463,7 +1388,20 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         else:
                             answer = clean_answer
                     elif is_raw_content_dump:
-                        print("[DEBUG] RAW CONTENT DUMP DETECTED - skipping passthrough, letting model process", flush=True)
+                        logger.info("RAW CONTENT DUMP - delegating to Claude for analysis")
+                        if "complex_reasoning" in self._tool_handlers:
+                            try:
+                                analysis_result = await self._tool_handlers["complex_reasoning"](
+                                    task=query,
+                                    context=f"Analyze this scraped page content to answer the user's question:\n\n{perplexity_direct_answer[:30000]}",
+                                    complexity="medium"
+                                )
+                                if analysis_result and analysis_result.get("answer"):
+                                    answer = analysis_result["answer"]
+                                    all_tool_calls.append({"tool": "complex_reasoning", "args": {"reason": "auto-analyze-scraped-content"}})
+                                    logger.info(f"Claude analyzed scraped content: {len(answer)} chars")
+                            except Exception as e:
+                                logger.warning(f"Claude analysis of scraped content failed: {e}")
 
                     # If complex_reasoning (Claude) was called, use Claude's answer directly
                     # Groq often ignores Claude's good answers and makes excuses
