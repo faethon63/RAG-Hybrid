@@ -41,10 +41,8 @@ export function ChatList() {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     if (value.length >= 2) {
       searchDebounceRef.current = setTimeout(() => searchChats(value), 300);
-    } else {
-      clearSearch();
     }
-  }, [searchChats, clearSearch, setSearchQuery]);
+  }, [searchChats, setSearchQuery]);
 
   // Click outside cancels edit mode
   useEffect(() => {
