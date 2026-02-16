@@ -3,6 +3,7 @@ import { Sidebar } from './components/sidebar/Sidebar';
 import { ChatContainer } from './components/chat/ChatContainer';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ProjectForm } from './components/sidebar/ProjectForm';
+import { FileEditor } from './components/sidebar/FileEditor';
 import { useSettingsStore } from './stores/settingsStore';
 import { useChatStore } from './stores/chatStore';
 import { MenuIcon } from './components/common/icons';
@@ -38,6 +39,7 @@ function App() {
       </main>
       <SettingsPanel />
       <ProjectForm />
+      <FileEditor />
     </div>
   );
 }

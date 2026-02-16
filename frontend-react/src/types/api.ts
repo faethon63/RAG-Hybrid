@@ -190,3 +190,19 @@ export interface UploadFilesResponse {
   failed: Array<{ name: string; error: string }>;
   indexed_chunks: number;
 }
+
+export interface FileContentResponse {
+  project: string;
+  filename: string;
+  content: string;
+  size: number;
+  modified: string;
+}
+
+export interface UpdateFileResponse {
+  status: string;
+  project: string;
+  filename: string;
+  size: number;
+  indexed_chunks: number;
+}

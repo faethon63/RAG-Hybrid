@@ -26,6 +26,8 @@ import {
   Copy,
   ExternalLink,
   FolderInput,
+  Download,
+  Save,
 } from 'lucide-react';
 
 export {
@@ -56,4 +58,6 @@ export {
   Copy as CopyIcon,
   ExternalLink as ExternalLinkIcon,
   FolderInput as MoveIcon,
+  Download as DownloadIcon,
+  Save as SaveIcon,
 };

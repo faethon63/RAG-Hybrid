@@ -148,6 +148,33 @@ export const api = {
       method: 'DELETE',
     }),
 
+  getFileContent: (name: string, filename: string) =>
+    request<import('../types/api').FileContentResponse>(`/projects/${encodeURIComponent(name)}/files/${encodeURIComponent(filename)}`),
+
+  updateFileContent: (name: string, filename: string, content: string) =>
+    request<import('../types/api').UpdateFileResponse>(`/projects/${encodeURIComponent(name)}/files/${encodeURIComponent(filename)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+
+  downloadFile: async (name: string, filename: string): Promise<void> => {
+    const url = `${API_BASE}/projects/${encodeURIComponent(name)}/files/${encodeURIComponent(filename)}/download`;
+    const response = await fetch(url, {
+      ...(API_KEY && { headers: { 'X-API-Key': API_KEY } }),
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, response.statusText);
+    }
+    const blob = await response.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  },
+
   // Data sync (local <-> VPS)
   syncPushToVps: (vpsUrl: string = 'https://rag.coopeverything.org') =>
     request<{ status: string; message: string; vps_response?: Record<string, unknown> }>(`/sync/push?vps_url=${encodeURIComponent(vpsUrl)}`, {

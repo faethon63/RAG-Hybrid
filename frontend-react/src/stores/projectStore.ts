@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Project, ProjectConfig, IndexResponse, ProjectFile, UploadFilesResponse } from '../types/api';
+import type { Project, ProjectConfig, IndexResponse, ProjectFile, UploadFilesResponse, FileContentResponse } from '../types/api';
 import { api } from '../api/client';
 
 interface ProjectState {
@@ -23,6 +23,11 @@ interface ProjectState {
   projectFiles: ProjectFile[];
   filesLoading: boolean;
   uploading: boolean;
+
+  // File editor
+  editingFile: FileContentResponse | null;
+  editingFileLoading: boolean;
+  savingFile: boolean;
 
   // Actions
   setCurrentProject: (name: string | null) => void;
@@ -47,6 +52,12 @@ interface ProjectState {
   loadProjectFiles: (name: string) => Promise<void>;
   uploadFiles: (name: string, files: File[]) => Promise<UploadFilesResponse>;
   deleteFile: (name: string, filename: string) => Promise<void>;
+
+  // File editor operations
+  openFileEditor: (name: string, filename: string) => Promise<void>;
+  closeFileEditor: () => void;
+  saveFileContent: (name: string, filename: string, content: string) => Promise<void>;
+  downloadFile: (name: string, filename: string) => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -62,6 +73,9 @@ export const useProjectStore = create<ProjectState>()(
       projectFiles: [],
       filesLoading: false,
       uploading: false,
+      editingFile: null,
+      editingFileLoading: false,
+      savingFile: false,
 
       setCurrentProject: (name) => {
         set({ currentProject: name, currentProjectConfig: null });
@@ -178,6 +192,50 @@ export const useProjectStore = create<ProjectState>()(
           await get().loadProjectFiles(name);
         } catch (err) {
           console.error('Failed to delete file:', err);
+          throw err;
+        }
+      },
+
+      openFileEditor: async (name, filename) => {
+        set({ editingFileLoading: true, editingFile: null });
+        try {
+          const response = await api.getFileContent(name, filename);
+          set({ editingFile: response, editingFileLoading: false });
+        } catch (err) {
+          console.error('Failed to load file content:', err);
+          set({ editingFileLoading: false });
+          throw err;
+        }
+      },
+
+      closeFileEditor: () => {
+        set({ editingFile: null });
+      },
+
+      saveFileContent: async (name, filename, content) => {
+        set({ savingFile: true });
+        try {
+          await api.updateFileContent(name, filename, content);
+          // Update the editingFile with new content
+          const ef = get().editingFile;
+          if (ef) {
+            set({ editingFile: { ...ef, content, size: new Blob([content]).size } });
+          }
+          // Reload files list to reflect new size/modified date
+          await get().loadProjectFiles(name);
+          set({ savingFile: false });
+        } catch (err) {
+          console.error('Failed to save file:', err);
+          set({ savingFile: false });
+          throw err;
+        }
+      },
+
+      downloadFile: async (name, filename) => {
+        try {
+          await api.downloadFile(name, filename);
+        } catch (err) {
+          console.error('Failed to download file:', err);
           throw err;
         }
       },

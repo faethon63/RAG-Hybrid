@@ -7,9 +7,12 @@ import {
   LoaderIcon,
   CheckIcon,
   AlertIcon,
+  DownloadIcon,
+  EditIcon,
 } from '../common/icons';
 
 const ALLOWED_EXTENSIONS = ['.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv', '.pdf'];
+const TEXT_EDITABLE_EXTENSIONS = ['.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 interface FileUploadZoneProps {
@@ -39,6 +42,8 @@ export function FileUploadZone({ projectName }: FileUploadZoneProps) {
   const loadProjectFiles = useProjectStore((s) => s.loadProjectFiles);
   const uploadFiles = useProjectStore((s) => s.uploadFiles);
   const deleteFile = useProjectStore((s) => s.deleteFile);
+  const openFileEditor = useProjectStore((s) => s.openFileEditor);
+  const downloadFile = useProjectStore((s) => s.downloadFile);
 
   const [dragOver, setDragOver] = useState(false);
   const [uploadResult, setUploadResult] = useState<{ uploaded: string[]; failed: Array<{ name: string; error: string }>; indexed: number } | null>(null);
@@ -136,6 +141,23 @@ export function FileUploadZone({ projectName }: FileUploadZoneProps) {
     }
   }, [projectName, deleteFile]);
 
+  const isTextEditable = useCallback((filename: string) => {
+    const ext = '.' + filename.split('.').pop()?.toLowerCase();
+    return TEXT_EDITABLE_EXTENSIONS.includes(ext);
+  }, []);
+
+  const handleFileClick = useCallback((filename: string) => {
+    if (isTextEditable(filename)) {
+      openFileEditor(projectName, filename);
+    } else {
+      downloadFile(projectName, filename);
+    }
+  }, [projectName, isTextEditable, openFileEditor, downloadFile]);
+
+  const handleDownload = useCallback((filename: string) => {
+    downloadFile(projectName, filename);
+  }, [projectName, downloadFile]);
+
   return (
     <div className="space-y-3">
       {/* Drop zone */}
@@ -221,9 +243,13 @@ export function FileUploadZone({ projectName }: FileUploadZoneProps) {
             >
               <FileIcon className="w-4 h-4 text-[var(--color-text-secondary)] flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm truncate" title={file.name}>
+                <button
+                  onClick={() => handleFileClick(file.name)}
+                  className="text-sm truncate text-left hover:text-[var(--color-primary)] transition-colors block w-full"
+                  title={isTextEditable(file.name) ? `Edit ${file.name}` : `Download ${file.name}`}
+                >
                   {file.name}
-                </p>
+                </button>
                 <p className="text-xs text-[var(--color-text-secondary)]">
                   {formatFileSize(file.size)} &middot; {formatDate(file.modified)}
                 </p>
@@ -233,6 +259,22 @@ export function FileUploadZone({ projectName }: FileUploadZoneProps) {
                   indexed
                 </span>
               )}
+              {isTextEditable(file.name) && (
+                <button
+                  onClick={() => openFileEditor(projectName, file.name)}
+                  className="p-1 hover:bg-[var(--color-primary)]/20 rounded transition-colors text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] flex-shrink-0"
+                  title="Edit file"
+                >
+                  <EditIcon className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                onClick={() => handleDownload(file.name)}
+                className="p-1 hover:bg-[var(--color-primary)]/20 rounded transition-colors text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] flex-shrink-0"
+                title="Download file"
+              >
+                <DownloadIcon className="w-4 h-4" />
+              </button>
               <button
                 onClick={() => handleDelete(file.name)}
                 disabled={deletingFile === file.name}

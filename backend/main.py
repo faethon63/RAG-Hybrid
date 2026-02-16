@@ -36,6 +36,7 @@ from slowapi.errors import RateLimitExceeded
 
 # KB file upload constants
 ALLOWED_KB_EXTENSIONS = {'.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv', '.pdf', '.png', '.jpg', '.jpeg'}
+TEXT_EDITABLE_EXTENSIONS = {'.txt', '.md', '.json', '.py', '.js', '.ts', '.html', '.css', '.yaml', '.yml', '.rst', '.csv'}
 MAX_KB_FILE_SIZE = 20 * 1024 * 1024  # 20 MB (needed for large instruction PDFs)
 
 from rag_core import RAGCore
@@ -2846,6 +2847,105 @@ async def delete_project_file(name: str, filename: str):
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
     return {"status": "success", "project": name, "deleted": filename}
+
+
+class UpdateFileRequest(BaseModel):
+    content: str
+
+
+@app.get("/api/v1/projects/{name}/files/{filename}/download")
+async def download_project_file(name: str, filename: str):
+    """Download a KB file from a project."""
+    safe_name = Path(filename).name
+    if safe_name != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+    file_path = Path(get_synced_kb_path()) / name / "documents" / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{safe_name}' not found")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_name,
+    )
+
+
+@app.get("/api/v1/projects/{name}/files/{filename}")
+async def read_project_file(name: str, filename: str):
+    """Read the text content of a KB file."""
+    safe_name = Path(filename).name
+    if safe_name != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+    ext = Path(safe_name).suffix.lower()
+    if ext not in TEXT_EDITABLE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type '{ext}' is not editable as text")
+
+    file_path = Path(get_synced_kb_path()) / name / "documents" / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{safe_name}' not found")
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File is not valid UTF-8 text")
+
+    stat = file_path.stat()
+    return {
+        "project": name,
+        "filename": safe_name,
+        "content": content,
+        "size": stat.st_size,
+        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+    }
+
+
+@app.put("/api/v1/projects/{name}/files/{filename}")
+async def update_project_file(name: str, filename: str, req: UpdateFileRequest):
+    """Update a text KB file and re-index it in ChromaDB."""
+    safe_name = Path(filename).name
+    if safe_name != filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    config = await rag_core.get_project_config(name)
+    if config is None:
+        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+
+    ext = Path(safe_name).suffix.lower()
+    if ext not in TEXT_EDITABLE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type '{ext}' is not editable")
+
+    file_path = Path(get_synced_kb_path()) / name / "documents" / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"File '{safe_name}' not found")
+
+    # Write new content
+    file_path.write_text(req.content, encoding="utf-8")
+
+    # Re-index: delete old chunks then re-index
+    indexed_chunks = 0
+    try:
+        await rag_core.delete_document_by_path(name, str(file_path))
+        result = await rag_core.index_project_files(name)
+        indexed_chunks = result.get("indexed_chunks", 0)
+    except Exception as e:
+        logger.warning(f"Re-index after file update failed for {safe_name}: {e}")
+
+    return {
+        "status": "success",
+        "project": name,
+        "filename": safe_name,
+        "size": file_path.stat().st_size,
+        "indexed_chunks": indexed_chunks,
+    }
 
 
 # ============================================================================
