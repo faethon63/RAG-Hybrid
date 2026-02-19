@@ -1103,8 +1103,26 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                     "usage": result.get("usage", {}),
                 }
             except Exception as e:
-                logger.error(f"Forced web_search failed: {e}, falling back to Groq")
-                # Fall through to normal Groq processing
+                logger.error(f"Forced web_search failed ({provider}): {e}")
+                # If Tavily failed for a URL, retry with Perplexity before giving up
+                if has_url and provider == "tavily":
+                    try:
+                        logger.info("Tavily URL fetch failed, retrying with Perplexity")
+                        result = await self._tool_handlers["web_search"](query=enhanced_query, provider="perplexity", recency="month")
+                        answer = result.get("answer", "")
+                        answer = _strip_citation_markers(answer)
+                        answer = _strip_access_disclaimers(answer)
+                        citations = result.get("citations", [])
+                        if answer and len(answer.strip()) > 20:
+                            return {
+                                "answer": answer,
+                                "sources": citations,
+                                "tool_calls": [{"tool": "web_search", "args": {"query": enhanced_query, "provider": "perplexity", "forced": True, "original_query": query, "fallback_from": "tavily"}}],
+                                "usage": result.get("usage", {}),
+                            }
+                    except Exception as e2:
+                        logger.error(f"Perplexity fallback also failed: {e2}")
+                # All forced web search attempts failed — fall through to Groq
 
         api_key = get_groq_api_key()
         if not api_key:

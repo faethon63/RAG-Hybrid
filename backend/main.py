@@ -993,10 +993,17 @@ async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, A
         if not results:
             return {"answer": f"No documents found in {project_name} knowledge base for: {query}", "sources": []}
 
+        # Filter out low-relevance results (prevents irrelevant KB noise)
+        MIN_RELEVANCE = 0.72
+        filtered = [r for r in results if r.get("score", 0) >= MIN_RELEVANCE]
+        if not filtered:
+            logger.info(f"KB search: {len(results)} results all below relevance threshold {MIN_RELEVANCE} (scores: {[r.get('score', 0) for r in results]})")
+            return {"answer": f"No sufficiently relevant documents found in {project_name} KB for: {query}", "sources": []}
+
         # Format results for Groq
         chunks = []
         sources = []
-        for i, r in enumerate(results, 1):
+        for i, r in enumerate(filtered, 1):
             content = r.get("content", "")
             metadata = r.get("metadata", {})
             score = r.get("score", 0)
@@ -1004,8 +1011,8 @@ async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, A
             chunks.append(f"[Doc {i}] (source: {source_file}, relevance: {score:.2f})\n{content}")
             sources.append({"title": source_file, "url": "", "snippet": content[:200]})
 
-        answer = f"Found {len(results)} relevant documents in {project_name} KB:\n\n" + "\n\n---\n\n".join(chunks)
-        logger.info(f"KB search returned {len(results)} results")
+        answer = f"Found {len(filtered)} relevant documents in {project_name} KB:\n\n" + "\n\n---\n\n".join(chunks)
+        logger.info(f"KB search returned {len(filtered)} results (filtered from {len(results)}, threshold={MIN_RELEVANCE})")
         return {"answer": answer, "sources": sources}
     except Exception as e:
         logger.error(f"KB search error: {e}")
@@ -1756,7 +1763,15 @@ async def query(request: Request, query_request: QueryRequest):
             # Build routing info for transparency
             tools_used = []
             claude_model = None
-            routing_reasoning = "Groq handled directly"
+            # Detect if URL was in query but no web_search tool was used (bypass failed)
+            query_has_url = any(x in query_request.query.lower() for x in ["https://", "http://", "www."])
+            tool_names = [tc["tool"] for tc in agent_result.get("tool_calls", [])]
+            if query_has_url and "web_search" not in tool_names:
+                routing_reasoning = "URL detected but web fetch failed — Groq fallback"
+            elif not tool_names:
+                routing_reasoning = "Groq handled directly"
+            else:
+                routing_reasoning = "Groq handled directly"
 
             # Parse tool calls to show actual providers used and capture tool token usage
             tool_usage = {}  # Token usage from paid tools (Perplexity, Claude)
@@ -1778,7 +1793,8 @@ async def query(request: Request, query_request: QueryRequest):
                         tool_usage["input_tokens"] = tool_usage.get("input_tokens", 0) + u.get("input_tokens", 0)
                         tool_usage["output_tokens"] = tool_usage.get("output_tokens", 0) + u.get("output_tokens", 0)
                     if args.get("forced"):
-                        routing_reasoning = f"Forced {provider} search (bypassed Groq routing)"
+                        fallback_note = f" (fallback from {args['fallback_from']})" if args.get("fallback_from") else ""
+                        routing_reasoning = f"Forced {provider} search{fallback_note} (bypassed Groq routing)"
                 elif tool_name == "complex_reasoning":
                     tools_used.append("claude")
                     complexity = args.get("complexity", "simple")

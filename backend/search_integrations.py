@@ -22,6 +22,45 @@ from config import (
 from resilience import retry_with_backoff
 
 
+def _ensure_alternating_messages(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """
+    Ensure strict user/assistant role alternation required by Perplexity API.
+    Merges consecutive same-role messages into one.
+    Preserves system messages at the start.
+    """
+    if not messages:
+        return messages
+
+    result = []
+    # Preserve leading system messages
+    for msg in messages:
+        if msg["role"] == "system":
+            result.append(msg)
+        else:
+            break
+
+    non_system = [m for m in messages if m["role"] != "system"]
+    if not non_system:
+        return result
+
+    # Merge consecutive same-role messages
+    current = dict(non_system[0])
+    for msg in non_system[1:]:
+        if msg["role"] == current["role"]:
+            current["content"] = current["content"] + "\n\n" + msg["content"]
+        else:
+            result.append(current)
+            current = dict(msg)
+    result.append(current)
+
+    # Perplexity requires the last message to be "user"
+    # If it ends with assistant, drop the trailing assistant message
+    if result and result[-1]["role"] == "assistant":
+        result.pop()
+
+    return result
+
+
 def get_idealista_api_key() -> str:
     """Get Idealista API key from environment."""
     import os
@@ -317,6 +356,9 @@ CRITICAL RULES:
         # Add current query
         messages.append({"role": "user", "content": query})
 
+        # Perplexity requires strict user/assistant alternation
+        messages = _ensure_alternating_messages(messages)
+
         payload = {
             "model": model,
             "messages": messages,
@@ -498,6 +540,9 @@ List at least 5 suppliers. Include the full clickable URL in the URL column."""
             for msg in conversation_history[-6:]:
                 messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": query})
+
+        # Perplexity requires strict user/assistant alternation
+        messages = _ensure_alternating_messages(messages)
 
         payload = {
             "model": model,
