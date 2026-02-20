@@ -875,12 +875,24 @@ BAD RESPONSE (NEVER DO THIS):
         """
         Format KB search results for system prompt injection.
         Returns empty string if no useful results.
+
+        This is the auto-inject path only (not explicit tool calls).
+        Filters out low-relevance results to prevent injecting noise.
         """
         if not kb_result:
             return ""
         answer = kb_result.get("answer", "") if isinstance(kb_result, dict) else str(kb_result)
         if not answer or "No documents found" in answer or "no relevant" in answer.lower():
             return ""
+
+        # Parse relevance scores from the formatted KB answer text.
+        # Format is: "(source: file.txt, relevance: 0.85)"
+        scores = [float(s) for s in re.findall(r'relevance:\s*([\d.]+)', answer)]
+        if scores and max(scores) < 0.75:
+            logger = logging.getLogger(__name__)
+            logger.info(f"KB auto-inject skipped: all scores below 0.75 (scores: {scores})")
+            return ""
+
         if len(answer) > max_chars:
             answer = answer[:max_chars] + "\n... [KB results truncated]"
         return f"\n\n--- PROJECT KNOWLEDGE BASE ---\n{answer}\n--- END PROJECT KNOWLEDGE BASE ---"

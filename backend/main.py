@@ -993,17 +993,10 @@ async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, A
         if not results:
             return {"answer": f"No documents found in {project_name} knowledge base for: {query}", "sources": []}
 
-        # Filter out low-relevance results (prevents irrelevant KB noise)
-        MIN_RELEVANCE = 0.72
-        filtered = [r for r in results if r.get("score", 0) >= MIN_RELEVANCE]
-        if not filtered:
-            logger.info(f"KB search: {len(results)} results all below relevance threshold {MIN_RELEVANCE} (scores: {[r.get('score', 0) for r in results]})")
-            return {"answer": f"No sufficiently relevant documents found in {project_name} KB for: {query}", "sources": []}
-
         # Format results for Groq
         chunks = []
         sources = []
-        for i, r in enumerate(filtered, 1):
+        for i, r in enumerate(results, 1):
             content = r.get("content", "")
             metadata = r.get("metadata", {})
             score = r.get("score", 0)
@@ -1011,8 +1004,8 @@ async def _tool_search_knowledge_base(query: str, top_k: int = 5) -> Dict[str, A
             chunks.append(f"[Doc {i}] (source: {source_file}, relevance: {score:.2f})\n{content}")
             sources.append({"title": source_file, "url": "", "snippet": content[:200]})
 
-        answer = f"Found {len(filtered)} relevant documents in {project_name} KB:\n\n" + "\n\n---\n\n".join(chunks)
-        logger.info(f"KB search returned {len(filtered)} results (filtered from {len(results)}, threshold={MIN_RELEVANCE})")
+        answer = f"Found {len(results)} relevant documents in {project_name} KB:\n\n" + "\n\n---\n\n".join(chunks)
+        logger.info(f"KB search returned {len(results)} results")
         return {"answer": answer, "sources": sources}
     except Exception as e:
         logger.error(f"KB search error: {e}")
