@@ -127,6 +127,11 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
     logger = logging.getLogger(__name__)
     logger.info(f"web_search called with provider={provider}, query={query[:100]}...")
 
+    # Get conversation history from request-scoped ContextVar (set by GroqAgent.chat())
+    # This ensures Perplexity has context from prior messages in the conversation
+    from groq_agent import get_current_conversation_history
+    conv_history = get_current_conversation_history()
+
     if provider == "perplexity_focused":
         # Focused search: returns clean table with exact product URLs
         # Best for supplier/product queries where we need real links, not prose
@@ -135,12 +140,13 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             query=query,
             num_results=8,
             recency=recency or "month",
+            conversation_history=conv_history,
         )
         result["provider_used"] = "perplexity_focused"
         return result
     elif provider == "perplexity_pro":
         logger.info("Using Perplexity Sonar Pro (high mode)")
-        result = await perplexity_search.search(query=query, search_mode="high", recency=recency)
+        result = await perplexity_search.search(query=query, search_mode="high", recency=recency, conversation_history=conv_history)
         result["provider_used"] = "perplexity_pro"
         return result
     elif provider == "tavily":
@@ -182,7 +188,7 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             if not content_seems_valid:
                 # Extraction failed - fallback to Perplexity
                 logger.info(f"Tavily extract returned insufficient content, falling back to Perplexity")
-                fallback = await perplexity_search.search(query=query, search_mode="high", recency="week")
+                fallback = await perplexity_search.search(query=query, search_mode="high", recency="week", conversation_history=conv_history)
                 fallback["provider_used"] = "perplexity"
                 return fallback
 
@@ -198,7 +204,7 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
             return result
     else:
         # Default: perplexity (Sonar, lower cost)
-        result = await perplexity_search.search(query=query, search_mode="low", recency=recency)
+        result = await perplexity_search.search(query=query, search_mode="low", recency=recency, conversation_history=conv_history)
         result["provider_used"] = "perplexity"
         return result
 

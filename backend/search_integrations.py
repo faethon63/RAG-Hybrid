@@ -401,6 +401,7 @@ CRITICAL RULES:
         num_results: int = 10,
         recency: str = "week",
         exclude_domains: Optional[List[str]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         """
         Focused search optimized for supplier/product queries.
@@ -411,6 +412,7 @@ CRITICAL RULES:
             num_results: Number of results (5-10 recommended)
             recency: Time filter - "day", "week", "month", "year"
             exclude_domains: Domains to exclude (SEO spam, etc.)
+            conversation_history: Previous messages for context
 
         Returns: {"answer": str, "citations": list[dict], "usage": dict}
         """
@@ -440,11 +442,20 @@ Example:
 
 List at least 5 suppliers. Include the full clickable URL in the URL column."""
 
+        # Build messages with optional conversation history for context
+        messages = []
+        if conversation_history:
+            recent_history = conversation_history[-6:]  # Last 3 exchanges
+            for msg in recent_history:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        messages.append({"role": "user", "content": user_prompt})
+
+        # Perplexity requires strict user/assistant alternation
+        messages = _ensure_alternating_messages(messages)
+
         payload = {
             "model": self.MODEL_SONAR_PRO,
-            "messages": [
-                {"role": "user", "content": user_prompt},
-            ],
+            "messages": messages,
             "max_tokens": get_max_tokens(),
             "temperature": 0.1,
             "web_search_options": {
