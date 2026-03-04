@@ -1911,7 +1911,7 @@ Assistant:"""
         if not db_url:
             return None
         try:
-            return psycopg2.connect(db_url)
+            return psycopg2.connect(db_url, connect_timeout=5)
         except Exception as e:
             logger.warning(f"Failed to connect to database: {e}")
             return None

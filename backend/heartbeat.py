@@ -422,7 +422,7 @@ Respond with ONLY valid JSON:
         """Report PC status to shared PostgreSQL (runs every 5 min)."""
         try:
             from pc_status import report_pc_status
-            report_pc_status()
+            await report_pc_status()
         except Exception as e:
             logger.debug(f"PC status report failed: {e}")
 

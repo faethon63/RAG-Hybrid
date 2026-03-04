@@ -21,7 +21,7 @@ def _get_db_connection():
     if not db_url:
         return None
     try:
-        return psycopg2.connect(db_url)
+        return psycopg2.connect(db_url, connect_timeout=5)
     except Exception as e:
         logger.warning(f"Form sync DB connection failed: {e}")
         return None
