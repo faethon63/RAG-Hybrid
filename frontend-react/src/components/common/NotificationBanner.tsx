@@ -7,10 +7,15 @@ export function NotificationBanner() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Only show if: push supported, not already subscribed, not dismissed before
-    const dismissed = localStorage.getItem('push-banner-dismissed');
-    if (dismissed) return;
     if (!isPushSupported()) return;
+
+    // Dismiss expires after 7 days (previous dismiss may have been due to server misconfiguration)
+    const dismissedAt = localStorage.getItem('push-banner-dismissed');
+    if (dismissedAt) {
+      const elapsed = Date.now() - parseInt(dismissedAt, 10);
+      if (elapsed < 7 * 24 * 60 * 60 * 1000) return; // Still within 7-day dismiss window
+      localStorage.removeItem('push-banner-dismissed');
+    }
 
     isPushSubscribed().then((subscribed) => {
       if (!subscribed) setShow(true);
@@ -43,7 +48,7 @@ export function NotificationBanner() {
   };
 
   const handleDismiss = () => {
-    localStorage.setItem('push-banner-dismissed', 'true');
+    localStorage.setItem('push-banner-dismissed', String(Date.now()));
     setShow(false);
   };
 
