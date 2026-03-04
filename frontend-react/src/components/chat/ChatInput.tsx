@@ -40,6 +40,10 @@ export function ChatInput() {
   const isLoading = useChatStore((s) => s.isLoading);
   const sendQuery = useChatStore((s) => s.sendQuery);
   const setLastInputWasVoice = useChatStore((s) => s.setLastInputWasVoice);
+  const voiceConversationMode = useChatStore((s) => s.voiceConversationMode);
+  const setVoiceConversationMode = useChatStore((s) => s.setVoiceConversationMode);
+  const shouldAutoRecord = useChatStore((s) => s.shouldAutoRecord);
+  const setShouldAutoRecord = useChatStore((s) => s.setShouldAutoRecord);
   const lastAttachedFiles = useChatStore((s) => s.lastAttachedFiles);
   const mode = useSettingsStore((s) => s.mode);
   const setMode = useSettingsStore((s) => s.setMode);
@@ -248,6 +252,16 @@ export function ChatInput() {
       }
     };
   }, [stopRecordingCleanup]);
+
+  // Auto-record when voice conversation mode signals it (TTS finished)
+  useEffect(() => {
+    if (shouldAutoRecord && !isRecording && !isLoading && !isTranscribing) {
+      setShouldAutoRecord(false);
+      // Small delay to let UI settle
+      const timer = setTimeout(() => startRecording(), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldAutoRecord, isRecording, isLoading, isTranscribing, setShouldAutoRecord, startRecording]);
 
   const handleSubmit = async () => {
     const query = input.trim();
@@ -484,7 +498,33 @@ export function ChatInput() {
               </>
             )}
           </div>
-          <div>
+          <div className="flex items-center gap-3">
+            {/* Voice conversation toggle */}
+            <button
+              onClick={() => {
+                const next = !voiceConversationMode;
+                setVoiceConversationMode(next);
+                if (next && !isRecording && !isLoading && !isTranscribing) {
+                  // Start recording immediately when toggling on
+                  startRecording();
+                }
+                if (!next) {
+                  // Stop recording and TTS when toggling off
+                  if (isRecording) stopRecording();
+                  window.speechSynthesis?.cancel();
+                }
+              }}
+              className={clsx(
+                'flex items-center gap-1 px-2 py-0.5 rounded-full transition-all text-xs',
+                voiceConversationMode
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : 'opacity-50 hover:opacity-80'
+              )}
+              title={voiceConversationMode ? 'Voice conversation ON — tap to stop' : 'Start voice conversation'}
+            >
+              <MicIcon className="w-3 h-3" />
+              <span>{voiceConversationMode ? 'Voice ON' : 'Voice'}</span>
+            </button>
             <span className="opacity-50">Enter to send</span>
           </div>
         </div>

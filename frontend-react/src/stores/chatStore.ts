@@ -27,6 +27,8 @@ interface ChatState {
 
   // Voice input tracking
   lastInputWasVoice: boolean;
+  voiceConversationMode: boolean;
+  shouldAutoRecord: boolean;
 
   // Actions
   addMessage: (message: Message) => void;
@@ -39,6 +41,8 @@ interface ChatState {
   setLastSources: (sources: Source[]) => void;
   setLastAgentSteps: (steps: AgentStep[]) => void;
   setLastInputWasVoice: (wasVoice: boolean) => void;
+  setVoiceConversationMode: (enabled: boolean) => void;
+  setShouldAutoRecord: (should: boolean) => void;
 
   // Message editing
   editMessage: (messageId: string, newContent: string, project?: string | null) => Promise<void>;
@@ -85,6 +89,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   lastAgentSteps: [],
   lastAttachedFiles: [],
   lastInputWasVoice: false,
+  voiceConversationMode: false,
+  shouldAutoRecord: false,
 
   addMessage: (message) =>
     set((state) => ({
@@ -109,6 +115,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setLastSources: (sources) => set({ lastSources: sources }),
   setLastAgentSteps: (steps) => set({ lastAgentSteps: steps }),
   setLastInputWasVoice: (wasVoice) => set({ lastInputWasVoice: wasVoice }),
+  setVoiceConversationMode: (enabled) => set({ voiceConversationMode: enabled, lastInputWasVoice: enabled }),
+  setShouldAutoRecord: (should) => set({ shouldAutoRecord: should }),
 
   editMessage: async (messageId, newContent, project) => {
     set((state) => ({

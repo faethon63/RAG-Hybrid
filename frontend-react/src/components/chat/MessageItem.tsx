@@ -6,6 +6,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { Message } from '../../types/api';
 import { parseThinking, formatTokens, formatCost, formatTime, formatConfidence } from '../../utils/parseThinking';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useChatStore } from '../../stores/chatStore';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import {
   UserIcon,
@@ -44,10 +45,20 @@ export function MessageItem({ message, isFirstMessage, autoPlayTTS, onEdit, onDe
   const { thinking, content } = parseThinking(message.content);
   const meta = message.metadata;
 
+  const voiceConversationMode = useChatStore((s) => s.voiceConversationMode);
+  const setShouldAutoRecord = useChatStore((s) => s.setShouldAutoRecord);
+
   // Auto-play TTS when response arrives from voice input
   useEffect(() => {
     if (autoPlayTTS && !isUser && content && ttsAvailable) {
-      const timer = setTimeout(() => speak(content), 300);
+      const timer = setTimeout(() => {
+        speak(content, () => {
+          // When TTS finishes and voice conversation mode is on, trigger auto-record
+          if (useChatStore.getState().voiceConversationMode) {
+            setShouldAutoRecord(true);
+          }
+        });
+      }, 300);
       return () => clearTimeout(timer);
     }
   }, [autoPlayTTS]); // eslint-disable-line react-hooks/exhaustive-deps

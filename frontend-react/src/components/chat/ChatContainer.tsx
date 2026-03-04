@@ -15,6 +15,7 @@ export function ChatContainer() {
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const lastInputWasVoice = useChatStore((s) => s.lastInputWasVoice);
   const setLastInputWasVoice = useChatStore((s) => s.setLastInputWasVoice);
+  const voiceConversationMode = useChatStore((s) => s.voiceConversationMode);
   const currentProject = useProjectStore((s) => s.currentProject);
   const mode = useSettingsStore((s) => s.mode);
   const model = useSettingsStore((s) => s.model);
@@ -69,7 +70,7 @@ export function ChatContainer() {
               const isLastAssistant = !isLoading
                 && message.role === 'assistant'
                 && index === messages.length - 1
-                && lastInputWasVoice;
+                && (lastInputWasVoice || voiceConversationMode);
               return (
                 <MessageItem
                   key={message.id}

@@ -43,7 +43,9 @@ export function useSpeechSynthesis() {
     }
   }, [isAvailable]);
 
-  const speak = useCallback((text: string) => {
+  const onEndRef = useRef<(() => void) | null>(null);
+
+  const speak = useCallback((text: string, onEnd?: () => void) => {
     if (!isAvailable) return;
 
     // Stop any current speech
@@ -52,6 +54,7 @@ export function useSpeechSynthesis() {
     const cleaned = stripMarkdown(text);
     if (!cleaned) return;
 
+    onEndRef.current = onEnd || null;
     const utterance = new SpeechSynthesisUtterance(cleaned);
     utteranceRef.current = utterance;
 
@@ -66,8 +69,17 @@ export function useSpeechSynthesis() {
     utterance.pitch = 1.0;
 
     utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => { setIsSpeaking(false); utteranceRef.current = null; };
-    utterance.onerror = () => { setIsSpeaking(false); utteranceRef.current = null; };
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      utteranceRef.current = null;
+      onEndRef.current?.();
+      onEndRef.current = null;
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      utteranceRef.current = null;
+      onEndRef.current = null;
+    };
 
     window.speechSynthesis.speak(utterance);
   }, [isAvailable]);
