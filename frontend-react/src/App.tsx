@@ -31,8 +31,9 @@ function App() {
             <button
               onClick={() => setSidebarOpen(true)}
               className="p-2 hover:bg-[var(--color-surface)] rounded-lg transition-colors"
+              style={{ minHeight: 44, minWidth: 44 }}
             >
-              <MenuIcon className="w-5 h-5" />
+              <MenuIcon className="w-6 h-6" />
             </button>
           </div>
         )}
