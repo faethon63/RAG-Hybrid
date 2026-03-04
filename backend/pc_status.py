@@ -1,30 +1,36 @@
 """
 PC Status Reporter
-Reports local PC status (online, Claude Code running) to shared PostgreSQL
-so the VPS frontend can display Remote Control availability.
+Local PC reports status via HTTPS to VPS API.
+VPS stores in PostgreSQL and serves to frontend.
 """
 
+import json
 import logging
+import os
 import platform
 import subprocess
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
+from typing import Dict
+
+import httpx
 
 from config import get_database_url
 
 logger = logging.getLogger(__name__)
 
+_VPS_API_URL = os.getenv("VPS_API_URL", "https://rag.coopeverything.org")
+
 
 def _get_db_connection():
-    """Get PostgreSQL connection if DATABASE_URL is configured."""
+    """Get PostgreSQL connection (only works on VPS where DB is localhost)."""
     import psycopg2
     db_url = get_database_url()
     if not db_url:
         return None
     try:
-        return psycopg2.connect(db_url)
+        return psycopg2.connect(db_url, connect_timeout=5)
     except Exception as e:
-        logger.warning(f"PC status DB connection failed: {e}")
+        logger.debug(f"PC status DB connection failed: {e}")
         return None
 
 
@@ -65,7 +71,6 @@ def _is_claude_code_running() -> bool:
             )
             return "claude.exe" in result.stdout.lower()
         else:
-            # Linux/Mac
             result = subprocess.run(
                 ["pgrep", "-x", "claude"],
                 capture_output=True, text=True, timeout=5,
@@ -76,13 +81,13 @@ def _is_claude_code_running() -> bool:
         return False
 
 
-def report_pc_status():
-    """Write current PC status to PostgreSQL. Called periodically by heartbeat."""
-    import json
-    conn = _get_db_connection()
-    if not conn:
-        return
+def _is_local_environment() -> bool:
+    """Check if running on local PC (not VPS)."""
+    return platform.system() == "Windows"
 
+
+async def report_pc_status():
+    """Report PC status. Local PC → POST to VPS API. VPS → write to DB directly."""
     claude_running = _is_claude_code_running()
     hostname = platform.node()
 
@@ -93,6 +98,32 @@ def report_pc_status():
         "platform": platform.system(),
     }
 
+    if _is_local_environment():
+        # Local PC: POST status to VPS API
+        api_key = os.getenv("VPS_API_KEY", os.getenv("API_KEY", ""))
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"{_VPS_API_URL}/api/v1/remote-control/report",
+                    json=status,
+                    headers={"X-API-Key": api_key} if api_key else {},
+                )
+                if resp.status_code == 200:
+                    logger.debug(f"PC status reported to VPS: claude_running={claude_running}")
+                else:
+                    logger.warning(f"VPS status report failed: {resp.status_code}")
+        except Exception as e:
+            logger.debug(f"Failed to report status to VPS: {e}")
+    else:
+        # VPS: write directly to local PostgreSQL
+        _write_status_to_db(status)
+
+
+def _write_status_to_db(status: Dict):
+    """Write PC status to PostgreSQL (VPS only, localhost DB)."""
+    conn = _get_db_connection()
+    if not conn:
+        return
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -103,9 +134,9 @@ def report_pc_status():
                     updated_at = NOW()
             """, (json.dumps(status),))
         conn.commit()
-        logger.debug(f"PC status reported: claude_running={claude_running}")
+        logger.debug(f"PC status written to DB")
     except Exception as e:
-        logger.warning(f"Failed to report PC status: {e}")
+        logger.warning(f"Failed to write PC status: {e}")
         try:
             conn.rollback()
         except Exception:
@@ -114,15 +145,28 @@ def report_pc_status():
         conn.close()
 
 
+def save_reported_status(status: Dict):
+    """Called by VPS API endpoint when local PC reports in."""
+    _write_status_to_db(status)
+
+
 def get_pc_status() -> Dict:
     """Read PC status from PostgreSQL. Used by VPS endpoint."""
-    import json
     conn = _get_db_connection()
     if not conn:
+        # If no DB (local dev), check locally
+        if _is_local_environment():
+            return {
+                "pc_online": True,
+                "claude_code_running": _is_claude_code_running(),
+                "hostname": platform.node(),
+                "last_seen": datetime.now(timezone.utc).isoformat(),
+                "local_mode": True,
+            }
         return {
             "pc_online": False,
             "claude_code_running": False,
-            "reason": "Database not configured",
+            "reason": "Database not available",
         }
 
     try:

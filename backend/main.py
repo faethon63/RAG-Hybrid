@@ -3507,6 +3507,15 @@ async def remote_control_status():
     return get_pc_status()
 
 
+@app.post("/api/v1/remote-control/report")
+async def remote_control_report(request: Request):
+    """Receive PC status report from local PC (called every 5 min)."""
+    body = await request.json()
+    from pc_status import save_reported_status
+    save_reported_status(body)
+    return {"status": "ok"}
+
+
 # ============================================================================
 # DATA SYNC (Local <-> VPS)
 # ============================================================================
