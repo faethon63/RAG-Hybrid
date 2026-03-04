@@ -61,11 +61,11 @@ export function Sidebar() {
     <>
     {/* Backdrop overlay on mobile */}
     <div
-      className="fixed inset-0 bg-black/50 z-40 md:hidden"
+      className="fixed inset-0 bg-black/50 z-40 lg:hidden"
       onClick={() => setSidebarOpen(false)}
     />
     <aside
-      className="bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col h-full relative fixed inset-y-0 left-0 z-50 md:relative md:z-auto"
+      className="bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col h-full fixed inset-y-0 left-0 z-50 lg:relative lg:z-auto"
       style={{ width: Math.min(sidebarWidth, window.innerWidth * 0.85) }}
     >
       {/* Header */}
