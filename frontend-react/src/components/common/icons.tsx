@@ -28,6 +28,8 @@ import {
   FolderInput,
   Download,
   Save,
+  Monitor,
+  Smartphone,
 } from 'lucide-react';
 
 export {
@@ -60,4 +62,6 @@ export {
   FolderInput as MoveIcon,
   Download as DownloadIcon,
   Save as SaveIcon,
+  Monitor as MonitorIcon,
+  Smartphone as SmartphoneIcon,
 };

@@ -197,6 +197,73 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ documents, project }),
     }),
+
+  // Push notifications
+  getVapidKey: () =>
+    request<{ publicKey: string }>('/notifications/vapid-key'),
+
+  subscribePush: (subscription: PushSubscriptionJSON) =>
+    request<{ status: string; new: boolean }>('/notifications/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({ subscription }),
+    }),
+
+  unsubscribePush: (endpoint: string) =>
+    request<{ status: string }>('/notifications/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint }),
+    }),
+
+  sendNotification: (title: string, body: string, url?: string) =>
+    request<{ status: string; sent: number; failed: number }>('/notifications/send', {
+      method: 'POST',
+      body: JSON.stringify({ title, body, url }),
+    }),
+
+  getPendingNotifications: () =>
+    request<{ notifications: Array<{ title: string; body: string; timestamp: string }>; count: number }>('/notifications/pending'),
+
+  getNotificationStatus: () =>
+    request<{ configured: boolean; subscribers: number }>('/notifications/status'),
+
+  // User memory
+  getUserMemory: () =>
+    request<{ memory: Record<string, string> }>('/memory'),
+
+  updateMemoryCategory: (category: string, content: string) =>
+    request<{ status: string }>(`/memory/${category}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+
+  extractMemory: (limit?: number) =>
+    request<{ status: string; extracted: number }>('/memory/extract', {
+      method: 'POST',
+      body: JSON.stringify({ limit: limit || 20 }),
+    }),
+
+  // Heartbeat
+  getHeartbeatStatus: () =>
+    request<{ enabled: boolean; last_check: string | null; next_check: string | null; interval_minutes: number }>('/heartbeat/status'),
+
+  triggerHeartbeat: () =>
+    request<{ status: string }>('/heartbeat/trigger', { method: 'POST' }),
+
+  updateHeartbeatConfig: (config: { enabled?: boolean; interval_minutes?: number; quiet_hours_start?: number; quiet_hours_end?: number }) =>
+    request<{ status: string }>('/heartbeat/config', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  // Remote Control
+  getRemoteControlStatus: () =>
+    request<{
+      pc_online: boolean;
+      claude_code_running: boolean;
+      hostname?: string;
+      last_seen?: string;
+      reason?: string;
+    }>('/remote-control/status'),
 };
 
 export { ApiError };

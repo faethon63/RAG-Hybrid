@@ -4,6 +4,7 @@ import { ChatContainer } from './components/chat/ChatContainer';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { ProjectForm } from './components/sidebar/ProjectForm';
 import { FileEditor } from './components/sidebar/FileEditor';
+import { NotificationBanner } from './components/common/NotificationBanner';
 import { useSettingsStore } from './stores/settingsStore';
 import { useChatStore } from './stores/chatStore';
 import { MenuIcon } from './components/common/icons';
@@ -40,6 +41,7 @@ function App() {
       <SettingsPanel />
       <ProjectForm />
       <FileEditor />
+      <NotificationBanner />
     </div>
   );
 }

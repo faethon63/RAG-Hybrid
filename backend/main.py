@@ -1152,6 +1152,123 @@ groq_agent.register_tool_handler("read_file", _tool_read_file)
 groq_agent.register_tool_handler("search_files", _tool_search_files)
 
 
+# --- User Memory Tool Handler ---
+
+_USER_MEMORY_DIR = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb", "_user_memory")
+
+
+async def _tool_update_user_memory(category: str, action: str, content: str, section: str = None) -> Dict:
+    """Update user memory files when Groq detects personal info shared."""
+    valid_categories = {"user": "user.md", "interests": "interests.md", "memory": "memory.md", "soul": "soul.md"}
+    if category not in valid_categories:
+        return {"answer": f"Invalid category '{category}'. Use: {list(valid_categories.keys())}"}
+
+    filepath = os.path.join(_USER_MEMORY_DIR, valid_categories[category])
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    try:
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                existing = f.read()
+        except FileNotFoundError:
+            existing = f"# {category.title()}\n"
+
+        timestamp = datetime.now().strftime("%Y-%m-%d")
+        content_line = content.strip()
+        if not content_line.startswith("- "):
+            content_line = f"- {content_line}"
+
+        if action == "add":
+            if section:
+                # Find the section and append under it
+                section_header = f"## {section}"
+                if section_header in existing:
+                    # Insert after the section header (and any existing items)
+                    lines = existing.split("\n")
+                    insert_idx = None
+                    for i, line in enumerate(lines):
+                        if line.strip() == section_header:
+                            # Find end of this section (next ## or end of file)
+                            for j in range(i + 1, len(lines)):
+                                if lines[j].startswith("## "):
+                                    insert_idx = j
+                                    break
+                            if insert_idx is None:
+                                insert_idx = len(lines)
+                            break
+                    if insert_idx is not None:
+                        lines.insert(insert_idx, content_line)
+                        updated = "\n".join(lines)
+                    else:
+                        updated = existing.rstrip() + f"\n{content_line}\n"
+                else:
+                    # Section doesn't exist, create it
+                    updated = existing.rstrip() + f"\n\n{section_header}\n{content_line}\n"
+            else:
+                updated = existing.rstrip() + f"\n{content_line}\n"
+
+        elif action == "update":
+            # Try to find and replace a similar line
+            updated = existing
+            for line in existing.split("\n"):
+                # Simple heuristic: if content shares key words with an existing line, replace it
+                if line.strip().startswith("- ") and _lines_match(line.strip(), content_line):
+                    updated = existing.replace(line, content_line)
+                    break
+            else:
+                # No match found, just append
+                if section:
+                    section_header = f"## {section}"
+                    if section_header in updated:
+                        lines = updated.split("\n")
+                        for i, l in enumerate(lines):
+                            if l.strip() == section_header:
+                                for j in range(i + 1, len(lines)):
+                                    if lines[j].startswith("## "):
+                                        lines.insert(j, content_line)
+                                        break
+                                else:
+                                    lines.append(content_line)
+                                break
+                        updated = "\n".join(lines)
+                    else:
+                        updated = updated.rstrip() + f"\n\n{section_header}\n{content_line}\n"
+                else:
+                    updated = updated.rstrip() + f"\n{content_line}\n"
+
+        elif action == "remove":
+            lines = existing.split("\n")
+            updated = "\n".join(l for l in lines if content.lower() not in l.lower())
+
+        else:
+            return {"answer": f"Invalid action '{action}'. Use: add, update, remove"}
+
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(updated)
+
+        logger.info(f"User memory updated: {action} in {category} ({valid_categories[category]})")
+        return {"answer": f"Memory updated: {action} '{content}' in {category}"}
+
+    except Exception as e:
+        logger.error(f"Failed to update user memory: {e}")
+        return {"answer": f"Failed to update memory: {e}"}
+
+
+def _lines_match(existing_line: str, new_line: str) -> bool:
+    """Check if two memory lines refer to the same fact (simple keyword overlap)."""
+    # Extract key nouns from both lines
+    stop_words = {"a", "an", "the", "is", "are", "was", "were", "in", "on", "at", "to", "for", "and", "or", "of"}
+    words_a = {w.lower().strip(":-,") for w in existing_line.split() if w.lower().strip(":-,") not in stop_words and len(w) > 2}
+    words_b = {w.lower().strip(":-,") for w in new_line.split() if w.lower().strip(":-,") not in stop_words and len(w) > 2}
+    if not words_a or not words_b:
+        return False
+    overlap = len(words_a & words_b)
+    return overlap >= min(3, len(words_b))
+
+
+groq_agent.register_tool_handler("update_user_memory", _tool_update_user_memory)
+
+
 # --- Bankruptcy Form-Filling Tool Handlers ---
 
 async def _tool_fill_bankruptcy_form(
@@ -3121,6 +3238,276 @@ async def delete_chat(chat_id: str):
 
 
 # ============================================================================
+# USER MEMORY
+# ============================================================================
+
+@app.get("/api/v1/memory")
+async def get_user_memory():
+    """Get all user memory files."""
+    memory_dir = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb", "_user_memory")
+    result = {}
+    for fname in ("soul.md", "user.md", "interests.md", "memory.md"):
+        fpath = os.path.join(memory_dir, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                result[fname.replace(".md", "")] = f.read()
+        except FileNotFoundError:
+            result[fname.replace(".md", "")] = ""
+    return {"memory": result, "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.put("/api/v1/memory/{category}")
+async def update_memory_category(category: str, request: Request):
+    """Manually update a memory category (soul, user, interests, memory)."""
+    valid = {"soul": "soul.md", "user": "user.md", "interests": "interests.md", "memory": "memory.md"}
+    if category not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Use: {list(valid.keys())}")
+
+    body = await request.json()
+    content = body.get("content", "")
+    memory_dir = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb", "_user_memory")
+    os.makedirs(memory_dir, exist_ok=True)
+    fpath = os.path.join(memory_dir, valid[category])
+
+    with open(fpath, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return {"status": "success", "category": category, "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.post("/api/v1/memory/extract")
+async def extract_memory_from_chats(request: Request):
+    """
+    Extract personal facts from recent chats and update memory files.
+    Uses Groq (free) to analyze chat history and identify memorable facts.
+    """
+    body = await request.json() if await request.body() else {}
+    limit = body.get("limit", 20)  # Number of recent chats to analyze
+
+    # Get recent chats
+    chats = await rag_core.list_chats(limit=limit)
+    if not chats:
+        return {"status": "no_chats", "extracted": 0}
+
+    # Collect messages from recent chats
+    all_messages = []
+    for chat_summary in chats[:limit]:
+        chat = await rag_core.get_chat(chat_summary.get("id", ""))
+        if chat and chat.get("messages"):
+            for msg in chat["messages"]:
+                if msg.get("role") == "user":
+                    all_messages.append(msg.get("content", ""))
+
+    if not all_messages:
+        return {"status": "no_user_messages", "extracted": 0}
+
+    # Use Groq to extract facts
+    from groq_agent import get_groq_api_key
+    api_key = get_groq_api_key()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="Groq API key not configured")
+
+    # Read current memory for context
+    memory_dir = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb", "_user_memory")
+    current_memory = ""
+    for fname in ("user.md", "interests.md", "memory.md"):
+        fpath = os.path.join(memory_dir, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                current_memory += f"\n--- {fname} ---\n{f.read()}"
+        except FileNotFoundError:
+            pass
+
+    # Combine user messages (last N)
+    user_text = "\n---\n".join(all_messages[-100:])  # Cap at 100 messages
+
+    extraction_prompt = f"""Analyze these user messages and extract NEW personal facts not already in memory.
+
+CURRENT MEMORY:
+{current_memory}
+
+USER MESSAGES:
+{user_text}
+
+Return ONLY a JSON array of new facts to add. Each item:
+{{"category": "user|interests|memory", "section": "section heading", "content": "- The fact in markdown list format"}}
+
+Rules:
+- Only extract CONCRETE facts (name, location, preferences, goals, decisions)
+- Skip vague or temporary statements
+- Skip facts already in current memory
+- Use "user" for identity/personal info, "interests" for topics/hobbies, "memory" for decisions/learnings
+- Return empty array [] if nothing new to extract"""
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": "You extract personal facts from conversations. Return valid JSON only."},
+                        {"role": "user", "content": extraction_prompt},
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 2000,
+                },
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            content = result["choices"][0]["message"]["content"].strip()
+
+            # Parse JSON from response (handle markdown code blocks)
+            if content.startswith("```"):
+                content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+            facts = json.loads(content)
+            if not isinstance(facts, list):
+                return {"status": "no_new_facts", "extracted": 0}
+
+            # Apply each extracted fact
+            applied = 0
+            for fact in facts:
+                cat = fact.get("category", "")
+                if cat not in ("user", "interests", "memory"):
+                    continue
+                result = await _tool_update_user_memory(
+                    category=cat,
+                    action="add",
+                    content=fact.get("content", ""),
+                    section=fact.get("section"),
+                )
+                if "updated" in result.get("answer", "").lower():
+                    applied += 1
+
+            return {
+                "status": "success",
+                "extracted": applied,
+                "total_facts_found": len(facts),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+
+    except Exception as e:
+        logger.error(f"Memory extraction failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+
+
+# ============================================================================
+# PUSH NOTIFICATIONS
+# ============================================================================
+
+@app.get("/api/v1/notifications/vapid-key")
+async def get_vapid_key():
+    """Get VAPID public key for push subscription."""
+    from notifications import get_vapid_public_key
+    key = get_vapid_public_key()
+    if not key:
+        raise HTTPException(status_code=500, detail="VAPID keys not configured")
+    return {"publicKey": key}
+
+
+@app.post("/api/v1/notifications/subscribe")
+async def subscribe_push(request: Request):
+    """Register a push notification subscription."""
+    from notifications import add_subscription
+    body = await request.json()
+    subscription = body.get("subscription")
+    if not subscription or not subscription.get("endpoint"):
+        raise HTTPException(status_code=400, detail="Invalid subscription: must include endpoint")
+    is_new = add_subscription(subscription)
+    return {"status": "subscribed", "new": is_new}
+
+
+@app.post("/api/v1/notifications/unsubscribe")
+async def unsubscribe_push(request: Request):
+    """Remove a push notification subscription."""
+    from notifications import remove_subscription
+    body = await request.json()
+    endpoint = body.get("endpoint", "")
+    removed = remove_subscription(endpoint)
+    return {"status": "unsubscribed" if removed else "not_found"}
+
+
+@app.post("/api/v1/notifications/send")
+async def send_notification(request: Request):
+    """Send a push notification (for testing or internal use)."""
+    from notifications import send_push_notification
+    body = await request.json()
+    title = body.get("title", "RAG-Hybrid")
+    msg = body.get("body", body.get("message", ""))
+    url = body.get("url", "/")
+    tag = body.get("tag")
+    if not msg:
+        raise HTTPException(status_code=400, detail="Missing 'body' or 'message'")
+    result = await send_push_notification(title=title, body=msg, url=url, tag=tag)
+    return {"status": "sent", **result}
+
+
+@app.get("/api/v1/notifications/pending")
+async def get_pending_notifications():
+    """Get pending notifications (fallback for non-PWA clients)."""
+    from notifications import get_pending_notifications as get_pending
+    pending = get_pending(mark_read=True)
+    return {"notifications": pending, "count": len(pending)}
+
+
+@app.get("/api/v1/notifications/status")
+async def notification_status():
+    """Get push notification status."""
+    from notifications import get_subscription_count, get_vapid_public_key
+    return {
+        "configured": bool(get_vapid_public_key()),
+        "subscribers": get_subscription_count(),
+    }
+
+
+# ============================================================================
+# HEARTBEAT
+# ============================================================================
+
+@app.get("/api/v1/heartbeat/status")
+async def heartbeat_status():
+    """Get heartbeat service status."""
+    from heartbeat import heartbeat_service
+    return heartbeat_service.get_status()
+
+
+@app.post("/api/v1/heartbeat/trigger")
+async def trigger_heartbeat(request: Request):
+    """Manually trigger a heartbeat check or daily briefing."""
+    body = await request.json() if await request.body() else {}
+    action = body.get("action", "check")  # "check" or "briefing"
+
+    from heartbeat import heartbeat_service
+    if action == "briefing":
+        await heartbeat_service.daily_briefing()
+    else:
+        await heartbeat_service.check_and_notify()
+    return {"status": "triggered", "action": action}
+
+
+@app.put("/api/v1/heartbeat/config")
+async def update_heartbeat_config(request: Request):
+    """Update heartbeat configuration."""
+    body = await request.json()
+    from heartbeat import heartbeat_service
+    heartbeat_service.update_config(body)
+    return {"status": "updated", "config": heartbeat_service.get_status()}
+
+
+# ============================================================================
+# REMOTE CONTROL STATUS
+# ============================================================================
+
+@app.get("/api/v1/remote-control/status")
+async def remote_control_status():
+    """Get PC online status and Claude Code availability for Remote Control."""
+    from pc_status import get_pc_status
+    return get_pc_status()
+
+
+# ============================================================================
 # DATA SYNC (Local <-> VPS)
 # ============================================================================
 
@@ -3426,6 +3813,21 @@ async def startup_event():
     except Exception as e:
         print(f"  Form sync check failed (non-fatal): {e}")
 
+    # Ensure PC status table exists
+    try:
+        from pc_status import ensure_status_table
+        ensure_status_table()
+    except Exception as e:
+        print(f"  PC status table setup failed (non-fatal): {e}")
+
+    # Start heartbeat service
+    try:
+        from heartbeat import heartbeat_service
+        heartbeat_service.start()
+        print("  Heartbeat service started")
+    except Exception as e:
+        print(f"  Heartbeat start failed (non-fatal): {e}")
+
     # Check all services
     health = await health_check()
     print(f"System health: {health.status}")
@@ -3477,6 +3879,11 @@ async def cleanup_orphaned_collections():
 async def shutdown_event():
     """Cleanup on shutdown"""
     print("Shutting down RAG System...")
+    try:
+        from heartbeat import heartbeat_service
+        heartbeat_service.stop()
+    except Exception:
+        pass
     await rag_core.cleanup()
 
 

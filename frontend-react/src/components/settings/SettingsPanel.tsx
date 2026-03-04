@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSettingsStore, MODEL_OPTIONS, MODE_OPTIONS, getAvailableModelOptions, getAvailableModeOptions } from '../../stores/settingsStore';
-import { CloseIcon, LoaderIcon, CheckIcon } from '../common/icons';
+import { CloseIcon, LoaderIcon, CheckIcon, MonitorIcon, AlertIcon, RefreshIcon } from '../common/icons';
+import { api } from '../../api/client';
 
 export function SettingsPanel() {
   const showSettings = useSettingsStore((s) => s.showSettings);
@@ -23,6 +24,16 @@ export function SettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Remote Control status
+  const [rcStatus, setRcStatus] = useState<{
+    pc_online: boolean;
+    claude_code_running: boolean;
+    hostname?: string;
+    last_seen?: string;
+    reason?: string;
+  } | null>(null);
+  const [rcLoading, setRcLoading] = useState(false);
+
   // Filter options based on Ollama availability
   const ollamaAvailable = health?.services?.ollama ?? false;
   const availableModelOptions = getAvailableModelOptions(ollamaAvailable);
@@ -41,6 +52,24 @@ export function SettingsPanel() {
       loadSettings();
     }
   }, [showSettings, globalSettings, loadSettings]);
+
+  const fetchRcStatus = async () => {
+    setRcLoading(true);
+    try {
+      const status = await api.getRemoteControlStatus();
+      setRcStatus(status);
+    } catch {
+      setRcStatus({ pc_online: false, claude_code_running: false, reason: 'Failed to check' });
+    } finally {
+      setRcLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showSettings) {
+      fetchRcStatus();
+    }
+  }, [showSettings]);
 
   // Reset to 'auto' if currently selected option requires Ollama but it's unavailable
   useEffect(() => {
@@ -214,6 +243,95 @@ export function SettingsPanel() {
                   className="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder-[var(--color-text-secondary)] resize-none focus:outline-none focus:border-[var(--color-primary)]"
                 />
               </div>
+            </div>
+          </section>
+
+          <div className="border-t border-[var(--color-border)]" />
+
+          {/* Remote Control */}
+          <section>
+            <h3 className="text-sm font-medium text-[var(--color-text-secondary)] uppercase tracking-wide mb-3">
+              Claude Code Remote Control
+            </h3>
+
+            <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-4">
+              {rcLoading ? (
+                <div className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                  <LoaderIcon className="w-4 h-4 animate-spin" />
+                  <span>Checking PC status...</span>
+                </div>
+              ) : rcStatus ? (
+                <div className="space-y-3">
+                  {/* PC status */}
+                  <div className="flex items-center gap-3">
+                    <MonitorIcon className={`w-5 h-5 ${rcStatus.pc_online ? 'text-green-500' : 'text-red-400'}`} />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">
+                        PC {rcStatus.pc_online ? 'Online' : 'Offline'}
+                        {rcStatus.hostname && rcStatus.pc_online && (
+                          <span className="text-[var(--color-text-secondary)] font-normal"> ({rcStatus.hostname})</span>
+                        )}
+                      </p>
+                      {rcStatus.last_seen && (
+                        <p className="text-xs text-[var(--color-text-secondary)]">
+                          Last seen: {new Date(rcStatus.last_seen).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={fetchRcStatus}
+                      className="p-1.5 hover:bg-[var(--color-surface-hover)] rounded transition-colors"
+                      title="Refresh"
+                    >
+                      <RefreshIcon className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
+                    </button>
+                  </div>
+
+                  {/* Claude Code status */}
+                  {rcStatus.pc_online && (
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${rcStatus.claude_code_running ? 'bg-green-500' : 'bg-gray-400'}`} />
+                      <p className="text-sm">
+                        Claude Code: {rcStatus.claude_code_running ? (
+                          <span className="text-green-500">Running</span>
+                        ) : (
+                          <span className="text-[var(--color-text-secondary)]">Not running</span>
+                        )}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Action / message */}
+                  {!rcStatus.pc_online ? (
+                    <div className="flex items-start gap-2 bg-red-500/10 text-red-400 rounded-lg px-3 py-2 text-xs">
+                      <AlertIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>Your PC is offline. Turn it on to use Remote Control.</span>
+                    </div>
+                  ) : !rcStatus.claude_code_running ? (
+                    <div className="flex items-start gap-2 bg-yellow-500/10 text-yellow-400 rounded-lg px-3 py-2 text-xs">
+                      <AlertIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>Claude Code is not running. Start a session on your PC first.</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2 bg-green-500/10 text-green-400 rounded-lg px-3 py-2 text-xs">
+                        <CheckIcon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span>Ready! Open the Claude app on your phone to connect.</span>
+                      </div>
+                      <a
+                        href="https://claude.ai/remote-control"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block w-full text-center px-3 py-2 bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white text-sm rounded-lg transition-colors"
+                      >
+                        Open Claude Remote Control
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--color-text-secondary)]">Unable to check status.</p>
+              )}
             </div>
           </section>
         </div>

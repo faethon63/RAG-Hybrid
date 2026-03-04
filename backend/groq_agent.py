@@ -18,6 +18,27 @@ from resilience import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
+# --- User Memory ---
+_USER_MEMORY_DIR = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb", "_user_memory")
+
+
+def _load_user_memory() -> str:
+    """Load user.md and interests.md into a compact string for system prompt injection."""
+    parts = []
+    for fname in ("user.md", "interests.md"):
+        fpath = os.path.join(_USER_MEMORY_DIR, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    parts.append(content)
+        except FileNotFoundError:
+            pass
+    if not parts:
+        return ""
+    return "\n\n## About the User\n" + "\n\n".join(parts)
+
+
 # Request-scoped state using contextvars (safe for concurrent async requests).
 # Each asyncio task gets its own copy, preventing cross-request contamination.
 _request_project: ContextVar[Optional[str]] = ContextVar('_request_project', default=None)
@@ -354,6 +375,37 @@ class GroqAgent:
                         }
                     },
                     "required": ["url"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "update_user_memory",
+                "description": "Update the user's persistent personal memory when they share personal information (name, location, preferences, goals, interests, decisions, or important facts). Call this proactively whenever the user reveals something about themselves worth remembering across conversations.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "enum": ["user", "interests", "memory", "soul"],
+                            "description": "Which memory file to update: 'user' (identity, location, profession, goals), 'interests' (topics, projects, domains), 'memory' (facts, decisions, learnings), 'soul' (communication preferences)"
+                        },
+                        "action": {
+                            "type": "string",
+                            "enum": ["add", "update", "remove"],
+                            "description": "Action: 'add' (append new fact), 'update' (modify existing), 'remove' (delete outdated info)"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The fact or information to add/update/remove. Use markdown list format (e.g., '- Lives in Barcelona')"
+                        },
+                        "section": {
+                            "type": "string",
+                            "description": "Optional: which section heading to place this under (e.g., 'Identity', 'Goals', 'Active Projects')"
+                        }
+                    },
+                    "required": ["category", "action", "content"]
                 }
             }
         },
@@ -699,7 +751,7 @@ BAD RESPONSE (NEVER DO THIS):
                 return url
         return ""
 
-    def _should_force_web_search(self, query: str, conversation_history: List[Dict[str, str]] = None) -> bool:
+    def _should_force_web_search(self, query: str, conversation_history: List[Dict[str, str]] = None, project_config: Optional[Dict] = None) -> bool:
         """
         Detect if this query should bypass Groq and go directly to web_search.
         Returns True for product/supplier/provider queries that need real-time data.
@@ -745,7 +797,6 @@ BAD RESPONSE (NEVER DO THIS):
         research_followup = ["what about", "how about", "tell me more", "more details"]
         if any(ind in query_lower for ind in research_followup):
             # Check project routing_keywords
-            project_config = _request_project_config.get()
             if project_config:
                 routing_keywords = project_config.get("routing_keywords", [])
                 if any(kw.lower() in query_lower for kw in routing_keywords):
@@ -782,12 +833,14 @@ BAD RESPONSE (NEVER DO THIS):
             if trigger in query_lower:
                 return True
 
-        # Check if query STARTS with an action word + product keyword
-        action_starts = ("find ", "get ", "source ", "buy ")
-        product_keywords = ["isolate", "absolute", "terpene", "essential oil", "fragrance oil"]
-        if query_lower.startswith(action_starts):
-            if any(pk in query_lower for pk in product_keywords):
-                return True
+        # Check if query STARTS with an action word + project-specific keyword
+        routing = project_config.get("routing", {}) if project_config else {}
+        force_keywords = routing.get("force_web_keywords", [])
+        if force_keywords:
+            action_starts = ("find ", "get ", "source ", "buy ", "search for ")
+            if query_lower.startswith(action_starts):
+                if any(kw.lower() in query_lower for kw in force_keywords):
+                    return True
 
         return False
 
@@ -917,7 +970,7 @@ BAD RESPONSE (NEVER DO THIS):
 
         # PREPROCESSING: Force web_search for product/supplier queries
         # Groq (Llama 4 Scout) often misroutes these to complex_reasoning
-        should_force = self._should_force_web_search(query, conversation_history)
+        should_force = self._should_force_web_search(query, conversation_history, project_config)
         has_web_search = "web_search" in self._tool_handlers
         logger.info(f"BYPASS CHECK: query='{query[:60]}...', should_force={should_force}, has_web_search={has_web_search}")
         if should_force and has_web_search:
@@ -937,6 +990,9 @@ BAD RESPONSE (NEVER DO THIS):
                         query_lower = query.lower()
                         has_url = True
                         logger.info(f"Injected URL from conversation history: {history_url}")
+
+                # Read routing config once for this bypass block
+                routing = project_config.get("routing", {}) if project_config else {}
 
                 if has_url:
                     # URL query - use Tavily to fetch the specific page
@@ -959,19 +1015,17 @@ BAD RESPONSE (NEVER DO THIS):
                         "find supplier", "find vendors", "looking for supplier",
                         "source for", "sources for", "sources of",
                     ]
-                    product_keywords = [
-                        "isolate", "absolute", "terpene", "essential oil",
-                        "aroma chemical", "aromachemical", "fragrance oil"
-                    ]
 
-                    # Only trigger supplier mode if:
-                    # 1. Not a follow-up question AND
-                    # 2. Contains supplier phrase OR (contains product keyword AND starts with action word)
+                    has_supplier_mode = routing.get("supplier_mode", False)
+                    force_keywords = routing.get("force_web_keywords", [])
+
                     has_supplier_phrase = any(p in query_lower for p in supplier_phrases)
-                    has_product_keyword = any(k in query_lower for k in product_keywords)
+                    has_product_keyword = any(kw.lower() in query_lower for kw in force_keywords)
                     starts_with_action = query_lower.startswith(("find ", "get ", "source ", "looking for ", "search "))
 
-                    is_supplier_query = not is_followup and (has_supplier_phrase or (has_product_keyword and starts_with_action))
+                    # Supplier mode: project has supplier_mode AND (supplier phrase OR product keyword + action)
+                    is_supplier_query = (not is_followup and has_supplier_mode
+                                         and (has_supplier_phrase or (has_product_keyword and starts_with_action)))
                     provider = "perplexity_focused" if is_supplier_query else "perplexity"
 
                     if is_followup:
@@ -980,29 +1034,16 @@ BAD RESPONSE (NEVER DO THIS):
                 # ENHANCE QUERY with context for better Perplexity results
                 enhanced_query = query
 
-                # Add project context if available (e.g., "Soap and cosmetics" -> add perfumery context)
-                project_context = ""
-                if project_config:
-                    proj_desc = (project_config.get("description", "") + " " + project_config.get("system_prompt", "")).lower()
-                    if any(kw in proj_desc for kw in ["soap", "cosmetic", "perfum", "fragrance", "lotion", "candle"]):
-                        project_context = "for cosmetics perfumery formulation"
-                    elif any(kw in proj_desc for kw in ["cook", "food", "recipe", "kitchen"]):
-                        project_context = "food grade culinary"
-                    elif any(kw in proj_desc for kw in ["craft", "diy", "hobby"]):
-                        project_context = "craft supplies hobby"
-
-                if project_context and project_context not in query_lower:
-                    enhanced_query = f"{query} {project_context}"
+                # Add project-specific query enrichment from routing config
+                enrichment = routing.get("query_enrichment", "")
+                if enrichment and enrichment.lower() not in query_lower:
+                    enhanced_query = f"{query} {enrichment}"
                     logger.info(f"Added project context: {enhanced_query}")
 
-                # For focused mode, add specificity about what we want
                 if provider == "perplexity_focused":
-                    # Add industry context for better product matching
-                    if "isolate" in query_lower and "natural" not in query_lower:
-                        enhanced_query = f"{enhanced_query} natural aromachemical"
                     logger.info(f"Using FOCUSED mode for supplier query: {enhanced_query}")
                 else:
-                    logger.info(f"Using perplexity_pro for general query: {enhanced_query}")
+                    logger.info(f"Using perplexity for general query: {enhanced_query}")
 
                 result = await self._tool_handlers["web_search"](query=enhanced_query, provider=provider, recency="month")
                 answer = result.get("answer", "")
@@ -1170,40 +1211,52 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
             project_instructions=project_instructions,
         )
 
+        # Inject persistent user memory (cross-project)
+        user_memory = _load_user_memory()
+        if user_memory:
+            system_prompt += user_memory
+
         # Build dynamic tool list based on project capabilities
         tools = list(self.TOOLS)  # Base tools (always available)
         if project_config and project_config.get("name"):
             tools.append(self.KB_SEARCH_TOOL)
         if project_config and project_config.get("allowed_paths"):
             tools.extend(self.FILE_TOOLS)
-        # Add bankruptcy tools for Chapter 7 project
-        if project_config and project_config.get("name") == "Chapter_7_Assistant":
-            tools.extend(self.BANKRUPTCY_TOOLS)
+        # Add extra tools from project routing config
+        routing = project_config.get("routing", {}) if project_config else {}
+        extra_tool_names = routing.get("extra_tools", [])
+        if extra_tool_names:
+            tool_defs_by_name = {t["function"]["name"]: t for t in self.BANKRUPTCY_TOOLS}
+            for tn in extra_tool_names:
+                if tn in tool_defs_by_name:
+                    tools.append(tool_defs_by_name[tn])
 
-        # AUTO-INJECT data profile for Chapter 7 financial queries
-        # Groq (Llama) ignores routing instructions, so we pre-fetch and inject
+        # GENERIC INTERCEPTORS from project routing config
+        # Process injection interceptors (inject into system prompt) and direct-return interceptors
         data_profile_context = ""
-        if (project_config and project_config.get("name") == "Chapter_7_Assistant"
-                and "get_data_profile" in self._tool_handlers):
-            query_lower = query.lower()
-            financial_keywords = [
-                "form", "fill", "income", "expense", "bank", "tax", "agi",
-                "balance", "gross", "net", "salary", "wage", "deduction",
-                "122a", "106", "107", "108", "101", "schedule",
-                "collect", "gather", "deduce", "information", "data", "need",
-                "cmi", "monthly", "means test", "median",
-                "rent", "creditor", "asset", "debt", "filing", "missing",
-                "progress", "tracker", "exempt", "lease", "vehicle",
-            ]
-            if any(kw in query_lower for kw in financial_keywords):
+        interceptors = routing.get("interceptors", {})
+        query_lower = query.lower()
+
+        # Process injection interceptors first (they add context to system prompt)
+        for iname, iconfig in interceptors.items():
+            if iconfig.get("return_directly"):
+                continue  # Handle direct-return interceptors after KB injection
+            tool_name = iconfig.get("tool", "")
+            if tool_name not in self._tool_handlers:
+                continue
+            trigger_keywords = iconfig.get("trigger_keywords", [])
+            if trigger_keywords and any(kw in query_lower for kw in trigger_keywords):
                 try:
-                    profile_result = await self._tool_handlers["get_data_profile"](section="all")
-                    profile_text = profile_result.get("answer", "")
-                    if profile_text and "No data profile found" not in profile_text:
-                        data_profile_context = f"\n\n--- DEBTOR'S VERIFIED FINANCIAL DATA (use this to answer) ---\n{profile_text}\n--- END DATA PROFILE ---"
-                        logger.info("Auto-injected data profile into Ch7 query context")
+                    tool_args = iconfig.get("tool_args", {})
+                    result = await self._tool_handlers[tool_name](**tool_args)
+                    result_text = result.get("answer", "")
+                    skip_if = iconfig.get("skip_if_contains", "")
+                    if result_text and (not skip_if or skip_if not in result_text):
+                        label = iconfig.get("inject_label", f"AUTO-INJECTED DATA ({iname})")
+                        data_profile_context = f"\n\n--- {label} ---\n{result_text}\n--- END {label.split('(')[0].strip()} ---"
+                        logger.info(f"Interceptor '{iname}' injected {len(result_text)} chars into system prompt")
                 except Exception as e:
-                    logger.warning(f"Failed to auto-inject data profile: {e}")
+                    logger.warning(f"Interceptor '{iname}' failed: {e}")
 
         # AUTO-INJECT KB context for any project with indexed documents
         kb_context = ""
@@ -1222,12 +1275,7 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
 
         # AUTO-FILL INTERCEPTOR: When user asks to fill a form, call the tool directly
         # Groq generates fake form text instead of calling fill_bankruptcy_form
-        if (project_config and project_config.get("name") == "Chapter_7_Assistant"
-                and "fill_bankruptcy_form" in self._tool_handlers):
-            query_lower = query.lower()
-
-            # Helper: extract form ID from conversation history
-            import re
+        if "fill_bankruptcy_form" in extra_tool_names and "fill_bankruptcy_form" in self._tool_handlers:
             def _extract_form_id_from_history(history):
                 """Search recent conversation for form references to determine which form user means."""
                 form_pattern = re.compile(
@@ -1263,30 +1311,28 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         return m.group(1).replace("-", "_")
                 return None
 
-        # DATA COLLECTION INTERCEPTOR: detect "what's missing" / "filing status" queries
-        if (project_config and project_config.get("name") == "Chapter_7_Assistant"
-                and "get_filing_status" in self._tool_handlers):
-            query_lower = query.lower()
-            status_patterns = [
-                "what's missing", "whats missing", "what is missing",
-                "what do i need", "what do i still need", "what else do i need",
-                "filing status", "completion status", "how complete",
-                "filing progress", "what's left", "whats left",
-                "show me progress", "show progress", "tracker status",
-            ]
-            if any(p in query_lower for p in status_patterns):
+        # DIRECT-RETURN INTERCEPTORS: match trigger phrases and return tool result directly
+        for iname, iconfig in interceptors.items():
+            if not iconfig.get("return_directly"):
+                continue
+            tool_name = iconfig.get("tool", "")
+            if tool_name not in self._tool_handlers:
+                continue
+            trigger_phrases = iconfig.get("trigger_phrases", [])
+            if trigger_phrases and any(p in query_lower for p in trigger_phrases):
                 try:
-                    result = await self._tool_handlers["get_filing_status"]()
+                    tool_args = iconfig.get("tool_args", {})
+                    result = await self._tool_handlers[tool_name](**tool_args)
                     answer = result.get("answer", "")
                     if answer:
                         return {
                             "answer": answer,
                             "sources": [],
                             "usage": {"input_tokens": 0, "output_tokens": 0},
-                            "tool_results": [{"tool": "get_filing_status", "args": {}}],
+                            "tool_results": [{"tool": tool_name, "args": tool_args}],
                         }
                 except Exception as e:
-                    logger.warning(f"Filing status interceptor failed: {e}")
+                    logger.warning(f"Direct-return interceptor '{iname}' failed: {e}")
 
         # Build messages
         messages = [{"role": "system", "content": system_prompt + data_profile_context + kb_context}]

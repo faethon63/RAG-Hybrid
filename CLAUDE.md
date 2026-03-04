@@ -9,6 +9,13 @@ A hybrid Retrieval-Augmented Generation system with **smart auto-routing**:
 - **PERPLEXITY** - Real-time web search. Used for current events, prices, news
 - **CLAUDE (Sonnet/Opus)** - Paid. Only used for complex reasoning
 
+## Second Brain Features (Added 2026-03-03)
+
+- **User Memory** (`config/project-kb/_user_memory/`): Persistent personal memory files (soul.md, user.md, interests.md, memory.md) auto-injected into all conversations. Groq has `update_user_memory` tool to auto-update when user shares personal info.
+- **PWA + Push Notifications**: Frontend is a PWA (installable on phone). Backend manages VAPID keys and push subscriptions via `backend/notifications.py`.
+- **Heartbeat** (`backend/heartbeat.py`): Background APScheduler service — periodic check (every 30min) + daily briefing (9AM). Uses Groq (free) for decisions, Perplexity for news, sends push notifications.
+- **API Endpoints**: `/api/v1/memory/*`, `/api/v1/notifications/*`, `/api/v1/heartbeat/*`
+
 ## Architecture (Updated 2026-01-31)
 
 When a project has `allowed_paths` (file access), Groq orchestrates tool use:
@@ -50,6 +57,8 @@ RAG-Hybrid/
     search_integrations.py # Claude, Perplexity (free), Tavily APIs
     orchestrator.py       # Query analysis, model selection
     file_tools.py         # Secure file operations for projects
+    notifications.py      # Push notification service (VAPID, subscriptions)
+    heartbeat.py          # Proactive heartbeat (APScheduler, daily briefing)
   frontend-react/          # React frontend
     src/
       components/         # React components (chat, sidebar, settings)
@@ -386,6 +395,40 @@ cd G:\AI-Project\RAG-Hybrid
 
 **Required packages not in requirements.txt:**
 - `pypdf` - For PDF text extraction during indexing
+
+## Form Filling Skills (AUTO-INVOKE)
+
+When the user asks to fill, verify, audit, or fix bankruptcy forms, AUTOMATICALLY invoke the corresponding skill. Do NOT ask the user to type the slash command -- just invoke it.
+
+| User says | Invoke |
+|-----------|--------|
+| "fill the forms" / "generate the package" / "fill form 101" / "regenerate forms" | `/fill-forms` |
+| "smart fill" / "AI fill" / "fill the gaps" / "fill unmapped fields" | `/smart-fill` |
+| "verify the forms" / "check the forms" / "run verification" | `/verify-forms` |
+| "audit form 101" / "review form 101" / "check form 101 for errors" | `/audit-form 101` |
+| "fix form 101" / "correct form 101" | `/fix-form 101` |
+| "approve form 101" / "form 101 looks good" / "101 is approved" | `/approve-form 101` |
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `backend/form_utils.py` | Shared logic: path resolution, value formatting, data loading |
+| `backend/form_context.py` | Form context builder: extracts text, fields, profile slices for AI agents |
+| `backend/rules_engine.py` | SaaS rules engine: evaluates rule-based mappings against any profile |
+| `backend/form_mappings/form_*.json` | Static field mappings (auto-discovered by glob) |
+| `backend/form_rules/form_*_rules.json` | Rule-based mappings (SaaS format, from /approve-form) |
+| `scripts/generate_filing_package.py` | Mechanical fill: all forms from data_profile.json |
+| `scripts/ai_fill_form.py` | AI fill: heuristics + AI reasoning for unmapped fields |
+| `scripts/capture_rules.py` | Convert AI reasoning into reusable SaaS rules |
+| `scripts/verify_filled_forms.py` | Mechanical verification (expected vs actual PDF values) |
+| `backend/form_filler_engine.py` | API-based form fill engine (used by tools) |
+| `data/project-kb/Chapter_7_Assistant/filing_package/` | Output: filled forms, verification results, AI reasoning |
+| `docs/form_playbooks/form_*_playbook.md` | Decision playbooks: how/why each field was filled |
+
+### Verification is mandatory
+
+After ANY form fill or mapping change, ALWAYS run `verify_filled_forms.py`. Never declare forms "done" without verification passing.
 
 ## Model Storage
 
