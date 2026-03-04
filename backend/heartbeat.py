@@ -297,6 +297,29 @@ Respond with ONLY valid JSON:
                 resp.raise_for_status()
                 briefing = resp.json()["choices"][0]["message"]["content"].strip()
 
+            # Step 3.5: Append pending brain_items (Second Brain nudges)
+            try:
+                from session_review import _get_db_connection
+                conn = _get_db_connection()
+                if conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT type, title, content FROM brain_items
+                            WHERE status NOT IN ('resolved', 'shelved')
+                            AND next_action_at <= NOW()
+                            ORDER BY priority DESC LIMIT 5
+                        """)
+                        pending = cur.fetchall()
+                    conn.close()
+                    if pending:
+                        nudge_text = "\n\n**Pending items:**\n" + "\n".join(
+                            f"- [{row[0]}] {row[1]}" for row in pending
+                        )
+                        briefing += nudge_text
+                        logger.info(f"Daily briefing: added {len(pending)} brain_items nudges")
+            except Exception as e:
+                logger.warning(f"Brain items nudge query failed: {e}")
+
             # Step 4: Send notification
             from notifications import send_push_notification
             await send_push_notification(

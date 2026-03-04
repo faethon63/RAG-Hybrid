@@ -1670,47 +1670,24 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                     # Always strip citation markers from final answer
                     answer = _strip_citation_markers(answer)
 
-                    # MEMORY CHECK: Give Groq a second chance to call update_user_memory.
-                    # Passthrough logic (web_search, Claude) short-circuits the tool loop,
-                    # so Groq never gets to make a second tool call. This lightweight follow-up
-                    # lets Groq decide if the user's message contains personal info to save.
-                    memory_already_called = any(tc.get("tool") == "update_user_memory" for tc in all_tool_calls)
-                    if not memory_already_called and "update_user_memory" in self._tool_handlers:
-                        try:
-                            memory_only_tools = [t for t in tools if t["function"]["name"] == "update_user_memory"]
-                            memory_check_messages = [
-                                {"role": "system", "content": (
-                                    "You are a memory assistant. The user just sent a message. "
-                                    "If it contains ANY personal information worth remembering "
-                                    "(plans, corrections, preferences, facts about themselves, goals, "
-                                    "health, location, relationships, decisions), call update_user_memory. "
-                                    "If there's nothing personal to save, respond with just 'no_update'."
-                                )},
-                                {"role": "user", "content": query}
-                            ]
-                            client = await self._get_client()
-                            mem_resp = await client.post(
-                                self.GROQ_API_URL,
-                                headers={"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}",
-                                         "Content-Type": "application/json"},
-                                json={"model": self.GROQ_MODEL, "messages": memory_check_messages,
-                                      "tools": memory_only_tools, "tool_choice": "auto",
-                                      "max_tokens": 500, "temperature": 0.1},
-                                timeout=10.0
+                    # SESSION REVIEW PIPELINE: Fire-and-forget async task
+                    # Replaces the old MEMORY CHECK block with a full triage pipeline:
+                    # Stage 1 (Groq): classify interaction → Stage 2 (Groq): save to memory/brain_items
+                    # Stage 3 (Claude Haiku): deep review (only for factual concerns, ~10%)
+                    # Runs after response is returned — no delay for the user.
+                    try:
+                        from session_review import run_review_pipeline
+                        memory_handler = self._tool_handlers.get("update_user_memory")
+                        asyncio.create_task(
+                            run_review_pipeline(
+                                query=query,
+                                answer=answer,
+                                memory_handler=memory_handler,
                             )
-                            mem_data = mem_resp.json()
-                            mem_msg = mem_data.get("choices", [{}])[0].get("message", {})
-                            mem_tool_calls = mem_msg.get("tool_calls", [])
-                            for tc in mem_tool_calls:
-                                func = tc.get("function", {})
-                                if func.get("name") == "update_user_memory":
-                                    args = json.loads(func.get("arguments", "{}"))
-                                    logger.info(f"MEMORY CHECK: Groq wants to save: {args}")
-                                    await self._tool_handlers["update_user_memory"](**args)
-                                    all_tool_calls.append({"tool": "update_user_memory", "args": args})
-                                    logger.info("MEMORY CHECK: Successfully saved user info")
-                        except Exception as e:
-                            logger.warning(f"MEMORY CHECK: Failed: {e}")
+                        )
+                        logger.debug("Session review pipeline launched (fire-and-forget)")
+                    except Exception as e:
+                        logger.warning(f"Session review launch failed: {e}")
 
                     return {
                         "answer": answer,

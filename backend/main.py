@@ -48,6 +48,7 @@ from auth import authenticate_user
 from query_classifier import QueryClassifier, classify_query
 
 logging.basicConfig(level=get_log_level())
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI
 app = FastAPI(
