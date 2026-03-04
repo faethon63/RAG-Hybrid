@@ -111,6 +111,8 @@ RAG-Hybrid/
 6. **ALWAYS Read a file before modifying it** - Even for "simple" changes. The file may have local modifications not in git.
 7. **When making large changes, use multiple small Edits** - Not one big Write. This preserves existing code the user may have customized.
 8. **ALWAYS push changes to deploy to VPS** - After making frontend or backend changes, commit and push to main. GitHub Actions auto-deploys to VPS. Local-only changes are useless if the user expects them on VPS too.
+9. **NEVER implement a feature without first verifying it doesn't already exist** - This project has had numerous sessions. Features like push notifications, heartbeat, user memory, file editor, and form filling are ALREADY BUILT. Before writing any code, use Glob/Read to check if the relevant files exist and contain the feature logic. Read MEMORY.md's "Completed Features Registry" first. Re-implementing existing features wastes time and may overwrite working code.
+10. **This system is BUILT — you are in MAINTENANCE mode.** Your job is bug fixes and incremental improvements. When you see a feature description (in plans, summaries, or messages), your FIRST response must be "does this exist?" not "let me build this." If you find yourself creating new files for features listed in the Completed Features Registry, STOP — you are re-implementing.
 
 ## User Profile
 

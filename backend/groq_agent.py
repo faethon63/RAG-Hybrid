@@ -714,6 +714,13 @@ Source: https://coinmarketcap.com/..."
 BAD RESPONSE (NEVER DO THIS):
 "Bitcoin is around $63,000" (Making up a number not in the tool results)
 
+## Memory Updates
+When the user shares, corrects, or updates personal information (name, location, plans,
+preferences, goals, relationships, decisions), you MUST call `update_user_memory` to save it.
+Do NOT just acknowledge it conversationally — save it first, then respond.
+Examples of triggers: "I live in...", "I'm planning to...", "Actually, I...", "My name is...",
+"I decided to...", "I'm interested in...", "Correction: ..."
+
 {kb_instructions}
 
 {project_instructions}"""

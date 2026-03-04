@@ -3433,7 +3433,10 @@ async def unsubscribe_push(request: Request):
 async def send_notification(request: Request):
     """Send a push notification (for testing or internal use)."""
     from notifications import send_push_notification
-    body = await request.json()
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
     title = body.get("title", "RAG-Hybrid")
     msg = body.get("body", body.get("message", ""))
     url = body.get("url", "/")
