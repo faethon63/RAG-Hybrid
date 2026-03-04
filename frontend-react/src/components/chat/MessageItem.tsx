@@ -45,7 +45,6 @@ export function MessageItem({ message, isFirstMessage, autoPlayTTS, onEdit, onDe
   const { thinking, content } = parseThinking(message.content);
   const meta = message.metadata;
 
-  const voiceConversationMode = useChatStore((s) => s.voiceConversationMode);
   const setShouldAutoRecord = useChatStore((s) => s.setShouldAutoRecord);
 
   // Auto-play TTS when response arrives from voice input
