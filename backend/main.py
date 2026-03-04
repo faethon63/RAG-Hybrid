@@ -3822,7 +3822,7 @@ async def transcribe_audio(file: UploadFile):
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {groq_key}"},
                 files={"file": (f"recording.{ext}", audio_data, file.content_type or "audio/webm")},
-                data={"model": "whisper-large-v3", "response_format": "verbose_json"},
+                data={"model": "whisper-large-v3", "response_format": "verbose_json", "language": "en"},
             )
 
         if response.status_code != 200:
