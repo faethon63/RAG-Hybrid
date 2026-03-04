@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -6,6 +6,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { Message } from '../../types/api';
 import { parseThinking, formatTokens, formatCost, formatTime, formatConfidence } from '../../utils/parseThinking';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import {
   UserIcon,
   BotIcon,
@@ -16,17 +17,20 @@ import {
   EditIcon,
   TrashIcon,
   CloseIcon,
+  VolumeIcon,
+  VolumeOffIcon,
 } from '../common/icons';
 import clsx from 'clsx';
 
 interface MessageItemProps {
   message: Message;
   isFirstMessage?: boolean;
+  autoPlayTTS?: boolean;
   onEdit?: (id: string, content: string, regenerate: boolean) => void;
   onDelete?: (id: string) => void;
 }
 
-export function MessageItem({ message, isFirstMessage, onEdit, onDelete }: MessageItemProps) {
+export function MessageItem({ message, isFirstMessage, autoPlayTTS, onEdit, onDelete }: MessageItemProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -34,10 +38,19 @@ export function MessageItem({ message, isFirstMessage, onEdit, onDelete }: Messa
   const [editContent, setEditContent] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const showThinking = useSettingsStore((s) => s.showThinking);
+  const { speak, stop, isSpeaking, isAvailable: ttsAvailable } = useSpeechSynthesis();
 
   const isUser = message.role === 'user';
   const { thinking, content } = parseThinking(message.content);
   const meta = message.metadata;
+
+  // Auto-play TTS when response arrives from voice input
+  useEffect(() => {
+    if (autoPlayTTS && !isUser && content && ttsAvailable) {
+      const timer = setTimeout(() => speak(content), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [autoPlayTTS]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -308,56 +321,85 @@ export function MessageItem({ message, isFirstMessage, onEdit, onDelete }: Messa
             </div>
           )}
 
-          {/* Action bar - hover to show */}
+          {/* Action bar - hover to show on desktop, always show Listen on mobile for assistant */}
           {!isEditing && (
-            <div className="mt-2 flex items-center gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
-              <button
-                onClick={handleStartEdit}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] rounded transition-colors"
-                title="Edit"
-              >
-                <EditIcon className="w-3 h-3" />
-                <span>Edit</span>
-              </button>
-              <button
-                onClick={handleDeleteClick}
-                className={clsx(
-                  'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
-                  confirmDelete
-                    ? 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
-                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]'
-                )}
-                title={confirmDelete ? 'Click again to confirm delete' : 'Delete'}
-              >
-                {confirmDelete ? (
-                  <>
-                    <CheckIcon className="w-3 h-3" />
-                    <span>Confirm?</span>
-                  </>
-                ) : (
-                  <>
-                    <TrashIcon className="w-3 h-3" />
-                    <span>Delete</span>
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] rounded transition-colors"
-                title="Copy"
-              >
-                {copied ? (
-                  <>
-                    <CheckIcon className="w-3 h-3" />
-                    <span>Copied</span>
-                  </>
-                ) : (
-                  <>
-                    <CopyIcon className="w-3 h-3" />
-                    <span>Copy</span>
-                  </>
-                )}
-              </button>
+            <div className="mt-2 flex items-center gap-1">
+              {/* TTS button - always visible on mobile for assistant messages */}
+              {!isUser && ttsAvailable && (
+                <button
+                  onClick={isSpeaking ? stop : () => speak(content)}
+                  className={clsx(
+                    'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
+                    isSpeaking
+                      ? 'text-[var(--color-primary)] bg-[var(--color-primary)]/10'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] md:opacity-0 md:group-hover/msg:opacity-100'
+                  )}
+                  title={isSpeaking ? 'Stop listening' : 'Listen'}
+                  style={{ minHeight: 36, minWidth: 36 }}
+                >
+                  {isSpeaking ? (
+                    <>
+                      <VolumeOffIcon className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Stop</span>
+                    </>
+                  ) : (
+                    <>
+                      <VolumeIcon className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Listen</span>
+                    </>
+                  )}
+                </button>
+              )}
+              {/* Other actions - hover only */}
+              <div className="flex items-center gap-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
+                <button
+                  onClick={handleStartEdit}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] rounded transition-colors"
+                  title="Edit"
+                >
+                  <EditIcon className="w-3 h-3" />
+                  <span>Edit</span>
+                </button>
+                <button
+                  onClick={handleDeleteClick}
+                  className={clsx(
+                    'flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors',
+                    confirmDelete
+                      ? 'text-red-400 bg-red-500/10 hover:bg-red-500/20'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]'
+                  )}
+                  title={confirmDelete ? 'Click again to confirm delete' : 'Delete'}
+                >
+                  {confirmDelete ? (
+                    <>
+                      <CheckIcon className="w-3 h-3" />
+                      <span>Confirm?</span>
+                    </>
+                  ) : (
+                    <>
+                      <TrashIcon className="w-3 h-3" />
+                      <span>Delete</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleCopy}
+                  className="flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] rounded transition-colors"
+                  title="Copy"
+                >
+                  {copied ? (
+                    <>
+                      <CheckIcon className="w-3 h-3" />
+                      <span>Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon className="w-3 h-3" />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
         </div>

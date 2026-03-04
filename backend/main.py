@@ -3777,6 +3777,79 @@ async def sync_push_collection_to_vps(
 
 
 # ============================================================================
+# VOICE / TRANSCRIPTION
+# ============================================================================
+
+@app.post("/api/v1/transcribe")
+async def transcribe_audio(file: UploadFile):
+    """Transcribe audio using Groq Whisper API (free)."""
+    import httpx
+
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if not groq_key:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+
+    # Validate file type
+    allowed_types = {"audio/webm", "audio/mp3", "audio/mpeg", "audio/wav",
+                     "audio/mp4", "audio/m4a", "audio/ogg", "audio/x-m4a",
+                     "video/webm", "audio/webm;codecs=opus"}
+    content_type = (file.content_type or "").split(";")[0].strip()
+    # Be lenient: allow any audio/* or video/webm (Chrome records webm as video/webm)
+    if not (content_type.startswith("audio/") or content_type == "video/webm"):
+        raise HTTPException(status_code=422, detail=f"Unsupported audio format: {file.content_type}")
+
+    # Read and validate size (<25MB Groq limit)
+    audio_data = await file.read()
+    if len(audio_data) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio file too large (max 25MB)")
+    if len(audio_data) < 100:
+        raise HTTPException(status_code=422, detail="Audio file too small / empty recording")
+
+    # Determine filename extension for Groq
+    ext = "webm"
+    if "mp3" in (file.content_type or "") or "mpeg" in (file.content_type or ""):
+        ext = "mp3"
+    elif "wav" in (file.content_type or ""):
+        ext = "wav"
+    elif "m4a" in (file.content_type or "") or "mp4" in (file.content_type or ""):
+        ext = "m4a"
+    elif "ogg" in (file.content_type or ""):
+        ext = "ogg"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {groq_key}"},
+                files={"file": (f"recording.{ext}", audio_data, file.content_type or "audio/webm")},
+                data={"model": "whisper-large-v3", "response_format": "verbose_json"},
+            )
+
+        if response.status_code != 200:
+            logger.error(f"Groq transcription failed: {response.status_code} {response.text}")
+            raise HTTPException(status_code=502, detail=f"Groq transcription failed: {response.text[:200]}")
+
+        result = response.json()
+        text = result.get("text", "").strip()
+        if not text:
+            raise HTTPException(status_code=422, detail="No speech detected in recording")
+
+        return {
+            "text": text,
+            "language": result.get("language", "unknown"),
+            "duration": result.get("duration", 0),
+        }
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Groq transcription timed out")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Transcription error: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
+
+# ============================================================================
 # STARTUP/SHUTDOWN
 # ============================================================================
 

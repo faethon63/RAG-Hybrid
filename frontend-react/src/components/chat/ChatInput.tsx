@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useSettingsStore, MODE_OPTIONS } from '../../stores/settingsStore';
 import { useProjectStore } from '../../stores/projectStore';
-import { SendIcon, LoaderIcon, UploadIcon, CloseIcon, FileIcon } from '../common/icons';
+import { api } from '../../api/client';
+import { SendIcon, LoaderIcon, UploadIcon, CloseIcon, FileIcon, MicIcon, StopIcon } from '../common/icons';
 import clsx from 'clsx';
 
 // Color mapping for each mode
@@ -26,11 +27,19 @@ export function ChatInput() {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const isLoading = useChatStore((s) => s.isLoading);
   const sendQuery = useChatStore((s) => s.sendQuery);
+  const setLastInputWasVoice = useChatStore((s) => s.setLastInputWasVoice);
   const lastAttachedFiles = useChatStore((s) => s.lastAttachedFiles);
   const mode = useSettingsStore((s) => s.mode);
   const setMode = useSettingsStore((s) => s.setMode);
@@ -157,6 +166,89 @@ export function ChatInput() {
     setAttachments((prev) => prev.filter((f) => f.id !== id));
   };
 
+  // Voice recording
+  const stopRecordingCleanup = useCallback(() => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setIsRecording(false);
+    setRecordingTime(0);
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stopRecordingCleanup();
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (blob.size < 100) return; // Empty recording
+
+        setIsTranscribing(true);
+        try {
+          const result = await api.transcribeAudio(blob);
+          if (result.text) {
+            // Auto-send the transcribed text
+            setLastInputWasVoice(true);
+            await sendQuery(result.text, mode, model, currentProject);
+          }
+        } catch (err) {
+          console.error('Transcription failed:', err);
+          const msg = err instanceof Error ? err.message : 'Transcription failed';
+          useChatStore.getState().setError(`Voice: ${msg}`);
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      mediaRecorder.start(250); // Collect chunks every 250ms
+      setIsRecording(true);
+
+      // Timer for elapsed display
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Mic access failed:', err);
+      useChatStore.getState().setError('Microphone access denied. Check browser permissions.');
+    }
+  }, [mode, model, currentProject, sendQuery, setLastInputWasVoice, stopRecordingCleanup]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopRecordingCleanup();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, [stopRecordingCleanup]);
+
   const handleSubmit = async () => {
     const query = input.trim();
     if ((!query && attachments.length === 0) || isLoading) return;
@@ -250,6 +342,35 @@ export function ChatInput() {
             className="hidden"
           />
 
+          {/* Recording indicator overlay */}
+          {isRecording && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-surface)] rounded-2xl border-2 border-red-500 z-10">
+              <div className="flex items-center gap-3">
+                <span className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                <span className="text-red-400 font-medium">
+                  {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
+                </span>
+                <button
+                  onClick={stopRecording}
+                  className="p-3 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                  style={{ minWidth: 48, minHeight: 48 }}
+                >
+                  <StopIcon className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Transcribing indicator */}
+          {isTranscribing && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-surface)] rounded-2xl border border-[var(--color-primary)] z-10">
+              <div className="flex items-center gap-2 text-[var(--color-primary)]">
+                <LoaderIcon className="w-5 h-5 animate-spin" />
+                <span>Transcribing...</span>
+              </div>
+            </div>
+          )}
+
           <textarea
             ref={textareaRef}
             value={input}
@@ -257,20 +378,42 @@ export function ChatInput() {
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={isDragging ? 'Drop files here...' : 'Ask anything... (paste images, drop files)'}
-            disabled={isLoading}
+            disabled={isLoading || isRecording || isTranscribing}
             rows={1}
             className={clsx(
               'flex-1 bg-transparent py-3 text-[var(--color-text)] placeholder-[var(--color-text-secondary)]',
               'resize-none outline-none min-h-[48px] max-h-[200px]',
-              isLoading && 'opacity-50'
+              (isLoading || isRecording || isTranscribing) && 'opacity-50'
             )}
           />
+
+          {/* Mic button */}
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={isLoading || isTranscribing}
+            className={clsx(
+              'p-2 m-1 rounded-lg transition-all flex-shrink-0',
+              isRecording
+                ? 'bg-red-500 text-white'
+                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
+            )}
+            title={isRecording ? 'Stop recording' : 'Voice input'}
+            style={{ minWidth: 44, minHeight: 44 }}
+          >
+            {isRecording ? (
+              <StopIcon className="w-5 h-5" />
+            ) : (
+              <MicIcon className="w-5 h-5" />
+            )}
+          </button>
+
+          {/* Send button */}
           <button
             onClick={handleSubmit}
-            disabled={(!input.trim() && attachments.length === 0) || isLoading}
+            disabled={(!input.trim() && attachments.length === 0) || isLoading || isRecording || isTranscribing}
             className={clsx(
               'p-2 m-2 rounded-lg transition-all',
-              (input.trim() || attachments.length > 0) && !isLoading
+              (input.trim() || attachments.length > 0) && !isLoading && !isRecording && !isTranscribing
                 ? 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)]'
                 : 'bg-transparent text-[var(--color-text-secondary)] cursor-not-allowed'
             )}

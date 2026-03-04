@@ -13,6 +13,8 @@ export function ChatContainer() {
   const editMessage = useChatStore((s) => s.editMessage);
   const editAndRegenerate = useChatStore((s) => s.editAndRegenerate);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
+  const lastInputWasVoice = useChatStore((s) => s.lastInputWasVoice);
+  const setLastInputWasVoice = useChatStore((s) => s.setLastInputWasVoice);
   const currentProject = useProjectStore((s) => s.currentProject);
   const mode = useSettingsStore((s) => s.mode);
   const model = useSettingsStore((s) => s.model);
@@ -29,6 +31,15 @@ export function ChatContainer() {
   const handleDelete = useCallback((id: string) => {
     deleteMessage(id, currentProject);
   }, [deleteMessage, currentProject]);
+
+  // Reset voice flag after assistant message arrives (so auto-play only fires once)
+  useEffect(() => {
+    if (lastInputWasVoice && !isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+      // Reset after a small delay to allow the auto-play effect to fire first
+      const timer = setTimeout(() => setLastInputWasVoice(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [lastInputWasVoice, isLoading, messages, setLastInputWasVoice]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -53,9 +64,23 @@ export function ChatContainer() {
           </div>
         ) : (
           <div className="pb-4">
-            {messages.map((message, index) => (
-              <MessageItem key={message.id} message={message} isFirstMessage={index === 0} onEdit={handleEdit} onDelete={handleDelete} />
-            ))}
+            {messages.map((message, index) => {
+              // Auto-play TTS on the last assistant message when voice input was used
+              const isLastAssistant = !isLoading
+                && message.role === 'assistant'
+                && index === messages.length - 1
+                && lastInputWasVoice;
+              return (
+                <MessageItem
+                  key={message.id}
+                  message={message}
+                  isFirstMessage={index === 0}
+                  autoPlayTTS={isLastAssistant}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                />
+              );
+            })}
 
             {/* Loading indicator */}
             {isLoading && (

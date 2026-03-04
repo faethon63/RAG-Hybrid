@@ -25,6 +25,9 @@ interface ChatState {
   // Persisted files for follow-up questions
   lastAttachedFiles: AttachedFile[];
 
+  // Voice input tracking
+  lastInputWasVoice: boolean;
+
   // Actions
   addMessage: (message: Message) => void;
   updateLastMessage: (content: string) => void;
@@ -35,6 +38,7 @@ interface ChatState {
   setError: (error: string | null) => void;
   setLastSources: (sources: Source[]) => void;
   setLastAgentSteps: (steps: AgentStep[]) => void;
+  setLastInputWasVoice: (wasVoice: boolean) => void;
 
   // Message editing
   editMessage: (messageId: string, newContent: string, project?: string | null) => Promise<void>;
@@ -80,6 +84,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   lastSources: [],
   lastAgentSteps: [],
   lastAttachedFiles: [],
+  lastInputWasVoice: false,
 
   addMessage: (message) =>
     set((state) => ({
@@ -97,12 +102,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   setMessages: (messages) => set({ messages }),
-  clearMessages: () => set({ messages: [], currentChatId: null, lastSources: [], lastAgentSteps: [], lastAttachedFiles: [] }),
+  clearMessages: () => set({ messages: [], currentChatId: null, lastSources: [], lastAgentSteps: [], lastAttachedFiles: [], lastInputWasVoice: false }),
   setCurrentChatId: (id) => set({ currentChatId: id }),
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
   setLastSources: (sources) => set({ lastSources: sources }),
   setLastAgentSteps: (steps) => set({ lastAgentSteps: steps }),
+  setLastInputWasVoice: (wasVoice) => set({ lastInputWasVoice: wasVoice }),
 
   editMessage: async (messageId, newContent, project) => {
     set((state) => ({
@@ -302,6 +308,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       lastSources: [],
       lastAgentSteps: [],
       lastAttachedFiles: [],
+      lastInputWasVoice: false,
       error: null,
     });
   },

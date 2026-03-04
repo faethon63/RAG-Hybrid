@@ -255,6 +255,23 @@ export const api = {
       body: JSON.stringify(config),
     }),
 
+  // Voice transcription
+  transcribeAudio: async (audioBlob: Blob): Promise<{ text: string; language: string; duration: number }> => {
+    const formData = new FormData();
+    formData.append('file', audioBlob, 'recording.webm');
+    const response = await fetch(`${API_BASE}/transcribe`, {
+      method: 'POST',
+      ...(API_KEY && { headers: { 'X-API-Key': API_KEY } }),
+      body: formData,
+    });
+    if (!response.ok) {
+      let body: unknown;
+      try { body = await response.json(); } catch { body = await response.text(); }
+      throw new ApiError(response.status, response.statusText, body);
+    }
+    return response.json();
+  },
+
   // Remote Control
   getRemoteControlStatus: () =>
     request<{

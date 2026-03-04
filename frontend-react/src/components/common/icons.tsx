@@ -30,6 +30,10 @@ import {
   Save,
   Monitor,
   Smartphone,
+  Mic,
+  Square,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 
 export {
@@ -64,4 +68,8 @@ export {
   Save as SaveIcon,
   Monitor as MonitorIcon,
   Smartphone as SmartphoneIcon,
+  Mic as MicIcon,
+  Square as StopIcon,
+  Volume2 as VolumeIcon,
+  VolumeX as VolumeOffIcon,
 };
