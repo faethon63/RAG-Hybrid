@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { useProjectStore } from '../../stores/projectStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { api } from '../../api/client';
 import { ChatIcon, TrashIcon, LoaderIcon, EditIcon, CheckIcon, CloseIcon, MoveIcon, SearchIcon } from '../common/icons';
 import clsx from 'clsx';
@@ -19,6 +20,7 @@ export function ChatList() {
   const clearSearch = useChatStore((s) => s.clearSearch);
   const setSearchQuery = useChatStore((s) => s.setSearchQuery);
   const currentProject = useProjectStore((s) => s.currentProject);
+  const setSidebarOpen = useSettingsStore((s) => s.setSidebarOpen);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -265,10 +267,12 @@ export function ChatList() {
               if (isSearching) {
                 loadChat(chat.id);
                 clearSearch();
+                if (window.innerWidth < 768) setSidebarOpen(false);
               } else if (selectionMode) {
                 toggleSelection({ stopPropagation: () => {} } as React.MouseEvent, chat.id);
               } else if (editingId !== chat.id) {
                 loadChat(chat.id);
+                if (window.innerWidth < 768) setSidebarOpen(false);
               }
             }}
             onContextMenu={(e) => { e.preventDefault(); enterSelectionMode(e, chat.id); }}
