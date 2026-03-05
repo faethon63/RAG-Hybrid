@@ -36,6 +36,9 @@ export function ChatInput() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const silenceStartRef = useRef<number | null>(null);
+  const silenceRafRef = useRef<number | null>(null);
 
   const isLoading = useChatStore((s) => s.isLoading);
   const sendQuery = useChatStore((s) => s.sendQuery);
@@ -178,6 +181,15 @@ export function ChatInput() {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
     }
+    if (silenceRafRef.current) {
+      cancelAnimationFrame(silenceRafRef.current);
+      silenceRafRef.current = null;
+    }
+    silenceStartRef.current = null;
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
@@ -246,6 +258,65 @@ export function ChatInput() {
       recordingTimerRef.current = setInterval(() => {
         setRecordingTime(t => t + 1);
       }, 1000);
+
+      // Silence detection (only in voice conversation mode)
+      if (useChatStore.getState().voiceConversationMode) {
+        try {
+          const audioCtx = new AudioContext();
+          audioContextRef.current = audioCtx;
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 512;
+          source.connect(analyser);
+
+          const dataArray = new Uint8Array(analyser.fftSize);
+          const SILENCE_THRESHOLD = 12; // RMS below this = silence
+          const SILENCE_DURATION_MS = 2000; // 2 seconds of silence before auto-stop
+          const MIN_RECORD_MS = 1000; // Don't auto-stop before 1 second of recording
+          const recordStartTime = Date.now();
+          silenceStartRef.current = null;
+
+          const checkSilence = () => {
+            if (!audioContextRef.current) return; // Cleaned up
+
+            analyser.getByteTimeDomainData(dataArray);
+            // Calculate RMS
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const val = (dataArray[i] - 128) / 128;
+              sum += val * val;
+            }
+            const rms = Math.sqrt(sum / dataArray.length) * 255;
+
+            if (rms < SILENCE_THRESHOLD) {
+              // Silence detected
+              if (silenceStartRef.current === null) {
+                silenceStartRef.current = Date.now();
+              } else {
+                const silenceDuration = Date.now() - silenceStartRef.current;
+                const recordDuration = Date.now() - recordStartTime;
+                if (silenceDuration >= SILENCE_DURATION_MS && recordDuration >= MIN_RECORD_MS) {
+                  // Auto-stop after sustained silence
+                  if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                    mediaRecorderRef.current.stop();
+                  }
+                  return; // Stop the loop
+                }
+              }
+            } else {
+              // Sound detected — reset silence timer
+              silenceStartRef.current = null;
+            }
+
+            silenceRafRef.current = requestAnimationFrame(checkSilence);
+          };
+
+          silenceRafRef.current = requestAnimationFrame(checkSilence);
+        } catch (err) {
+          console.warn('Silence detection unavailable:', err);
+          // Non-critical — recording works fine without it
+        }
+      }
     } catch (err) {
       console.error('Mic access failed:', err);
       useChatStore.getState().setError('Microphone access denied. Check browser permissions.');
