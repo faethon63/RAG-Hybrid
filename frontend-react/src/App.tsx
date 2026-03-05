@@ -15,12 +15,16 @@ function App() {
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const checkHealth = useSettingsStore((s) => s.checkHealth);
   const loadChats = useChatStore((s) => s.loadChats);
+  const loadChat = useChatStore((s) => s.loadChat);
 
   useEffect(() => {
     loadSettings();
     checkHealth();
     loadChats();
-  }, [loadSettings, checkHealth, loadChats]);
+    // Restore last open chat on refresh
+    const savedChatId = localStorage.getItem('rag-currentChatId');
+    if (savedChatId) loadChat(savedChatId);
+  }, [loadSettings, checkHealth, loadChats, loadChat]);
 
   return (
     <div className="h-screen flex bg-[var(--color-background)]">

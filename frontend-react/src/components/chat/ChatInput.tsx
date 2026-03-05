@@ -340,16 +340,14 @@ export function ChatInput() {
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
         >
-          {/* Sidebar toggle - visible on mobile/tablet when sidebar is closed */}
-          {!sidebarOpen && (
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="p-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
-              title="Open sidebar"
-            >
-              <MenuIcon className="w-5 h-5" />
-            </button>
-          )}
+          {/* Sidebar toggle - visible on mobile/tablet */}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
+            title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          >
+            <MenuIcon className="w-5 h-5" />
+          </button>
 
           {/* File upload button */}
           <button

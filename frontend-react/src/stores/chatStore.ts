@@ -108,8 +108,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   setMessages: (messages) => set({ messages }),
-  clearMessages: () => set({ messages: [], currentChatId: null, lastSources: [], lastAgentSteps: [], lastAttachedFiles: [], lastInputWasVoice: false }),
-  setCurrentChatId: (id) => set({ currentChatId: id }),
+  clearMessages: () => {
+    set({ messages: [], currentChatId: null, lastSources: [], lastAgentSteps: [], lastAttachedFiles: [], lastInputWasVoice: false });
+    localStorage.removeItem('rag-currentChatId');
+  },
+  setCurrentChatId: (id) => {
+    set({ currentChatId: id });
+    if (id) localStorage.setItem('rag-currentChatId', id);
+    else localStorage.removeItem('rag-currentChatId');
+  },
   setLoading: (loading) => set({ isLoading: loading }),
   setError: (error) => set({ error }),
   setLastSources: (sources) => set({ lastSources: sources }),
@@ -261,6 +268,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages,
         isLoading: false,
       });
+      localStorage.setItem('rag-currentChatId', chatId);
     } catch (err) {
       console.error('Failed to load chat:', err);
       set({ error: 'Failed to load chat', isLoading: false });
@@ -288,6 +296,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       } else {
         const response = await api.createChat(chatData);
         set({ currentChatId: response.chat.id });
+        localStorage.setItem('rag-currentChatId', response.chat.id);
       }
       // Refresh chat list so sidebar shows the new/updated chat
       await loadChats(project);
@@ -303,6 +312,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ chats: chats.filter((c) => c.id !== chatId) });
       if (currentChatId === chatId) {
         set({ currentChatId: null, messages: [] });
+        localStorage.removeItem('rag-currentChatId');
       }
     } catch (err) {
       console.error('Failed to delete chat:', err);
@@ -319,6 +329,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       lastInputWasVoice: false,
       error: null,
     });
+    localStorage.removeItem('rag-currentChatId');
   },
 
   sendQuery: async (query, mode, model, project, files) => {
