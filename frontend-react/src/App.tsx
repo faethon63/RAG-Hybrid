@@ -38,16 +38,6 @@ function App() {
           </div>
         )}
         <ChatContainer />
-        {/* Floating sidebar button - bottom left on mobile/tablet when sidebar is closed */}
-        {!sidebarOpen && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="fixed bottom-20 left-3 z-30 p-3 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-full shadow-lg hover:bg-[var(--color-surface-hover)] transition-colors lg:hidden"
-            style={{ minHeight: 48, minWidth: 48 }}
-          >
-            <MenuIcon className="w-6 h-6" />
-          </button>
-        )}
       </main>
       <SettingsPanel />
       <ProjectForm />

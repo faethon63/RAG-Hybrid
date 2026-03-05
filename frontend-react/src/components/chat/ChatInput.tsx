@@ -3,7 +3,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { useSettingsStore, MODE_OPTIONS } from '../../stores/settingsStore';
 import { useProjectStore } from '../../stores/projectStore';
 import { api } from '../../api/client';
-import { SendIcon, LoaderIcon, UploadIcon, CloseIcon, FileIcon, MicIcon, StopIcon } from '../common/icons';
+import { SendIcon, LoaderIcon, UploadIcon, CloseIcon, FileIcon, MicIcon, StopIcon, MenuIcon } from '../common/icons';
 import clsx from 'clsx';
 
 // Color mapping for each mode
@@ -49,6 +49,8 @@ export function ChatInput() {
   const setMode = useSettingsStore((s) => s.setMode);
   const model = useSettingsStore((s) => s.model);
   const health = useSettingsStore((s) => s.health);
+  const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
+  const setSidebarOpen = useSettingsStore((s) => s.setSidebarOpen);
   const currentProject = useProjectStore((s) => s.currentProject);
 
   const ollamaAvailable = health?.services?.ollama ?? false;
@@ -338,6 +340,17 @@ export function ChatInput() {
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
         >
+          {/* Sidebar toggle - visible on mobile/tablet when sidebar is closed */}
+          {!sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="p-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors lg:hidden"
+              title="Open sidebar"
+            >
+              <MenuIcon className="w-5 h-5" />
+            </button>
+          )}
+
           {/* File upload button */}
           <button
             onClick={() => fileInputRef.current?.click()}
