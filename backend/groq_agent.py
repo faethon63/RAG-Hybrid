@@ -382,7 +382,7 @@ class GroqAgent:
             "type": "function",
             "function": {
                 "name": "update_user_memory",
-                "description": "Update the user's persistent personal memory when they share personal information (name, location, preferences, goals, interests, decisions, or important facts). Call this proactively whenever the user reveals something about themselves worth remembering across conversations.",
+                "description": "Update the user's persistent personal memory when they share personal information (name, location, preferences, goals, interests, decisions, or important facts). Call this proactively whenever the user reveals something about themselves worth remembering across conversations. TRIGGER WORDS: 'note this', 'remember this', 'save this', 'add to your notes', 'keep in mind', 'don't forget', 'write that down'. When the user says ANY of these, you MUST call this tool immediately.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -727,6 +727,9 @@ preferences, goals, relationships, decisions), you MUST call `update_user_memory
 Do NOT just acknowledge it conversationally — save it first, then respond.
 Examples of triggers: "I live in...", "I'm planning to...", "Actually, I...", "My name is...",
 "I decided to...", "I'm interested in...", "Correction: ..."
+CRITICAL: When the user says "note this", "remember this", "save this", "add that to your notes",
+"keep in mind", or "don't forget" — you MUST call `update_user_memory` IMMEDIATELY. Do not
+just say "I'll remember that" without actually calling the tool.
 
 {kb_instructions}
 
@@ -1376,7 +1379,7 @@ MANDATORY voice rules (NEVER violate these):
 
         # Add current query
         if voice_mode:
-            messages.append({"role": "user", "content": f"[VOICE MODE — answer in 2-3 spoken sentences max, no formatting]\n{query}"})
+            messages.append({"role": "user", "content": f"[VOICE MODE — The user IS speaking to you via microphone right now. This is a real voice conversation. Answer in 2-3 spoken sentences max, no formatting. NEVER say voice isn't available — it IS active right now. If user asks to note/remember/save something, call update_user_memory immediately.]\n{query}"})
         else:
             messages.append({"role": "user", "content": query})
 

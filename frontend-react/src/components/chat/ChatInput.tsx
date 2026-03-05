@@ -341,20 +341,27 @@ export function ChatInput() {
 
   // Auto-record when voice conversation mode signals it (TTS finished speaking)
   useEffect(() => {
-    if (shouldAutoRecord && !isRecording && !isLoading && !isTranscribing) {
+    if (!shouldAutoRecord) return;
+
+    // If voice mode was turned off, just clear the flag
+    if (!useChatStore.getState().voiceConversationMode) {
       setShouldAutoRecord(false);
-      // Double-check voice mode is still on
-      if (!useChatStore.getState().voiceConversationMode) return;
-      // Ensure TTS is fully stopped, wait for speaker to go silent
-      window.speechSynthesis?.cancel();
-      const timer = setTimeout(() => {
-        // Re-check state hasn't changed during delay
-        if (useChatStore.getState().voiceConversationMode) {
-          startRecording();
-        }
-      }, 1000);
-      return () => clearTimeout(timer);
+      return;
     }
+
+    // Wait for conditions to be ready — DON'T clear the flag yet
+    // so the effect re-triggers when isLoading/isTranscribing change
+    if (isRecording || isLoading || isTranscribing) return;
+
+    // Conditions met — clear flag and start recording
+    setShouldAutoRecord(false);
+    window.speechSynthesis?.cancel();
+    const timer = setTimeout(() => {
+      if (useChatStore.getState().voiceConversationMode) {
+        startRecording();
+      }
+    }, 800);
+    return () => clearTimeout(timer);
   }, [shouldAutoRecord, isRecording, isLoading, isTranscribing, setShouldAutoRecord, startRecording]);
 
   const handleSubmit = async () => {

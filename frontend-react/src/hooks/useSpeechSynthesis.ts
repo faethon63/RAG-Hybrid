@@ -34,21 +34,31 @@ export function useSpeechSynthesis() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isAvailable] = useState(() => typeof window !== 'undefined' && 'speechSynthesis' in window);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearWatchdog = useCallback(() => {
+    if (watchdogRef.current) {
+      clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  }, []);
 
   const stop = useCallback(() => {
     if (isAvailable) {
+      clearWatchdog();
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
       utteranceRef.current = null;
     }
-  }, [isAvailable]);
+  }, [isAvailable, clearWatchdog]);
 
   const onEndRef = useRef<(() => void) | null>(null);
 
   const speak = useCallback((text: string, onEnd?: () => void) => {
     if (!isAvailable) return;
 
-    // Stop any current speech
+    // Stop any current speech and clear previous watchdog
+    clearWatchdog();
     window.speechSynthesis.cancel();
 
     const cleaned = stripMarkdown(text);
@@ -68,21 +78,42 @@ export function useSpeechSynthesis() {
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => {
+    const handleEnd = () => {
+      clearWatchdog();
       setIsSpeaking(false);
       utteranceRef.current = null;
-      onEndRef.current?.();
+      const cb = onEndRef.current;
       onEndRef.current = null;
+      cb?.();
     };
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      utteranceRef.current = null;
-      onEndRef.current = null;
+
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = handleEnd;
+    utterance.onerror = (e) => {
+      // 'interrupted' is normal when cancel() is called, don't treat as error
+      if (e.error === 'interrupted') {
+        clearWatchdog();
+        setIsSpeaking(false);
+        utteranceRef.current = null;
+        onEndRef.current = null;
+        return;
+      }
+      handleEnd();
     };
 
     window.speechSynthesis.speak(utterance);
-  }, [isAvailable]);
+
+    // Watchdog: Chrome sometimes doesn't fire onend for long utterances.
+    // Estimate max duration: ~80ms per char + 5s buffer, minimum 8s.
+    const maxDuration = Math.max(cleaned.length * 80, 5000) + 3000;
+    watchdogRef.current = setTimeout(() => {
+      if (utteranceRef.current === utterance) {
+        console.warn('[TTS] Watchdog fired — onend did not fire within expected time');
+        window.speechSynthesis.cancel();
+        handleEnd();
+      }
+    }, maxDuration);
+  }, [isAvailable, clearWatchdog]);
 
   // Ensure voices are loaded (async on some browsers)
   useEffect(() => {
@@ -93,6 +124,7 @@ export function useSpeechSynthesis() {
     window.speechSynthesis.addEventListener('voiceschanged', handler);
     return () => {
       window.speechSynthesis.removeEventListener('voiceschanged', handler);
+      clearWatchdog();
       window.speechSynthesis.cancel();
     };
   }, [isAvailable]);

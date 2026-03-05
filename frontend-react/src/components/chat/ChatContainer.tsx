@@ -34,13 +34,13 @@ export function ChatContainer() {
   }, [deleteMessage, currentProject]);
 
   // Reset voice flag after assistant message arrives (so auto-play only fires once)
+  // Skip reset when voiceConversationMode is on — it handles auto-play independently
   useEffect(() => {
-    if (lastInputWasVoice && !isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
-      // Reset after a small delay to allow the auto-play effect to fire first
+    if (lastInputWasVoice && !voiceConversationMode && !isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
       const timer = setTimeout(() => setLastInputWasVoice(false), 500);
       return () => clearTimeout(timer);
     }
-  }, [lastInputWasVoice, isLoading, messages, setLastInputWasVoice]);
+  }, [lastInputWasVoice, voiceConversationMode, isLoading, messages, setLastInputWasVoice]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
