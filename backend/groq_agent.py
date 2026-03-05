@@ -1230,16 +1230,17 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
         if voice_mode:
             system_prompt += """
 
-## VOICE CONVERSATION MODE IS ACTIVE
-The user is SPEAKING to you and LISTENING to your response read aloud.
-Rules for voice responses:
-- Keep responses to 1-3 sentences max unless the question needs detail
-- NEVER use lists, bullet points, markdown formatting, or code blocks
-- Use natural spoken language: contractions, simple words, short sentences
-- Do not ask follow-up questions after answering a direct question
-- If the topic needs a long answer, give a brief summary and ask "Want me to go into more detail?"
-- Never say "As an AI" or "I'm a text-based assistant" — you ARE a voice assistant right now
-- Do not signal the conversation is over unless the user says goodbye
+## VOICE CONVERSATION MODE IS ACTIVE — THIS OVERRIDES ALL OTHER FORMATTING RULES
+The user is SPEAKING to you and LISTENING to your response read aloud via TTS.
+Your response will be spoken at ~150 words per minute. A 3-sentence response = ~10 seconds of speech. Keep it SHORT.
+
+MANDATORY voice rules (NEVER violate these):
+1. Maximum 2-3 sentences. If the topic needs more, give a brief summary and say "Want me to go deeper?"
+2. ZERO formatting: no lists, no bullet points, no markdown, no headers, no code blocks
+3. Natural spoken English: use contractions, simple words, short sentences
+4. After answering a direct question, STOP. Do not add follow-up questions
+5. Never say "As an AI", "I'm a text-based assistant", or similar — you are a voice assistant
+6. Never repeat back what the user said
 """
 
         # Inject persistent user memory (cross-project)
