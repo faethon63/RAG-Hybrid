@@ -1160,7 +1160,7 @@ _USER_MEMORY_DIR = os.path.join(os.path.dirname(__file__), "..", "config", "proj
 
 async def _tool_update_user_memory(category: str, action: str, content: str, section: str = None) -> Dict:
     """Update user memory files when Groq detects personal info shared."""
-    valid_categories = {"user": "user.md", "interests": "interests.md", "memory": "memory.md", "soul": "soul.md"}
+    valid_categories = {"user": "user.md", "interests": "interests.md", "memory": "memory.md", "soul": "soul.md", "notes": "notes.md"}
     if category not in valid_categories:
         return {"answer": f"Invalid category '{category}'. Use: {list(valid_categories.keys())}"}
 
@@ -1268,6 +1268,71 @@ def _lines_match(existing_line: str, new_line: str) -> bool:
 
 
 groq_agent.register_tool_handler("update_user_memory", _tool_update_user_memory)
+
+
+async def _tool_read_user_notes(**kwargs) -> Dict:
+    """Read the user's personal notes file."""
+    notes_path = os.path.join(_USER_MEMORY_DIR, "notes.md")
+    try:
+        with open(notes_path, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        # Check if file is essentially empty (just the header)
+        lines = [l for l in content.split("\n") if l.strip() and not l.startswith("#")]
+        if not lines:
+            return {"answer": "Your notes are empty. You can save notes by saying 'save this to my notes: ...'"}
+        return {"answer": f"Here are your saved notes:\n\n{content}"}
+    except FileNotFoundError:
+        return {"answer": "You don't have any saved notes yet. Say 'save this to my notes: ...' to start."}
+
+
+async def _tool_read_brain_items(type_filter: str = None, limit: int = 20) -> Dict:
+    """Read tracked ideas, interests, and discussions from brain_items DB."""
+    try:
+        from session_review import _get_db_connection
+        conn = _get_db_connection()
+        if not conn:
+            return {"answer": "Brain items database is not available."}
+
+        query = "SELECT type, title, content, priority, created_at FROM brain_items"
+        params = []
+        if type_filter:
+            query += " WHERE type = %s"
+            params.append(type_filter)
+        query += " ORDER BY priority DESC, created_at DESC LIMIT %s"
+        params.append(min(limit, 50))
+
+        with conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        conn.close()
+
+        if not rows:
+            filter_msg = f" of type '{type_filter}'" if type_filter else ""
+            return {"answer": f"No brain items found{filter_msg}."}
+
+        items = []
+        for row in rows:
+            item_type, title, content_json, priority, created = row
+            content_str = ""
+            if content_json:
+                try:
+                    content_data = json.loads(content_json) if isinstance(content_json, str) else content_json
+                    notes = content_data.get("notes", [])
+                    if notes:
+                        content_str = f" — {notes[0]}"
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+            items.append(f"- [{item_type}] (priority {priority}) {title}{content_str}")
+
+        return {"answer": f"Tracked brain items ({len(items)}):\n\n" + "\n".join(items)}
+
+    except Exception as e:
+        logger.error(f"read_brain_items failed: {e}")
+        return {"answer": f"Failed to read brain items: {e}"}
+
+
+groq_agent.register_tool_handler("read_user_notes", _tool_read_user_notes)
+groq_agent.register_tool_handler("read_brain_items", _tool_read_brain_items)
 
 
 # --- Bankruptcy Form-Filling Tool Handlers ---
@@ -3252,7 +3317,7 @@ async def get_user_memory():
     """Get all user memory files."""
     memory_dir = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb", "_user_memory")
     result = {}
-    for fname in ("soul.md", "user.md", "interests.md", "memory.md"):
+    for fname in ("soul.md", "user.md", "interests.md", "memory.md", "notes.md"):
         fpath = os.path.join(memory_dir, fname)
         try:
             with open(fpath, "r", encoding="utf-8") as f:
@@ -3265,7 +3330,7 @@ async def get_user_memory():
 @app.put("/api/v1/memory/{category}")
 async def update_memory_category(category: str, request: Request):
     """Manually update a memory category (soul, user, interests, memory)."""
-    valid = {"soul": "soul.md", "user": "user.md", "interests": "interests.md", "memory": "memory.md"}
+    valid = {"soul": "soul.md", "user": "user.md", "interests": "interests.md", "memory": "memory.md", "notes": "notes.md"}
     if category not in valid:
         raise HTTPException(status_code=400, detail=f"Invalid category. Use: {list(valid.keys())}")
 
@@ -3316,7 +3381,7 @@ async def extract_memory_from_chats(request: Request):
     # Read current memory for context
     memory_dir = os.path.join(os.path.dirname(__file__), "..", "config", "project-kb", "_user_memory")
     current_memory = ""
-    for fname in ("user.md", "interests.md", "memory.md"):
+    for fname in ("user.md", "interests.md", "memory.md", "notes.md"):
         fpath = os.path.join(memory_dir, fname)
         try:
             with open(fpath, "r", encoding="utf-8") as f:

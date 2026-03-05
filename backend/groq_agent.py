@@ -420,15 +420,22 @@ class GroqAgent:
                 }
             }
         },
+        # read_user_notes and read_brain_items are NOT in TOOLS (Gemini base tools).
+        # They are added dynamically in the query method to avoid Gemini issues.
+    ]
+
+    # Memory read tools - always available
+    MEMORY_READ_TOOLS = [
         {
             "type": "function",
             "function": {
                 "name": "read_user_notes",
-                "description": "Read the user's personal notes that they explicitly saved. Use this when user asks 'what's in my notes?', 'show my notes', 'read my notes', 'what did I save?', 'list my notes'. Returns ONLY notes the user explicitly saved — NOT Notion, NOT project KB, NOT user profile.",
+                "description": "Read the user's personal notes that they explicitly saved. Use when user asks 'what is in my notes', 'show my notes', 'read my notes', 'what did I save', 'list my notes'. Returns ONLY notes the user explicitly saved, NOT Notion, NOT project KB.",
                 "parameters": {
                     "type": "object",
-                    "properties": {},
-                    "required": []
+                    "properties": {
+                        "_unused": {"type": "string", "description": "Not used"}
+                    }
                 }
             }
         },
@@ -436,7 +443,7 @@ class GroqAgent:
             "type": "function",
             "function": {
                 "name": "read_brain_items",
-                "description": "Read tracked ideas, interests, and discussion topics from the Second Brain database. Use when user asks 'what ideas have you tracked?', 'what's in my brain?', 'pending items', 'what have you noted about me?', 'tracked interests'.",
+                "description": "Read tracked ideas, interests, and discussion topics from the Second Brain database. Use when user asks 'what ideas have you tracked', 'what is in my brain', 'pending items', 'tracked interests'.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -449,8 +456,7 @@ class GroqAgent:
                             "type": "integer",
                             "description": "Max items to return (default 20)"
                         }
-                    },
-                    "required": []
+                    }
                 }
             }
         },
@@ -1331,6 +1337,7 @@ MANDATORY voice rules (NEVER violate these):
 
         # Build dynamic tool list based on project capabilities
         tools = list(self.TOOLS)  # Base tools (always available)
+        tools.extend(self.MEMORY_READ_TOOLS)  # Memory read tools (always available)
         if project_config and project_config.get("name"):
             tools.append(self.KB_SEARCH_TOOL)
         if project_config and project_config.get("allowed_paths"):
@@ -1344,11 +1351,59 @@ MANDATORY voice rules (NEVER violate these):
                 if tn in tool_defs_by_name:
                     tools.append(tool_defs_by_name[tn])
 
+        all_tool_calls = []  # Track tool calls across interceptors and main loop
+
+        # MEMORY TOOL INTERCEPTORS: Gemini returns empty for notes/brain queries.
+        # Detect these patterns and call tools directly, then feed result back to orchestrator.
+        query_lower = query.lower()
+        notes_save_patterns = ["save this to my notes", "save to my notes", "add to my notes", "note this down"]
+        notes_read_patterns = ["my notes", "in my notes", "show my notes", "read my notes", "what did i save", "list my notes"]
+        brain_read_patterns = ["brain items", "tracked ideas", "what ideas", "pending items", "in my brain", "tracked interests"]
+
+        # Check SAVE before READ (save phrases contain "my notes" which would match read)
+        if any(p in query_lower for p in notes_save_patterns) and "update_user_memory" in self._tool_handlers:
+            note_content = query
+            for p in notes_save_patterns:
+                if p in query_lower:
+                    idx = query_lower.index(p) + len(p)
+                    note_content = query[idx:].strip().lstrip(":").strip()
+                    break
+            if note_content:
+                logger.info(f"INTERCEPTOR: Notes save detected, saving: {note_content[:80]}")
+                await self._tool_handlers["update_user_memory"](
+                    category="notes", action="add", content=note_content
+                )
+                return {
+                    "answer": f"Saved to your notes: {note_content}",
+                    "sources": [],
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                    "tool_results": [{"tool": "update_user_memory", "args": {"category": "notes", "content": note_content}}],
+                }
+
+        elif any(p in query_lower for p in notes_read_patterns) and "read_user_notes" in self._tool_handlers:
+            logger.info("INTERCEPTOR: Notes read query detected, returning directly")
+            result = await self._tool_handlers["read_user_notes"]()
+            return {
+                "answer": result.get("answer", "No notes found."),
+                "sources": [],
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "tool_results": [{"tool": "read_user_notes", "args": {}}],
+            }
+
+        elif any(p in query_lower for p in brain_read_patterns) and "read_brain_items" in self._tool_handlers:
+            logger.info("INTERCEPTOR: Brain items read query detected, returning directly")
+            result = await self._tool_handlers["read_brain_items"]()
+            return {
+                "answer": result.get("answer", "No brain items found."),
+                "sources": [],
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "tool_results": [{"tool": "read_brain_items", "args": {}}],
+            }
+
         # GENERIC INTERCEPTORS from project routing config
         # Process injection interceptors (inject into system prompt) and direct-return interceptors
         data_profile_context = ""
-        interceptors = routing.get("interceptors", {})
-        query_lower = query.lower()
+        interceptors = routing.get("interceptors", {}) if routing else {}
 
         # Process injection interceptors first (they add context to system prompt)
         for iname, iconfig in interceptors.items():
@@ -1461,8 +1516,7 @@ MANDATORY voice rules (NEVER violate these):
         else:
             messages.append({"role": "user", "content": query})
 
-        # Track tool calls and sources
-        all_tool_calls = []
+        # Track tool calls and sources (all_tool_calls initialized earlier for interceptors)
         all_sources = []
         total_usage = {"input_tokens": 0, "output_tokens": 0}
         # Store raw Perplexity answer for direct passthrough (prevents hallucination)
@@ -1556,7 +1610,6 @@ MANDATORY voice rules (NEVER violate these):
                 content_preview = (message.get("content", "") or "")[:100]
                 tool_calls_preview = [tc.get("function", {}).get("name", "?") for tc in message.get("tool_calls", [])]
                 logger.info(f"{orchestrator_name} response: finish_reason={finish_reason}, content_len={len(message.get('content', '') or '')}, tool_calls={tool_calls_preview}, preview={content_preview}...")
-                import sys; print(f"[RAWDEBUG] full choice: {json.dumps(choice, default=str)[:500]}", file=sys.stderr, flush=True)
 
                 # Check if orchestrator wants to call tools
                 tool_calls = message.get("tool_calls", [])

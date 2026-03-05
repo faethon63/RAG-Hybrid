@@ -230,8 +230,8 @@ STAGE2_TOOLS = [
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["user", "interests", "memory", "soul"],
-                        "description": "Which memory file: 'user' (identity, location, goals), 'interests' (topics, projects), 'memory' (facts, decisions), 'soul' (communication preferences)",
+                        "enum": ["user", "interests", "memory", "soul", "notes"],
+                        "description": "Which memory file: 'user' (identity, location, goals), 'interests' (topics, projects), 'memory' (facts, decisions), 'soul' (communication preferences), 'notes' (ONLY for explicit user requests to save notes — never use this automatically)",
                     },
                     "action": {
                         "type": "string",
@@ -312,14 +312,15 @@ STAGE2_TOOLS = [
 STAGE2_SYSTEM_PROMPT = """You are a Second Brain assistant. Based on the triage classification below, use the available tools to save relevant information.
 
 Rules:
-- If memory_update detected: call update_user_memory with the personal info
+- If memory_update detected: call update_user_memory with the personal info. NEVER use category="notes" — notes are only for explicit user requests.
 - If correction detected: call log_interaction_learning with type "correction"
-- If idea detected: call save_brain_item with type "idea" and nudge_hours=24
-- If interest detected: call save_brain_item with type "interest"
+- If idea detected: call save_brain_item with type "idea", priority >= 3, and nudge_hours=24. Only save genuinely novel ideas the user described, not routine questions.
+- If interest detected: call save_brain_item with type "interest" and priority >= 3. Only save sustained/deep interests, NOT routine queries like "user asked about X".
 - If learning detected: call log_interaction_learning with the pattern
 - You may call multiple tools if multiple flags are set
 - Only call tools for flags that are actually detected (detected=true)
 - If no flags are detected, respond with "no_action_needed"
+- QUALITY OVER QUANTITY: Only save items worth revisiting. "User asked about the weather" is NOT worth saving. "User is planning to open a massage practice in Barcelona" IS worth saving.
 
 Be concise in your tool arguments. Use clear, short descriptions."""
 
