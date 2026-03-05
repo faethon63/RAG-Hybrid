@@ -412,7 +412,7 @@ export function ChatInput() {
             )}
           />
 
-          {/* Mic button */}
+          {/* Mic button (single recording) */}
           <button
             onClick={isRecording ? stopRecording : startRecording}
             disabled={isLoading || isTranscribing}
@@ -430,6 +430,32 @@ export function ChatInput() {
             ) : (
               <MicIcon className="w-5 h-5" />
             )}
+          </button>
+
+          {/* Voice conversation toggle */}
+          <button
+            onClick={() => {
+              const next = !voiceConversationMode;
+              setVoiceConversationMode(next);
+              if (next && !isRecording && !isLoading && !isTranscribing) {
+                startRecording();
+              }
+              if (!next) {
+                if (isRecording) stopRecording();
+                window.speechSynthesis?.cancel();
+              }
+            }}
+            disabled={isLoading || isTranscribing}
+            className={clsx(
+              'px-2 py-1 m-1 rounded-lg transition-all flex-shrink-0 text-xs font-medium',
+              voiceConversationMode
+                ? 'bg-green-500/20 text-green-400 border border-green-500/40'
+                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
+            )}
+            title={voiceConversationMode ? 'Stop voice conversation' : 'Start voice conversation (hands-free)'}
+            style={{ minHeight: 44 }}
+          >
+            {voiceConversationMode ? 'Voice ON' : 'Voice'}
           </button>
 
           {/* Send button */}
@@ -509,35 +535,7 @@ export function ChatInput() {
               </>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            {/* Voice conversation toggle */}
-            <button
-              onClick={() => {
-                const next = !voiceConversationMode;
-                setVoiceConversationMode(next);
-                if (next && !isRecording && !isLoading && !isTranscribing) {
-                  // Start recording immediately when toggling on
-                  startRecording();
-                }
-                if (!next) {
-                  // Stop recording and TTS when toggling off
-                  if (isRecording) stopRecording();
-                  window.speechSynthesis?.cancel();
-                }
-              }}
-              className={clsx(
-                'flex items-center gap-1 px-2 py-0.5 rounded-full transition-all text-xs',
-                voiceConversationMode
-                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
-                  : 'opacity-50 hover:opacity-80'
-              )}
-              title={voiceConversationMode ? 'Voice conversation ON — tap to stop' : 'Start voice conversation'}
-            >
-              <MicIcon className="w-3 h-3" />
-              <span>{voiceConversationMode ? 'Voice ON' : 'Voice'}</span>
-            </button>
-            <span className="opacity-50">Enter to send</span>
-          </div>
+          <span className="opacity-50">Enter to send</span>
         </div>
       </div>
     </div>
