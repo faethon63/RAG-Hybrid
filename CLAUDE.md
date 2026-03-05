@@ -4,7 +4,7 @@
 
 A hybrid Retrieval-Augmented Generation system with **smart auto-routing**:
 
-- **GROQ ORCHESTRATOR** - Groq Llama 4 Scout 17B routes queries (FREE)
+- **GEMINI ORCHESTRATOR** - Gemini 2.5 Flash routes queries (FREE, Groq as fallback)
 - **LOCAL (Ollama)** - Free, private, fast. Used for text generation
 - **PERPLEXITY** - Real-time web search. Used for current events, prices, news
 - **CLAUDE (Sonnet/Opus)** - Paid. Only used for complex reasoning
@@ -41,7 +41,7 @@ Switched from Claude Haiku to Groq for cost savings (Groq is FREE) and better to
 - **Embeddings:** sentence-transformers/all-MiniLM-L6-v2
 - **Local LLM:** Ollama at `G:\AI-Project\Ollama\` with qwen2.5:14b (text generation)
 - **Vision/OCR:** Claude Sonnet 4.5 (local models hallucinate document text)
-- **Auth:** Disabled (was JWT + bcrypt)
+- **Auth:** JWT login disabled. API key middleware active on VPS (requires `X-API-Key` header when `API_KEY` env var is set)
 - **Python:** 3.12.10, venv at `.venv/`
 - **PDF Support:** Requires `pypdf` package
 
@@ -106,7 +106,7 @@ RAG-Hybrid/
 1. **NEVER auto-delete ChromaDB collections on startup** - This caused data loss. The `cleanup_orphaned_collections()` function is disabled for this reason.
 2. **NEVER add cleanup/purge logic that runs automatically** - User data in `data/chromadb/` and `data/project-kb/` must persist.
 3. **Project configs are split:** synced in `config/projects/{name}.json`, local in `data/project-kb/{name}/local.json` - Don't delete either.
-4. **Auth is currently disabled** - Don't re-enable without user request.
+4. **JWT auth is disabled, but API key middleware is active on VPS** - VPS `.env` has `API_KEY` set, so all API requests (except `/health`, `/docs`) require `X-API-Key` header. Local dev without `API_KEY` env var skips auth entirely.
 5. **NEVER use Write tool to replace entire files** - Use Edit tool with targeted changes instead. Write tool destroys uncommitted user modifications.
 6. **ALWAYS Read a file before modifying it** - Even for "simple" changes. The file may have local modifications not in git.
 7. **When making large changes, use multiple small Edits** - Not one big Write. This preserves existing code the user may have customized.
