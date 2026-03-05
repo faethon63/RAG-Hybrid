@@ -1375,7 +1375,10 @@ MANDATORY voice rules (NEVER violate these):
                 messages.append({"role": msg["role"], "content": msg["content"]})
 
         # Add current query
-        messages.append({"role": "user", "content": query})
+        if voice_mode:
+            messages.append({"role": "user", "content": f"[VOICE MODE — answer in 2-3 spoken sentences max, no formatting]\n{query}"})
+        else:
+            messages.append({"role": "user", "content": query})
 
         # Track tool calls and sources
         all_tool_calls = []
