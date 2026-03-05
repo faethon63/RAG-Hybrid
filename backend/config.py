@@ -210,3 +210,13 @@ def get_claude_opus_model() -> str:
 def get_groq_model() -> str:
     _ensure_env_loaded()
     return os.getenv("GROQ_TOOL_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+
+
+def get_gemini_api_key() -> str:
+    _ensure_env_loaded()
+    return os.getenv("GEMINI_API_KEY", "")
+
+
+def get_gemini_model() -> str:
+    _ensure_env_loaded()
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")

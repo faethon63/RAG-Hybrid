@@ -134,6 +134,10 @@ def get_groq_api_key() -> str:
     return os.getenv("GROQ_API_KEY", "")
 
 
+def get_gemini_api_key() -> str:
+    return os.getenv("GEMINI_API_KEY", "")
+
+
 class GroqAgent:
     """
     Groq-powered conversational agent that:
@@ -142,7 +146,9 @@ class GroqAgent:
     3. Synthesizes responses using tool results
     """
 
-    # Use Llama 4 Scout for reliable tool calling (recommended by Groq)
+    # Primary: Gemini 2.5 Flash (better reasoning, paid)
+    GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    # Fallback: Groq (free)
     GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
     # Phrases that explicitly request KB/inventory lookup — shared between
@@ -161,6 +167,11 @@ class GroqAgent:
     def GROQ_MODEL(self):
         from config import get_groq_model
         return get_groq_model()
+
+    @property
+    def GEMINI_MODEL(self):
+        from config import get_gemini_model
+        return get_gemini_model()
 
     # Tool definitions for Groq
     TOOLS = [
@@ -1195,11 +1206,23 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
                         logger.error(f"Perplexity fallback also failed: {e2}")
                 # All forced web search attempts failed — fall through to Groq
 
-        api_key = get_groq_api_key()
-        if not api_key:
-            logger.warning("No Groq API key, falling back to direct response")
+        # Prefer Gemini as primary orchestrator, fall back to Groq
+        gemini_key = get_gemini_api_key()
+        groq_key = get_groq_api_key()
+        if gemini_key:
+            api_key = gemini_key
+            api_url = self.GEMINI_API_URL
+            api_model = self.GEMINI_MODEL
+            orchestrator_name = "Gemini"
+        elif groq_key:
+            api_key = groq_key
+            api_url = self.GROQ_API_URL
+            api_model = self.GROQ_MODEL
+            orchestrator_name = "Groq"
+        else:
+            logger.warning("No orchestrator API key (Gemini or Groq)")
             return {
-                "answer": "Groq API key not configured. Please add GROQ_API_KEY to .env",
+                "answer": "No orchestrator API key configured. Please add GEMINI_API_KEY or GROQ_API_KEY to .env",
                 "sources": [],
                 "tool_calls": [],
                 "usage": {},
@@ -1404,22 +1427,22 @@ MANDATORY voice rules (NEVER violate these):
                 tool_choice = "auto"
 
                 payload = {
-                    "model": self.GROQ_MODEL,
+                    "model": api_model,
                     "messages": messages,
                     "tools": tools,
                     "tool_choice": tool_choice,
-                    "max_tokens": 8000,  # Increased from 2000 to prevent truncation (max 8192 for Llama 4 Scout)
+                    "max_tokens": 8000,
                     "temperature": 0.3,
                 }
 
                 # Debug: log the payload
                 tool_names = [t["function"]["name"] for t in tools]
-                logger.info(f"Groq request - model: {payload['model']}, messages: {len(payload['messages'])}, tools: {tool_names}, tool_choice: {payload.get('tool_choice', 'not set')}")
-                logger.info(f"Groq last message: {messages[-1]['content'][:100]}...")
+                logger.info(f"{orchestrator_name} request - model: {payload['model']}, messages: {len(payload['messages'])}, tools: {tool_names}, tool_choice: {payload.get('tool_choice', 'not set')}")
+                logger.info(f"{orchestrator_name} last message: {messages[-1]['content'][:100]}...")
 
-                async def _do_groq_post():
+                async def _do_orchestrator_post():
                     r = await client.post(
-                        self.GROQ_API_URL,
+                        api_url,
                         headers={
                             "Authorization": f"Bearer {api_key}",
                             "Content-Type": "application/json",
@@ -1429,7 +1452,33 @@ MANDATORY voice rules (NEVER violate these):
                     r.raise_for_status()
                     return r
 
-                response = await retry_with_backoff(_do_groq_post)
+                try:
+                    response = await retry_with_backoff(_do_orchestrator_post)
+                except Exception as primary_err:
+                    # If Gemini fails and we have Groq as fallback, try Groq
+                    if orchestrator_name == "Gemini" and groq_key:
+                        logger.warning(f"Gemini failed ({primary_err}), falling back to Groq")
+                        api_key = groq_key
+                        api_url = self.GROQ_API_URL
+                        api_model = self.GROQ_MODEL
+                        orchestrator_name = "Groq"
+                        payload["model"] = api_model
+
+                        async def _do_groq_fallback():
+                            r = await client.post(
+                                api_url,
+                                headers={
+                                    "Authorization": f"Bearer {api_key}",
+                                    "Content-Type": "application/json",
+                                },
+                                json=payload,
+                            )
+                            r.raise_for_status()
+                            return r
+
+                        response = await retry_with_backoff(_do_groq_fallback)
+                    else:
+                        raise
                 data = response.json()
 
                 # Track usage
@@ -1440,7 +1489,7 @@ MANDATORY voice rules (NEVER violate these):
                 choices = data.get("choices", [])
                 if not choices:
                     return {
-                        "answer": "No response from Groq API",
+                        "answer": f"No response from {orchestrator_name} API",
                         "usage": total_usage,
                         "tool_results": all_tool_calls,
                     }
@@ -1450,9 +1499,9 @@ MANDATORY voice rules (NEVER violate these):
 
                 # Debug: log response details
                 content_preview = (message.get("content", "") or "")[:100]
-                print(f"[DEBUG] Groq response: finish_reason={finish_reason}, content_len={len(message.get('content', '') or '')}, preview={content_preview}...", flush=True)
+                print(f"[DEBUG] {orchestrator_name} response: finish_reason={finish_reason}, content_len={len(message.get('content', '') or '')}, preview={content_preview}...", flush=True)
 
-                # Check if Groq wants to call tools
+                # Check if orchestrator wants to call tools
                 tool_calls = message.get("tool_calls", [])
 
                 if tool_calls and iteration < max_tool_calls:
@@ -1464,7 +1513,7 @@ MANDATORY voice rules (NEVER violate these):
                         func_name = tool_call["function"]["name"]
                         func_args = json.loads(tool_call["function"]["arguments"])
 
-                        logger.info(f"Groq calling tool: {func_name}")
+                        logger.info(f"{orchestrator_name} calling tool: {func_name}")
                         logger.info(f"Tool args: {json.dumps(func_args, indent=2)}")
                         tool_call_entry = {"tool": func_name, "args": func_args}
                         all_tool_calls.append(tool_call_entry)
@@ -1818,13 +1867,13 @@ MANDATORY voice rules (NEVER violate these):
                     pass
 
                 return {
-                    "answer": f"[Groq error: {e.response.status_code}] {error_body}",
+                    "answer": f"[{orchestrator_name} error: {e.response.status_code}] {error_body}",
                     "sources": [],
                     "tool_calls": all_tool_calls,
                     "usage": total_usage,
                 }
             except Exception as e:
-                logger.error(f"Groq agent error: {e}")
+                logger.error(f"{orchestrator_name} agent error: {e}")
                 return {
                     "answer": f"[Error: {str(e)}]",
                     "sources": [],

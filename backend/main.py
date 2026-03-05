@@ -1853,7 +1853,7 @@ async def query(request: Request, query_request: QueryRequest):
             if query_request.project:
                 project_config = await rag_core.get_project_config(query_request.project)
 
-            logging.getLogger(__name__).info(f"Using Groq agent with tools (user model pref: {query_request.model})")
+            logging.getLogger(__name__).info(f"Using orchestrator agent with tools (user model pref: {query_request.model})")
 
             # Groq agent handles everything - routing, tool calls, synthesis
             agent_result = await groq_agent.chat(
@@ -1888,9 +1888,9 @@ async def query(request: Request, query_request: QueryRequest):
             if query_has_url and "web_search" not in tool_names:
                 routing_reasoning = "URL detected but web fetch failed — Groq fallback"
             elif not tool_names:
-                routing_reasoning = "Groq handled directly"
+                routing_reasoning = "Orchestrator handled directly"
             else:
-                routing_reasoning = "Groq handled directly"
+                routing_reasoning = "Orchestrator handled directly"
 
             # Parse tool calls to show actual providers used and capture tool token usage
             tool_usage = {}  # Token usage from paid tools (Perplexity, Claude)
@@ -1933,11 +1933,14 @@ async def query(request: Request, query_request: QueryRequest):
                 else:
                     tools_used.append(tool_name)
 
+            # Detect which orchestrator was used from the agent result
+            orch_name = "gemini" if os.getenv("GEMINI_API_KEY") else "groq"
+
             if tools_used and "Delegated" not in routing_reasoning and "Forced" not in routing_reasoning:
-                routing_reasoning = f"Groq used: {', '.join(tools_used)}"
+                routing_reasoning = f"{orch_name.title()} used: {', '.join(tools_used)}"
 
             # Determine pricing model based on tools used (first paid tool takes priority)
-            pricing_model = "groq"  # Default free
+            pricing_model = orch_name  # Default: orchestrator model
             if tools_used:
                 first_tool = tools_used[0]
                 if first_tool in ["tavily", "tavily_extract", "perplexity", "perplexity_pro", "perplexity_focused", "crawl4ai"]:
@@ -1955,13 +1958,13 @@ async def query(request: Request, query_request: QueryRequest):
                 "usage": effective_usage,
                 "pricing_model": pricing_model,
                 "routing_info": {
-                    "orchestrator": "groq",
+                    "orchestrator": orch_name,
                     "tools_used": tools_used,
                     "claude_model": claude_model,
                     "reasoning": routing_reasoning,
                 },
             }
-            query_request.model = "groq"  # For response metadata
+            query_request.model = orch_name  # For response metadata
         
         # Calculate processing time
         processing_time = (datetime.utcnow() - start_time).total_seconds()
