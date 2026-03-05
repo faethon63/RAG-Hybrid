@@ -1575,6 +1575,7 @@ class QueryRequest(BaseModel):
     include_sources: bool = True
     conversation_history: List[Dict[str, str]] = []  # List of {"role": "user"|"assistant", "content": "..."}
     files: Optional[List[AttachedFile]] = None  # Attached files (images, PDFs, text)
+    voice_mode: bool = False  # True when user is in voice conversation mode
     
 
 class Source(BaseModel):
@@ -1859,6 +1860,7 @@ async def query(request: Request, query_request: QueryRequest):
                 query=query_request.query,
                 conversation_history=query_request.conversation_history,
                 project_config=project_config,
+                voice_mode=query_request.voice_mode,
             )
 
             # Log tool usage

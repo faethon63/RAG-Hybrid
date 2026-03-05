@@ -42,6 +42,7 @@ export interface QueryRequest {
   include_sources?: boolean;
   conversation_history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   files?: AttachedFile[];
+  voice_mode?: boolean;
 }
 
 export interface QueryResponse {

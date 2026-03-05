@@ -60,7 +60,7 @@ interface ChatState {
   saveChat: (project?: string | null) => Promise<void>;
   deleteChat: (chatId: string) => Promise<void>;
   newChat: () => void;
-  sendQuery: (query: string, mode: string, model: string, project: string | null, files?: AttachedFile[]) => Promise<void>;
+  sendQuery: (query: string, mode: string, model: string, project: string | null, files?: AttachedFile[], voice_mode?: boolean) => Promise<void>;
 }
 
 interface AttachedFile {
@@ -332,7 +332,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     localStorage.removeItem('rag-currentChatId');
   },
 
-  sendQuery: async (query, mode, model, project, files) => {
+  sendQuery: async (query, mode, model, project, files, voice_mode) => {
     const { messages, saveChat, lastAttachedFiles } = get();
 
     // Use new files if provided, otherwise reuse last attached files for follow-ups
@@ -392,6 +392,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         include_sources: true,
         conversation_history: history,
         files: filesPayload,
+        voice_mode,
       });
 
       // Add assistant message

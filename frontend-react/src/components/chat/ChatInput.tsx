@@ -188,7 +188,10 @@ export function ChatInput() {
 
   const startRecording = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Enable echo cancellation to prevent mic picking up speaker TTS output
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
       streamRef.current = stream;
       audioChunksRef.current = [];
 
@@ -212,9 +215,19 @@ export function ChatInput() {
         try {
           const result = await api.transcribeAudio(blob);
           if (result.text) {
+            const text = result.text.trim();
+            // "Stop" command — cancel TTS and don't send
+            const stopWords = ['stop', 'stop.', 'stop!', 'shut up', 'be quiet', 'silence'];
+            if (stopWords.includes(text.toLowerCase())) {
+              window.speechSynthesis?.cancel();
+              // Turn off voice conversation mode
+              useChatStore.getState().setVoiceConversationMode(false);
+              return;
+            }
             // Auto-send the transcribed text
+            const isVoiceConvo = useChatStore.getState().voiceConversationMode;
             setLastInputWasVoice(true);
-            await sendQuery(result.text, mode, model, currentProject);
+            await sendQuery(text, mode, model, currentProject, undefined, isVoiceConvo);
           }
         } catch (err) {
           console.error('Transcription failed:', err);
@@ -255,13 +268,20 @@ export function ChatInput() {
     };
   }, [stopRecordingCleanup]);
 
-  // Auto-record when voice conversation mode signals it (TTS finished)
+  // Auto-record when voice conversation mode signals it (TTS finished speaking)
   useEffect(() => {
     if (shouldAutoRecord && !isRecording && !isLoading && !isTranscribing) {
       setShouldAutoRecord(false);
-      // Ensure TTS is fully stopped, then wait for speaker silence before recording
+      // Double-check voice mode is still on
+      if (!useChatStore.getState().voiceConversationMode) return;
+      // Ensure TTS is fully stopped, wait for speaker to go silent
       window.speechSynthesis?.cancel();
-      const timer = setTimeout(() => startRecording(), 800);
+      const timer = setTimeout(() => {
+        // Re-check state hasn't changed during delay
+        if (useChatStore.getState().voiceConversationMode) {
+          startRecording();
+        }
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [shouldAutoRecord, isRecording, isLoading, isTranscribing, setShouldAutoRecord, startRecording]);
@@ -403,7 +423,7 @@ export function ChatInput() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isDragging ? 'Drop files here...' : 'Ask anything... (paste images, drop files)'}
+            placeholder={isDragging ? 'Drop files here...' : 'Ask anything...'}
             disabled={isLoading || isRecording || isTranscribing}
             rows={1}
             className={clsx(

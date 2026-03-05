@@ -59,8 +59,8 @@ export function ChatContainer() {
             <h2 className="text-xl font-semibold mb-2">
               How can I help you today?
             </h2>
-            <p className="text-[var(--color-text-secondary)] max-w-md">
-              Ask me anything. I can search your documents, browse the web, or help with complex reasoning tasks.
+            <p className="text-[var(--color-text-secondary)] max-w-md text-sm sm:text-base">
+              Search documents, browse the web, or reason through complex tasks.
             </p>
           </div>
         ) : (

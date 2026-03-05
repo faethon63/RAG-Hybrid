@@ -970,6 +970,7 @@ Examples of triggers: "I live in...", "I'm planning to...", "Actually, I...", "M
         conversation_history: List[Dict[str, str]] = None,
         project_config: Optional[Dict] = None,
         max_tool_calls: int = 3,
+        voice_mode: bool = False,
     ) -> Dict[str, Any]:
         """
         Main chat method. Groq processes the query, optionally calls tools,
@@ -1224,6 +1225,22 @@ Provide a direct, helpful answer based on the page content. Do not say you canno
             kb_instructions=kb_instructions,
             project_instructions=project_instructions,
         )
+
+        # Voice conversation mode: override response style
+        if voice_mode:
+            system_prompt += """
+
+## VOICE CONVERSATION MODE IS ACTIVE
+The user is SPEAKING to you and LISTENING to your response read aloud.
+Rules for voice responses:
+- Keep responses to 1-3 sentences max unless the question needs detail
+- NEVER use lists, bullet points, markdown formatting, or code blocks
+- Use natural spoken language: contractions, simple words, short sentences
+- Do not ask follow-up questions after answering a direct question
+- If the topic needs a long answer, give a brief summary and ask "Want me to go into more detail?"
+- Never say "As an AI" or "I'm a text-based assistant" — you ARE a voice assistant right now
+- Do not signal the conversation is over unless the user says goodbye
+"""
 
         # Inject persistent user memory (cross-project)
         user_memory = _load_user_memory()
