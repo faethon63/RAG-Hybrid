@@ -76,7 +76,7 @@ export function ChatContainer() {
                   key={message.id}
                   message={message}
                   isFirstMessage={index === 0}
-                  autoPlayTTS={isLastAssistant}
+                  autoPlayTTS={isLastAssistant ? message.id : undefined}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                 />

@@ -23,9 +23,9 @@ _USER_MEMORY_DIR = os.path.join(os.path.dirname(__file__), "..", "config", "proj
 
 
 def _load_user_memory() -> str:
-    """Load user.md and interests.md into a compact string for system prompt injection."""
+    """Load all user memory files into a compact string for system prompt injection."""
     parts = []
-    for fname in ("user.md", "interests.md"):
+    for fname in ("user.md", "interests.md", "memory.md", "soul.md"):
         fpath = os.path.join(_USER_MEMORY_DIR, fname)
         try:
             with open(fpath, "r", encoding="utf-8") as f:
@@ -308,7 +308,7 @@ class GroqAgent:
             "type": "function",
             "function": {
                 "name": "notion_tool",
-                "description": "Full Notion workspace access. Use 'find_info' action for personal data (AGI, tax returns, bank info, receipts) - it handles navigation automatically. Use 'search' for general page lookups. Use 'read_page' to read specific page content.",
+                "description": "Full Notion workspace access for EXTERNAL documents only. Use 'find_info' for data stored in Notion (AGI, tax returns, bank info, receipts, login credentials). NOT for the user's personal notes — those use read_user_notes or update_user_memory with category='notes' instead.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -399,8 +399,8 @@ class GroqAgent:
                     "properties": {
                         "category": {
                             "type": "string",
-                            "enum": ["user", "interests", "memory", "soul"],
-                            "description": "Which memory file to update: 'user' (identity, location, profession, goals), 'interests' (topics, projects, domains), 'memory' (facts, decisions, learnings), 'soul' (communication preferences)"
+                            "enum": ["user", "interests", "memory", "soul", "notes"],
+                            "description": "Which memory file to update: 'user' (identity, location, profession, goals), 'interests' (topics, projects, domains), 'memory' (facts, decisions, learnings), 'soul' (communication preferences), 'notes' (user's personal notes — use ONLY when they explicitly say 'save to my notes')"
                         },
                         "action": {
                             "type": "string",
@@ -417,6 +417,40 @@ class GroqAgent:
                         }
                     },
                     "required": ["category", "action", "content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_user_notes",
+                "description": "Read the user's personal notes that they explicitly saved. Use this when user asks 'what's in my notes?', 'show my notes', 'read my notes', 'what did I save?', 'list my notes'. Returns ONLY notes the user explicitly saved — NOT Notion, NOT project KB, NOT user profile.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "read_brain_items",
+                "description": "Read tracked ideas, interests, and discussion topics from the Second Brain database. Use when user asks 'what ideas have you tracked?', 'what's in my brain?', 'pending items', 'what have you noted about me?', 'tracked interests'.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "type_filter": {
+                            "type": "string",
+                            "enum": ["idea", "interest", "discussion", "fact", "decision", "error_pattern"],
+                            "description": "Optional: filter by item type"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Max items to return (default 20)"
+                        }
+                    },
+                    "required": []
                 }
             }
         },
@@ -678,15 +712,24 @@ If user asks to "find", "search for", "where to buy", "suppliers of", "providers
 | Company Name | Product Name | $XX | https://... |
 → IMPORTANT: Never include [1], [2] citation markers anywhere. Write clean text and URLs.
 
+CONTEXT-AWARE QUERIES:
+When calling web_search, ENRICH the query with relevant user context from the User Profile above:
+- Weather/local queries → include user's known location (e.g., "weather today" → "weather today in [user's city]")
+- Shopping/price queries → include user's region for local results
+- If user's exact location is unknown, ask — do NOT search without a location and dump multiple random cities.
+
 TOOL SELECTION (FOLLOW EXACTLY):
 1. SUPPLIER RESEARCH with prices → find_suppliers (navigates sites, extracts prices, returns $/oz comparison)
 2. QUICK PRODUCT SEARCH → web_search (faster but less detailed than find_suppliers)
-3. CURRENT DATA (weather, news, stocks) → web_search
+3. CURRENT DATA (weather, news, stocks) → web_search (ALWAYS include location if applicable)
 4. REAL ESTATE LISTINGS → search_listings
-5. PERSONAL DATA (tax, AGI, receipts) → notion_tool with action="find_info"
-6. CODE/REPOS → github_search
-7. FORMATTING EXISTING DATA into tables → complex_reasoning
-8. CODE GENERATION/MATH PROBLEMS → complex_reasoning
+5. USER'S PERSONAL NOTES ("my notes", "what did I save", "show my notes", "read my notes") → read_user_notes
+6. SAVE A NOTE ("save this to my notes", "note this down", "add to my notes") → update_user_memory with category="notes"
+7. TRACKED IDEAS/INTERESTS ("what ideas do you have", "pending items", "what's in my brain") → read_brain_items
+8. PERSONAL DATA IN NOTION (tax returns, AGI, bank info, receipts, login credentials) → notion_tool with action="find_info"
+9. CODE/REPOS → github_search
+10. FORMATTING EXISTING DATA into tables → complex_reasoning
+11. CODE GENERATION/MATH PROBLEMS → complex_reasoning
 
 WRONG: User asks "find cedar isolate providers" → You use complex_reasoning
 RIGHT: User asks "find cedar isolate providers" → You use web_search with query="cedar isolate supplier buy online"
@@ -745,9 +788,14 @@ preferences, goals, relationships, decisions), you MUST call `update_user_memory
 Do NOT just acknowledge it conversationally — save it first, then respond.
 Examples of triggers: "I live in...", "I'm planning to...", "Actually, I...", "My name is...",
 "I decided to...", "I'm interested in...", "Correction: ..."
-CRITICAL: When the user says "note this", "remember this", "save this", "add that to your notes",
-"keep in mind", or "don't forget" — you MUST call `update_user_memory` IMMEDIATELY. Do not
-just say "I'll remember that" without actually calling the tool.
+
+## Notes vs Memory vs Notion (FOLLOW EXACTLY)
+- "save this to my notes" / "note this down" / "add to my notes" → `update_user_memory` with category="notes"
+- "what's in my notes?" / "show my notes" / "read my notes" → `read_user_notes`
+- "remember this" / "keep in mind" / "don't forget" (personal facts) → `update_user_memory` with category="user"/"memory"
+- "what ideas have you tracked?" / "pending items" → `read_brain_items`
+- "find my tax AGI" / "what's my bank login?" (data in Notion) → `notion_tool`
+NEVER use notion_tool when user says "my notes" — Notion is for external documents, not personal notes.
 
 {kb_instructions}
 
@@ -1506,7 +1554,9 @@ MANDATORY voice rules (NEVER violate these):
 
                 # Debug: log response details
                 content_preview = (message.get("content", "") or "")[:100]
-                print(f"[DEBUG] {orchestrator_name} response: finish_reason={finish_reason}, content_len={len(message.get('content', '') or '')}, preview={content_preview}...", flush=True)
+                tool_calls_preview = [tc.get("function", {}).get("name", "?") for tc in message.get("tool_calls", [])]
+                logger.info(f"{orchestrator_name} response: finish_reason={finish_reason}, content_len={len(message.get('content', '') or '')}, tool_calls={tool_calls_preview}, preview={content_preview}...")
+                import sys; print(f"[RAWDEBUG] full choice: {json.dumps(choice, default=str)[:500]}", file=sys.stderr, flush=True)
 
                 # Check if orchestrator wants to call tools
                 tool_calls = message.get("tool_calls", [])
@@ -1684,8 +1734,14 @@ MANDATORY voice rules (NEVER violate these):
                         "<svg" in perplexity_direct_answer[:500].lower() or
                         "<html" in perplexity_direct_answer[:500].lower()
                     )
+                    # Don't passthrough vague multi-location answers (Perplexity couldn't determine location)
+                    is_vague_answer = perplexity_direct_answer and (
+                        "lacks a specified location" in perplexity_direct_answer[:200] or
+                        "provide a location" in perplexity_direct_answer[-300:].lower() or
+                        "provide a city" in perplexity_direct_answer[-300:].lower()
+                    )
 
-                    if perplexity_direct_answer and len(all_tool_calls) == 1 and all_tool_calls[0]["tool"] == "web_search" and not is_raw_content_dump:
+                    if perplexity_direct_answer and len(all_tool_calls) == 1 and all_tool_calls[0]["tool"] == "web_search" and not is_raw_content_dump and not is_vague_answer:
                         print("[DEBUG] PERPLEXITY PASSTHROUGH ACTIVATED!", flush=True)
                         # Strip citation markers [1], [2], etc. - sources shown separately in UI
                         clean_answer = _strip_citation_markers(perplexity_direct_answer)
@@ -1697,6 +1753,9 @@ MANDATORY voice rules (NEVER violate these):
                             answer = clean_answer + source_urls
                         else:
                             answer = clean_answer
+                    elif is_vague_answer:
+                        logger.info("VAGUE PERPLEXITY ANSWER - using orchestrator's response instead")
+                        # Let the orchestrator's own response through (which likely asks for clarification)
                     elif is_raw_content_dump:
                         logger.info("RAW CONTENT DUMP - delegating to Claude for analysis")
                         if "complex_reasoning" in self._tool_handlers:

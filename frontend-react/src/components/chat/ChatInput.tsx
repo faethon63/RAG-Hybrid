@@ -39,6 +39,7 @@ export function ChatInput() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const silenceStartRef = useRef<number | null>(null);
   const silenceRafRef = useRef<number | null>(null);
+  const hadSpeechRef = useRef(false);
 
   const isLoading = useChatStore((s) => s.isLoading);
   const sendQuery = useChatStore((s) => s.sendQuery);
@@ -211,6 +212,7 @@ export function ChatInput() {
       });
       streamRef.current = stream;
       audioChunksRef.current = [];
+      hadSpeechRef.current = false;
 
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -227,6 +229,17 @@ export function ChatInput() {
         stopRecordingCleanup();
         const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         if (blob.size < 100) return; // Empty recording
+
+        // If voice conversation mode + no speech detected, skip transcription and re-record
+        if (useChatStore.getState().voiceConversationMode && !hadSpeechRef.current) {
+          console.log('[Voice] No speech detected, restarting recording...');
+          setTimeout(() => {
+            if (useChatStore.getState().voiceConversationMode) {
+              startRecording().catch(e => console.error('[Voice] Re-record failed:', e));
+            }
+          }, 500);
+          return;
+        }
 
         setIsTranscribing(true);
         try {
@@ -248,8 +261,18 @@ export function ChatInput() {
           }
         } catch (err) {
           console.error('Transcription failed:', err);
-          const msg = err instanceof Error ? err.message : 'Transcription failed';
-          useChatStore.getState().setError(`Voice: ${msg}`);
+          // In voice conversation mode, retry recording instead of breaking the loop
+          if (useChatStore.getState().voiceConversationMode) {
+            console.log('[Voice] Transcription failed, retrying recording...');
+            setTimeout(() => {
+              if (useChatStore.getState().voiceConversationMode) {
+                startRecording().catch(e => console.error('[Voice] Retry failed:', e));
+              }
+            }, 1000);
+          } else {
+            const msg = err instanceof Error ? err.message : 'Transcription failed';
+            useChatStore.getState().setError(`Voice: ${msg}`);
+          }
         } finally {
           setIsTranscribing(false);
         }
@@ -311,6 +334,7 @@ export function ChatInput() {
             } else {
               // Sound detected — reset silence timer
               silenceStartRef.current = null;
+              hadSpeechRef.current = true;
             }
 
             silenceRafRef.current = requestAnimationFrame(checkSilence);

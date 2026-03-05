@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -26,7 +26,7 @@ import clsx from 'clsx';
 interface MessageItemProps {
   message: Message;
   isFirstMessage?: boolean;
-  autoPlayTTS?: boolean;
+  autoPlayTTS?: string;
   onEdit?: (id: string, content: string, regenerate: boolean) => void;
   onDelete?: (id: string) => void;
 }
@@ -46,10 +46,12 @@ export function MessageItem({ message, isFirstMessage, autoPlayTTS, onEdit, onDe
   const meta = message.metadata;
 
   const setShouldAutoRecord = useChatStore((s) => s.setShouldAutoRecord);
+  const spokenIdRef = useRef<string | null>(null);
 
   // Auto-play TTS when response arrives from voice input
   useEffect(() => {
-    if (autoPlayTTS && !isUser && content && ttsAvailable) {
+    if (autoPlayTTS && autoPlayTTS !== spokenIdRef.current && !isUser && content && ttsAvailable) {
+      spokenIdRef.current = autoPlayTTS;
       const timer = setTimeout(() => {
         speak(content, () => {
           // When TTS finishes and voice conversation mode is on, trigger auto-record
