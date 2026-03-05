@@ -259,8 +259,9 @@ export function ChatInput() {
   useEffect(() => {
     if (shouldAutoRecord && !isRecording && !isLoading && !isTranscribing) {
       setShouldAutoRecord(false);
-      // Small delay to let UI settle
-      const timer = setTimeout(() => startRecording(), 500);
+      // Ensure TTS is fully stopped, then wait for speaker silence before recording
+      window.speechSynthesis?.cancel();
+      const timer = setTimeout(() => startRecording(), 800);
       return () => clearTimeout(timer);
     }
   }, [shouldAutoRecord, isRecording, isLoading, isTranscribing, setShouldAutoRecord, startRecording]);
@@ -438,7 +439,9 @@ export function ChatInput() {
               const next = !voiceConversationMode;
               setVoiceConversationMode(next);
               if (next && !isRecording && !isLoading && !isTranscribing) {
-                startRecording();
+                // Stop any TTS first, then start recording after a delay
+                window.speechSynthesis?.cancel();
+                setTimeout(() => startRecording(), 600);
               }
               if (!next) {
                 if (isRecording) stopRecording();

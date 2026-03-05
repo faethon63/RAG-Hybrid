@@ -122,7 +122,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setLastSources: (sources) => set({ lastSources: sources }),
   setLastAgentSteps: (steps) => set({ lastAgentSteps: steps }),
   setLastInputWasVoice: (wasVoice) => set({ lastInputWasVoice: wasVoice }),
-  setVoiceConversationMode: (enabled) => set({ voiceConversationMode: enabled, lastInputWasVoice: enabled }),
+  setVoiceConversationMode: (enabled) => set({ voiceConversationMode: enabled }),
   setShouldAutoRecord: (should) => set({ shouldAutoRecord: should }),
 
   editMessage: async (messageId, newContent, project) => {
