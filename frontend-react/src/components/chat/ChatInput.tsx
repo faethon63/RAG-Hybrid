@@ -200,6 +200,11 @@ export function ChatInput() {
 
   const startRecording = useCallback(async () => {
     try {
+      // Clean up any lingering previous stream before starting fresh
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
       // Enable echo cancellation to prevent mic picking up speaker TTS output
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
@@ -345,20 +350,27 @@ export function ChatInput() {
 
     // If voice mode was turned off, just clear the flag
     if (!useChatStore.getState().voiceConversationMode) {
+      console.log('[Voice] Auto-record: voice mode off, clearing flag');
       setShouldAutoRecord(false);
       return;
     }
 
     // Wait for conditions to be ready — DON'T clear the flag yet
     // so the effect re-triggers when isLoading/isTranscribing change
-    if (isRecording || isLoading || isTranscribing) return;
+    if (isRecording || isLoading || isTranscribing) {
+      console.log('[Voice] Auto-record: waiting (recording=%s, loading=%s, transcribing=%s)', isRecording, isLoading, isTranscribing);
+      return;
+    }
 
     // Conditions met — clear flag and start recording
+    console.log('[Voice] Auto-record: conditions met, starting recording');
     setShouldAutoRecord(false);
     window.speechSynthesis?.cancel();
     const timer = setTimeout(() => {
       if (useChatStore.getState().voiceConversationMode) {
-        startRecording();
+        startRecording().catch((err) => {
+          console.error('[Voice] Auto-record failed to start:', err);
+        });
       }
     }, 800);
     return () => clearTimeout(timer);
@@ -539,9 +551,16 @@ export function ChatInput() {
               if (next && !isRecording && !isLoading && !isTranscribing) {
                 // Stop any TTS first, then start recording after a delay
                 window.speechSynthesis?.cancel();
-                setTimeout(() => startRecording(), 600);
+                console.log('[Voice] Toggle ON — starting first recording');
+                setTimeout(() => {
+                  startRecording().catch((err) => {
+                    console.error('[Voice] Toggle ON — recording failed:', err);
+                  });
+                }, 600);
               }
               if (!next) {
+                console.log('[Voice] Toggle OFF');
+                setShouldAutoRecord(false); // Clear any pending auto-record
                 if (isRecording) stopRecording();
                 window.speechSynthesis?.cancel();
               }

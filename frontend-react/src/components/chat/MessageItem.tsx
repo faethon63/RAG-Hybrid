@@ -324,7 +324,7 @@ export function MessageItem({ message, isFirstMessage, autoPlayTTS, onEdit, onDe
                   </>
                 ) : (
                   <span className="px-1.5 py-0.5 bg-[var(--color-primary)]/20 rounded text-[var(--color-primary)]">
-                    groq (direct)
+                    {meta.routing_info?.orchestrator || 'orchestrator'} (direct)
                   </span>
                 )}
               </div>
