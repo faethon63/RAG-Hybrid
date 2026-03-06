@@ -271,7 +271,8 @@ export function SettingsPanel() {
                       localStorage.removeItem('push-banner-dismissed');
                       setPushResetting(false);
                       setPushResetDone(true);
-                      setTimeout(() => setPushResetDone(false), 3000);
+                      // Reload after brief delay so user sees "Done" state
+                      setTimeout(() => window.location.reload(), 1000);
                     }}
                     disabled={pushResetting}
                     className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-surface)] transition-colors disabled:opacity-50 flex items-center gap-2"

@@ -23,17 +23,31 @@ function App() {
     checkHealth();
     loadChats();
     syncPushSubscription(); // Re-sync browser subscription with backend
+
     // Handle ?chat= deep link from notifications
-    const params = new URLSearchParams(window.location.search);
-    const chatParam = params.get('chat');
-    if (chatParam) {
-      loadChat(chatParam);
-      window.history.replaceState({}, '', '/');
-    } else {
+    const handleChatParam = () => {
+      const params = new URLSearchParams(window.location.search);
+      const chatParam = params.get('chat');
+      if (chatParam) {
+        loadChat(chatParam);
+        window.history.replaceState({}, '', '/');
+        return true;
+      }
+      return false;
+    };
+
+    if (!handleChatParam()) {
       // Restore last open chat on refresh
       const savedChatId = localStorage.getItem('rag-currentChatId');
       if (savedChatId) loadChat(savedChatId);
     }
+
+    // Re-check URL when tab regains focus (SW navigate may not remount)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') handleChatParam();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
   }, [loadSettings, checkHealth, loadChats, loadChat]);
 
   return (
