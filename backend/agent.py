@@ -1,6 +1,6 @@
 """
-Groq Conversational Agent
-Groq (Llama 3.3 70B) as the main conversational brain with tool access.
+Orchestrator Agent
+Gemini 2.5 Flash (primary) / Groq (fallback) as the main conversational brain with tool access.
 This is the orchestrator that maintains context and calls tools as needed.
 """
 
@@ -36,7 +36,18 @@ def _load_user_memory() -> str:
             pass
     if not parts:
         return ""
-    return "\n\n## About the User\nSource: your persistent memory files in config/project-kb/_user_memory/ (user.md, interests.md, memory.md, soul.md, notes.md). When asked WHERE you know something, cite these files.\n\n" + "\n\n".join(parts)
+    header = (
+        "\n\n## About the User (YOUR MEMORY — LOADED AND AVAILABLE NOW)\n"
+        "This data IS your memory about the user. It is loaded from files at: "
+        "config/project-kb/_user_memory/ (user.md, interests.md, memory.md, soul.md, notes.md).\n"
+        "RULES:\n"
+        "- When asked 'what do you know about me' → share ALL of this data\n"
+        "- When asked 'where did you find that' or 'which file' → cite the file paths above\n"
+        "- NEVER say 'I don't have access to memory files' — you ARE reading them right now\n"
+        "- NEVER say 'I don't have physical files' — the files are listed above\n"
+        "- To read the user's personal notes → use the read_user_notes tool\n\n"
+    )
+    return header + "\n\n".join(parts)
 
 
 # Request-scoped state using contextvars (safe for concurrent async requests).
@@ -138,7 +149,7 @@ def get_gemini_api_key() -> str:
     return os.getenv("GEMINI_API_KEY", "")
 
 
-class GroqAgent:
+class Agent:
     """
     Groq-powered conversational agent that:
     1. Maintains conversation context
@@ -729,8 +740,9 @@ TOOL SELECTION (FOLLOW EXACTLY):
 2. QUICK PRODUCT SEARCH → web_search (faster but less detailed than find_suppliers)
 3. CURRENT DATA (weather, news, stocks) → web_search (ALWAYS include location if applicable)
 4. REAL ESTATE LISTINGS → search_listings
-5. USER'S PERSONAL NOTES ("my notes", "what did I save", "show my notes", "read my notes") → read_user_notes
+5. USER'S PERSONAL NOTES ("my notes", "what did I save", "show my notes", "find the file with notes") → read_user_notes
 6. SAVE A NOTE ("save this to my notes", "note this down", "add to my notes") → update_user_memory with category="notes"
+NOTE: "what do you know about me" / "what's in your memory" → DO NOT use any tool. This data is already in the "About the User" section above. Just share it directly.
 7. TRACKED IDEAS/INTERESTS ("what ideas do you have", "pending items", "what's in my brain") → read_brain_items
 8. PERSONAL DATA IN NOTION (tax returns, AGI, bank info, receipts, login credentials) → notion_tool with action="find_info"
 9. CODE/REPOS → github_search
@@ -1357,7 +1369,7 @@ MANDATORY voice rules (NEVER violate these):
         # Detect these patterns and call tools directly, then feed result back to orchestrator.
         query_lower = query.lower()
         notes_save_patterns = ["save this to my notes", "save to my notes", "add to my notes", "note this down"]
-        notes_read_patterns = ["my notes", "in my notes", "show my notes", "read my notes", "what did i save", "list my notes"]
+        notes_read_patterns = ["my notes", "in my notes", "show my notes", "read my notes", "what did i save", "list my notes", "file with notes", "notes i give you", "notes i gave you", "notes file"]
         brain_read_patterns = ["brain items", "tracked ideas", "what ideas", "pending items", "in my brain", "tracked interests"]
 
         # Check SAVE before READ (save phrases contain "my notes" which would match read)
@@ -2010,4 +2022,4 @@ MANDATORY voice rules (NEVER violate these):
 
 
 # Module-level instance
-groq_agent = GroqAgent()
+agent = Agent()
