@@ -1,14 +1,13 @@
 # User Profile
 
 ## Identity
-- Name: George
-- Location: Planning to move to Barcelona, Spain (probably May 2025). Currently in US.
-- Becoming a US citizen soon (before the move). Greek citizen with US green card.
+- Name: George (prefers to be called Giorgos)
+- Greek citizen with US green card, becoming US citizen soon
+- Currently in US, planning to move to Barcelona, Spain (May 2026)
+- Current rent: $1950
 
-- Rent: $1950
-- Prefers to be called Giorgos
 ## Professional
-- Builds projects with AI assistance ("vibe coding")
+- Builds projects with AI assistance ("vibe coding") — does not code manually
 - Manages RAG-Hybrid system for personal knowledge management
 - Self-employed massage therapist
 
@@ -18,22 +17,13 @@
 - Practice and teach massage therapy in Europe
 
 ## Health
-- Plans to use Spanish health system for health issues after moving to Barcelona
-
-## Barcelona relocation
-- Found an apartment in Gracia neighborhood for 1200 euros
+- Plans to use Spanish health system after moving to Barcelona
 
 ## Relocation Plans
-- Found an apartment in Gracia neighborhood for 1200 euros, planning to take it
-- rent amount: $1950
+- Found an apartment in Gracia neighborhood, Barcelona for 1200 euros, available May 2026
 
-## identity
-- user's name is George
-- name=George
-
-- preferred name: Giorgos
-
-## Devices
+## Devices & Setup
+- Desktop: Windows 11 PC — runs Ollama, backend, frontend locally. Auto-starts RAG on login.
 - Primary phone: Samsung Galaxy S22 Ultra (uses RAG PWA via Chrome Android)
 - Primary tablet: Samsung Tab S10 Ultra (uses RAG PWA via Chrome Android)
-- Desktop: Windows 11 PC (local development, runs Ollama + backend + frontend)
+- Claude Max subscription (API access for Sonnet/Opus)

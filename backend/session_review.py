@@ -72,6 +72,34 @@ async def _handle_save_brain_item(
         return {"status": "skipped", "reason": "no database"}
 
     try:
+        # Deduplicate: skip if a similar title already exists for this type
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, title FROM brain_items
+                   WHERE type = %s AND LOWER(title) = LOWER(%s)
+                   LIMIT 1""",
+                (type, title),
+            )
+            exact = cur.fetchone()
+            if exact:
+                logger.info(f"Brain item deduplicated (exact match): [{type}] {title}")
+                return {"status": "deduplicated", "existing_id": str(exact[0])}
+
+            # Fuzzy: check if title words overlap >60% with any existing item of same type
+            cur.execute(
+                """SELECT id, title FROM brain_items WHERE type = %s""",
+                (type,),
+            )
+            existing = cur.fetchall()
+            title_words = set(title.lower().split())
+            for existing_id, existing_title in existing:
+                existing_words = set(existing_title.lower().split())
+                if title_words and existing_words:
+                    overlap = len(title_words & existing_words) / max(len(title_words), len(existing_words))
+                    if overlap > 0.6:
+                        logger.info(f"Brain item deduplicated (fuzzy): [{type}] '{title}' ~ '{existing_title}'")
+                        return {"status": "deduplicated", "existing_id": str(existing_id)}
+
         next_action_at = None
         if nudge_hours and nudge_hours > 0:
             next_action_at = datetime.utcnow() + timedelta(hours=nudge_hours)
@@ -155,14 +183,18 @@ TRIAGE_SYSTEM_PROMPT = """You are a triage classifier. Given a user query and th
 }
 
 Rules:
-- memory_update: User shares personal info (plans, location, preferences, goals, health, relationships, decisions)
+- memory_update: User EXPLICITLY shares personal info about themselves (plans, location, preferences, goals, health, relationships, decisions). NOT system configs or technical details.
 - correction: User corrects something ("actually it's X not Y", "that's wrong, it should be...")
-- idea: User describes a feature, project, or creative idea they want to explore
-- interest: User shows sustained interest in a topic (research requests, repeated questions)
+- idea: User describes a NEW feature, project, or creative idea they want to explore. NOT routine questions or troubleshooting.
+- interest: User EXPLICITLY states they are interested in something, or makes a concrete plan around a topic. Do NOT flag:
+  * One-off questions ("what's the weather?", "what's the bitcoin price?") — these are queries, not interests
+  * Using a feature ("voice toggle", "file editor") — using ≠ interested in
+  * Looking up factual info ("history of Barcelona") — research ≠ interest
+  * Topics from the system response or code examples — only the USER's words matter
 - factual_concern: The response contains something that seems questionable, unverified, or potentially hallucinated
 - learning: There's a pattern worth remembering (what worked, what didn't, user preference for how things are done)
 
-Set detected=true only when clearly present. Most interactions will have all flags false."""
+CRITICAL: Default to all false. Only set detected=true when the USER's query clearly demonstrates the flag. Ignore the system response content for interest/idea detection — only the user's own words count. Most interactions should have ALL flags false."""
 
 
 async def _stage_triage(query: str, answer: str) -> Optional[Dict]:
@@ -315,12 +347,21 @@ Rules:
 - If memory_update detected: call update_user_memory with the personal info. NEVER use category="notes" — notes are only for explicit user requests.
 - If correction detected: call log_interaction_learning with type "correction"
 - If idea detected: call save_brain_item with type "idea", priority >= 3, and nudge_hours=24. Only save genuinely novel ideas the user described, not routine questions.
-- If interest detected: call save_brain_item with type "interest" and priority >= 3. Only save sustained/deep interests, NOT routine queries like "user asked about X".
+- If interest detected: call save_brain_item with type "interest" and priority >= 3.
 - If learning detected: call log_interaction_learning with the pattern
 - You may call multiple tools if multiple flags are set
 - Only call tools for flags that are actually detected (detected=true)
 - If no flags are detected, respond with "no_action_needed"
-- QUALITY OVER QUANTITY: Only save items worth revisiting. "User asked about the weather" is NOT worth saving. "User is planning to open a massage practice in Barcelona" IS worth saving.
+
+STRICT FILTER — Do NOT save any of these:
+- One-off queries (weather, prices, definitions, history lookups)
+- Feature usage (user used voice, user opened settings)
+- System/technical details (model names, API configs, code structure)
+- Topics that only appear in the system response, not the user's query
+- Anything you'd describe as "User is interested in X" where X is just what they asked about
+
+ONLY save items the user would recognize as their own idea or genuine ongoing interest.
+Call ZERO tools if nothing passes this filter. Calling zero tools is the correct default.
 
 Be concise in your tool arguments. Use clear, short descriptions."""
 
@@ -551,6 +592,19 @@ async def _stage_deep_review(query: str, answer: str, concern: str) -> None:
 # Main Entry Point
 # ======================================================================
 
+def _sanitize_answer(answer: str) -> str:
+    """Strip code blocks and system context from the answer before triage.
+    This prevents code examples (variable names, sample data) from being
+    misinterpreted as user interests."""
+    import re
+    # Remove code blocks (```...```)
+    sanitized = re.sub(r'```[\s\S]*?```', '[code block removed]', answer)
+    # Remove inline code with technical content
+    sanitized = re.sub(r'`[^`]{50,}`', '[code removed]', sanitized)
+    # Truncate to a reasonable length for triage
+    return sanitized[:1500]
+
+
 async def run_review_pipeline(
     query: str,
     answer: str,
@@ -568,8 +622,11 @@ async def run_review_pipeline(
         chat_id: Optional chat ID for linking brain items to conversations
     """
     try:
+        # Sanitize answer to prevent code examples leaking into triage
+        clean_answer = _sanitize_answer(answer)
+
         # Stage 1: Triage
-        triage = await _stage_triage(query, answer)
+        triage = await _stage_triage(query, clean_answer)
         if not triage:
             return  # Parse failed or no API key — skip silently
 
@@ -583,14 +640,14 @@ async def run_review_pipeline(
             return
 
         # Stage 2: Extract & Store (always runs if any flag set)
-        await _stage_extract_store(query, answer, triage, memory_handler)
+        await _stage_extract_store(query, clean_answer, triage, memory_handler)
 
         # Stage 3: Deep Review (only if factual_concern flagged)
         factual = triage.get("factual_concern", {})
         if isinstance(factual, dict) and factual.get("detected"):
             concern = factual.get("concern", "Unspecified concern")
             logger.info(f"Session review: Triggering deep review for concern: {concern}")
-            await _stage_deep_review(query, answer, concern)
+            await _stage_deep_review(query, clean_answer, concern)
 
         logger.info("Session review pipeline completed")
 

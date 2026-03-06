@@ -11,3 +11,4 @@
 - Personal knowledge management
 - Home crafting (soap, cosmetics, aromatherapy)
 - Real estate and relocation logistics
+
