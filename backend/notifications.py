@@ -154,8 +154,17 @@ async def send_push_notification(title: str, body: str, url: str = "/", tag: str
             sent += 1
         except WebPushException as e:
             logger.warning(f"Push failed for {sub.get('endpoint', '')[:50]}...: {e}")
-            # If subscription expired/invalid, mark for removal
-            if hasattr(e, 'response') and e.response and e.response.status_code in (404, 410):
+            # Check for expired subscription - try response object first, fallback to string
+            is_dead = False
+            if hasattr(e, 'response') and e.response:
+                try:
+                    is_dead = e.response.status_code in (404, 410)
+                except AttributeError:
+                    pass
+            if not is_dead:
+                err_str = str(e)
+                is_dead = "410" in err_str or "404" in err_str
+            if is_dead:
                 dead_endpoints.append(sub.get("endpoint"))
             failed += 1
         except Exception as e:

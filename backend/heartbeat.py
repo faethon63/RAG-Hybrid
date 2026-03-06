@@ -126,6 +126,33 @@ class HeartbeatService:
         user_memory = self._load_user_memory()
         recent_chats = await self._get_recent_chats_summary()
 
+        # Load personal notes
+        notes_text = ""
+        try:
+            notes_text = (_USER_MEMORY_DIR / "notes.md").read_text(encoding="utf-8")
+        except FileNotFoundError:
+            pass
+
+        # Load pending brain items
+        brain_items_text = ""
+        try:
+            from session_review import _get_db_connection
+            conn = _get_db_connection()
+            if conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT type, title FROM brain_items
+                        WHERE status NOT IN ('resolved', 'shelved')
+                        AND (next_action_at IS NULL OR next_action_at <= NOW())
+                        ORDER BY priority DESC LIMIT 5
+                    """)
+                    items = cur.fetchall()
+                conn.close()
+                if items:
+                    brain_items_text = "\n".join(f"- [{r[0]}] {r[1]}" for r in items)
+        except Exception as e:
+            logger.debug(f"Heartbeat: brain_items query failed: {e}")
+
         prompt = f"""You are a proactive AI assistant analyzing whether to send a notification to the user.
 
 USER PROFILE:
@@ -134,20 +161,28 @@ USER PROFILE:
 RECENT ACTIVITY:
 {recent_chats}
 
+USER'S SAVED NOTES:
+{notes_text}
+
+PENDING TRACKED ITEMS:
+{brain_items_text}
+
 CURRENT TIME: {datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")}
 
 Should you send a notification? Consider:
+- Topics in notes that would benefit from quick research (apartments, prices, products, deadlines)
+- Pending tracked items that need follow-up
+- Suggest actionable research the user would find useful
+- If a note mentions a specific search (e.g., "apartment in Gracia 1200 euros"), suggest looking into it
 - Upcoming deadlines or tasks the user mentioned
 - Follow-ups on ongoing projects
-- Reminders for things they said they'd do
-- Encouragement if they've been working hard
 - Do NOT notify just to say "no updates" — only if there's something genuinely useful
 
 Respond with ONLY valid JSON:
 {{"notify": true/false, "title": "short title", "message": "notification body (1-2 sentences)", "reason": "why you decided this"}}"""
 
         try:
-            from groq_agent import get_groq_api_key
+            from agent import get_groq_api_key
             api_key = get_groq_api_key()
             if not api_key:
                 logger.warning("Heartbeat: no Groq API key")
@@ -228,8 +263,15 @@ Respond with ONLY valid JSON:
         except FileNotFoundError:
             interests_text = "AI, technology, personal productivity"
 
+        # Load personal notes for query generation
+        notes_text = ""
         try:
-            from groq_agent import get_groq_api_key
+            notes_text = (_USER_MEMORY_DIR / "notes.md").read_text(encoding="utf-8")
+        except FileNotFoundError:
+            pass
+
+        try:
+            from agent import get_groq_api_key
             api_key = get_groq_api_key()
             if not api_key:
                 return
@@ -243,7 +285,7 @@ Respond with ONLY valid JSON:
                         "model": "llama-3.3-70b-versatile",
                         "messages": [
                             {"role": "system", "content": "Generate 2-3 web search queries for a daily news briefing. Return ONLY a JSON array of search query strings."},
-                            {"role": "user", "content": f"User interests:\n{interests_text}\n\nDate: {datetime.now().strftime('%B %d, %Y')}"},
+                            {"role": "user", "content": f"User interests:\n{interests_text}\n\nUser's saved notes:\n{notes_text}\n\nDate: {datetime.now().strftime('%B %d, %Y')}"},
                         ],
                         "temperature": 0.5,
                         "max_tokens": 200,
@@ -259,7 +301,7 @@ Respond with ONLY valid JSON:
             search_results = []
             perplexity_key = os.getenv("PERPLEXITY_API_KEY", "")
             if perplexity_key:
-                for query in queries[:3]:
+                for query in queries[:4]:
                     try:
                         async with httpx.AsyncClient(timeout=20.0) as client:
                             resp = await client.post(
