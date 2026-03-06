@@ -264,7 +264,7 @@ def get_tracker_status(project_name: str = "Chapter_7_Assistant") -> Dict[str, A
 def format_missing_summary(project_name: str = "Chapter_7_Assistant") -> str:
     """
     Format a human-readable summary of what's missing, for chat display.
-    Used by the data collection interceptor in groq_agent.py.
+    Used by the data collection interceptor in agent.py.
     """
     status = get_tracker_status(project_name)
 

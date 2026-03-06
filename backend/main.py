@@ -42,7 +42,7 @@ MAX_KB_FILE_SIZE = 20 * 1024 * 1024  # 20 MB (needed for large instruction PDFs)
 from rag_core import RAGCore
 from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch, IdealistaSearch, Crawl4AISearch
 from orchestrator import QueryOrchestrator
-from groq_agent import groq_agent, GroqAgent, get_current_project, get_current_project_config, get_current_conversation_history, _load_user_memory
+from agent import agent, Agent, get_current_project, get_current_project_config, get_current_conversation_history, _load_user_memory
 from deep_agent import get_deep_agent, is_deep_research_query
 from auth import authenticate_user
 from query_classifier import QueryClassifier, classify_query
@@ -128,9 +128,9 @@ async def _tool_web_search(query: str, provider: str = "perplexity", recency: st
     logger = logging.getLogger(__name__)
     logger.info(f"web_search called with provider={provider}, query={query[:100]}...")
 
-    # Get conversation history from request-scoped ContextVar (set by GroqAgent.chat())
+    # Get conversation history from request-scoped ContextVar (set by Agent.chat())
     # This ensures Perplexity has context from prior messages in the conversation
-    from groq_agent import get_current_conversation_history
+    from agent import get_current_conversation_history
     conv_history = get_current_conversation_history()
 
     if provider == "perplexity_focused":
@@ -301,7 +301,7 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 
     logger.info(f"complex_reasoning: complexity={original_complexity}→{complexity} → model={model}")
 
-    # Include conversation history from groq_agent for context
+    # Include conversation history from agent for context
     conversation_context = ""
     if get_current_conversation_history():
         history_lines = []
@@ -1144,18 +1144,18 @@ async def _tool_browse_website(url: str, action: str = "read", search_term: str 
     }
 
 
-groq_agent.register_tool_handler("web_search", _tool_web_search)
-groq_agent.register_tool_handler("search_listings", _tool_search_listings)
-groq_agent.register_tool_handler("deep_research", _tool_deep_research)
-groq_agent.register_tool_handler("complex_reasoning", _tool_complex_reasoning)
-groq_agent.register_tool_handler("github_search", _tool_github_search)
-groq_agent.register_tool_handler("notion_tool", _tool_notion)
-groq_agent.register_tool_handler("find_suppliers", _tool_find_suppliers)
-groq_agent.register_tool_handler("browse_website", _tool_browse_website)
-groq_agent.register_tool_handler("search_knowledge_base", _tool_search_knowledge_base)
-groq_agent.register_tool_handler("list_directory", _tool_list_directory)
-groq_agent.register_tool_handler("read_file", _tool_read_file)
-groq_agent.register_tool_handler("search_files", _tool_search_files)
+agent.register_tool_handler("web_search", _tool_web_search)
+agent.register_tool_handler("search_listings", _tool_search_listings)
+agent.register_tool_handler("deep_research", _tool_deep_research)
+agent.register_tool_handler("complex_reasoning", _tool_complex_reasoning)
+agent.register_tool_handler("github_search", _tool_github_search)
+agent.register_tool_handler("notion_tool", _tool_notion)
+agent.register_tool_handler("find_suppliers", _tool_find_suppliers)
+agent.register_tool_handler("browse_website", _tool_browse_website)
+agent.register_tool_handler("search_knowledge_base", _tool_search_knowledge_base)
+agent.register_tool_handler("list_directory", _tool_list_directory)
+agent.register_tool_handler("read_file", _tool_read_file)
+agent.register_tool_handler("search_files", _tool_search_files)
 
 
 # --- User Memory Tool Handler ---
@@ -1272,7 +1272,7 @@ def _lines_match(existing_line: str, new_line: str) -> bool:
     return overlap >= min(3, len(words_b))
 
 
-groq_agent.register_tool_handler("update_user_memory", _tool_update_user_memory)
+agent.register_tool_handler("update_user_memory", _tool_update_user_memory)
 
 
 async def _tool_read_user_notes(**kwargs) -> Dict:
@@ -1336,8 +1336,8 @@ async def _tool_read_brain_items(type_filter: str = None, limit: int = 20) -> Di
         return {"answer": f"Failed to read brain items: {e}"}
 
 
-groq_agent.register_tool_handler("read_user_notes", _tool_read_user_notes)
-groq_agent.register_tool_handler("read_brain_items", _tool_read_brain_items)
+agent.register_tool_handler("read_user_notes", _tool_read_user_notes)
+agent.register_tool_handler("read_brain_items", _tool_read_brain_items)
 
 
 # --- Bankruptcy Form-Filling Tool Handlers ---
@@ -1553,11 +1553,11 @@ async def _tool_download_file(url: str, filename: str = "") -> Dict[str, Any]:
         logger.error(f"download_file error: {e}")
         return {"answer": f"Download error: {str(e)}", "sources": []}
 
-groq_agent.register_tool_handler("fill_bankruptcy_form", _tool_fill_bankruptcy_form)
-groq_agent.register_tool_handler("download_file", _tool_download_file)
-groq_agent.register_tool_handler("build_data_profile", _tool_build_data_profile)
-groq_agent.register_tool_handler("check_data_consistency", _tool_check_data_consistency)
-groq_agent.register_tool_handler("get_data_profile", _tool_get_data_profile)
+agent.register_tool_handler("fill_bankruptcy_form", _tool_fill_bankruptcy_form)
+agent.register_tool_handler("download_file", _tool_download_file)
+agent.register_tool_handler("build_data_profile", _tool_build_data_profile)
+agent.register_tool_handler("check_data_consistency", _tool_check_data_consistency)
+agent.register_tool_handler("get_data_profile", _tool_get_data_profile)
 
 
 async def _tool_update_filing_data(updates: dict, source: str = "user_provided") -> Dict[str, Any]:
@@ -1622,8 +1622,8 @@ async def _tool_get_filing_status() -> Dict[str, Any]:
         return {"answer": f"Error getting filing status: {e}", "sources": []}
 
 
-groq_agent.register_tool_handler("update_filing_data", _tool_update_filing_data)
-groq_agent.register_tool_handler("get_filing_status", _tool_get_filing_status)
+agent.register_tool_handler("update_filing_data", _tool_update_filing_data)
+agent.register_tool_handler("get_filing_status", _tool_get_filing_status)
 
 # ============================================================================
 # REQUEST/RESPONSE MODELS
@@ -1926,7 +1926,7 @@ async def query(request: Request, query_request: QueryRequest):
             logging.getLogger(__name__).info(f"Using orchestrator agent with tools (user model pref: {query_request.model})")
 
             # Groq agent handles everything - routing, tool calls, synthesis
-            agent_result = await groq_agent.chat(
+            agent_result = await agent.chat(
                 query=query_request.query,
                 conversation_history=query_request.conversation_history,
                 project_config=project_config,
@@ -3378,7 +3378,7 @@ async def extract_memory_from_chats(request: Request):
         return {"status": "no_user_messages", "extracted": 0}
 
     # Use Groq to extract facts
-    from groq_agent import get_groq_api_key
+    from agent import get_groq_api_key
     api_key = get_groq_api_key()
     if not api_key:
         raise HTTPException(status_code=500, detail="Groq API key not configured")

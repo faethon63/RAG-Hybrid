@@ -416,7 +416,7 @@ CRITICAL: If ANY field has severity "error", set approved to false."""
         windows_copy = None
         try:
             from form_sync import copy_to_windows_folder
-            from groq_agent import get_current_project_config
+            from agent import get_current_project_config
             config = get_current_project_config() or {}
             windows_copy = copy_to_windows_folder(
                 output_pdf_path, config.get("allowed_paths", [])

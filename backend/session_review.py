@@ -168,7 +168,7 @@ Set detected=true only when clearly present. Most interactions will have all fla
 async def _stage_triage(query: str, answer: str) -> Optional[Dict]:
     """Stage 1: Classify the interaction using Groq (free)."""
     try:
-        from groq_agent import get_groq_api_key
+        from agent import get_groq_api_key
         from config import get_groq_model
 
         api_key = get_groq_api_key()
@@ -343,7 +343,7 @@ async def _stage_extract_store(
     logger.info(f"Session review Stage 2: starting extract & store")
 
     try:
-        from groq_agent import get_groq_api_key
+        from agent import get_groq_api_key
         from config import get_groq_model
 
         api_key = get_groq_api_key()
