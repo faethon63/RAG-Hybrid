@@ -36,7 +36,7 @@ def _load_user_memory() -> str:
             pass
     if not parts:
         return ""
-    return "\n\n## About the User\n" + "\n\n".join(parts)
+    return "\n\n## About the User\nSource: your persistent memory files in config/project-kb/_user_memory/ (user.md, interests.md, memory.md, soul.md, notes.md). When asked WHERE you know something, cite these files.\n\n" + "\n\n".join(parts)
 
 
 # Request-scoped state using contextvars (safe for concurrent async requests).

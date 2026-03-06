@@ -42,7 +42,7 @@ MAX_KB_FILE_SIZE = 20 * 1024 * 1024  # 20 MB (needed for large instruction PDFs)
 from rag_core import RAGCore
 from search_integrations import ClaudeSearch, PerplexitySearch, TavilySearch, IdealistaSearch, Crawl4AISearch
 from orchestrator import QueryOrchestrator
-from groq_agent import groq_agent, GroqAgent, get_current_project, get_current_project_config, get_current_conversation_history
+from groq_agent import groq_agent, GroqAgent, get_current_project, get_current_project_config, get_current_conversation_history, _load_user_memory
 from deep_agent import get_deep_agent, is_deep_research_query
 from auth import authenticate_user
 from query_classifier import QueryClassifier, classify_query
@@ -339,6 +339,11 @@ async def _tool_complex_reasoning(task: str, context: str = "", complexity: str 
 - If tool results say "FAILED" or "could not fetch", report that honestly. Do not fill gaps with made-up information.
 
 """
+    # Inject user memory so Claude knows about the user
+    user_memory = _load_user_memory()
+    if user_memory:
+        context = user_memory + "\n\n" + (context or "")
+
     full_query = instructions + task
     if context:
         full_query += f"\n\nContext: {context}"
