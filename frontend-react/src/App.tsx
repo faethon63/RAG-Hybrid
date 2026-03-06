@@ -42,12 +42,23 @@ function App() {
       if (savedChatId) loadChat(savedChatId);
     }
 
-    // Re-check URL when tab regains focus (SW navigate may not remount)
+    // Listen for LOAD_CHAT messages from service worker (notification deep link)
+    const onSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'LOAD_CHAT' && event.data.chatId) {
+        loadChat(event.data.chatId);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onSwMessage);
+
+    // Re-check URL when tab regains focus (fallback for openWindow case)
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') handleChatParam();
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onSwMessage);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [loadSettings, checkHealth, loadChats, loadChat]);
 
   return (

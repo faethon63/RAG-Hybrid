@@ -67,15 +67,20 @@ self.addEventListener('notificationclick', (event) => {
     return;
   }
 
-  // Default / "View" action: open or focus the app at the URL
+  // Default / "View" action: open or focus the app, then tell it which chat to load
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
-          return (client as WindowClient).navigate(url).then((c) => c?.focus());
+          // postMessage is more reliable than navigate() on mobile
+          if (chatId) {
+            client.postMessage({ type: 'LOAD_CHAT', chatId });
+          }
+          return (client as WindowClient).focus();
         }
       }
-      return self.clients.openWindow(url);
+      // No existing window — open with URL param as fallback
+      return self.clients.openWindow(chatId ? `/?chat=${chatId}` : url);
     })
   );
 });
