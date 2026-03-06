@@ -35,22 +35,27 @@ export function useSpeechSynthesis() {
   const [isAvailable] = useState(() => typeof window !== 'undefined' && 'speechSynthesis' in window);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumeRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const clearWatchdog = useCallback(() => {
+  const clearTimers = useCallback(() => {
     if (watchdogRef.current) {
       clearTimeout(watchdogRef.current);
       watchdogRef.current = null;
+    }
+    if (resumeRef.current) {
+      clearInterval(resumeRef.current);
+      resumeRef.current = null;
     }
   }, []);
 
   const stop = useCallback(() => {
     if (isAvailable) {
-      clearWatchdog();
+      clearTimers();
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
       utteranceRef.current = null;
     }
-  }, [isAvailable, clearWatchdog]);
+  }, [isAvailable, clearTimers]);
 
   const onEndRef = useRef<(() => void) | null>(null);
 
@@ -58,7 +63,7 @@ export function useSpeechSynthesis() {
     if (!isAvailable) return;
 
     // Stop any current speech and clear previous watchdog
-    clearWatchdog();
+    clearTimers();
     // Only cancel if something is actually playing — avoids Chrome firing
     // spurious 'canceled' error events on mobile when nothing is queued
     if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
@@ -83,7 +88,7 @@ export function useSpeechSynthesis() {
     utterance.pitch = 1.0;
 
     const handleEnd = () => {
-      clearWatchdog();
+      clearTimers();
       setIsSpeaking(false);
       utteranceRef.current = null;
       const cb = onEndRef.current;
@@ -96,7 +101,7 @@ export function useSpeechSynthesis() {
     utterance.onerror = (e) => {
       // 'interrupted' is normal when cancel() is called, don't treat as error
       if (e.error === 'interrupted') {
-        clearWatchdog();
+        clearTimers();
         setIsSpeaking(false);
         utteranceRef.current = null;
         onEndRef.current = null;
@@ -107,9 +112,18 @@ export function useSpeechSynthesis() {
 
     window.speechSynthesis.speak(utterance);
 
+    // Chrome Android kills speechSynthesis after ~15 seconds of continuous speech.
+    // The pause/resume trick keeps the engine alive.
+    resumeRef.current = setInterval(() => {
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+      }
+    }, 10000);
+
     // Watchdog: Chrome sometimes doesn't fire onend for long utterances.
-    // Estimate max duration: ~80ms per char + 5s buffer, minimum 8s.
-    const maxDuration = Math.max(cleaned.length * 80, 5000) + 3000;
+    // Estimate ~80ms/char but cap at 60s so recovery is fast if TTS dies.
+    const maxDuration = Math.min(Math.max(cleaned.length * 80, 8000) + 3000, 60000);
     watchdogRef.current = setTimeout(() => {
       if (utteranceRef.current === utterance) {
         console.warn('[TTS] Watchdog fired — onend did not fire within expected time');
@@ -117,7 +131,7 @@ export function useSpeechSynthesis() {
         handleEnd();
       }
     }, maxDuration);
-  }, [isAvailable, clearWatchdog]);
+  }, [isAvailable, clearTimers]);
 
   // Ensure voices are loaded (async on some browsers)
   useEffect(() => {
@@ -128,7 +142,7 @@ export function useSpeechSynthesis() {
     window.speechSynthesis.addEventListener('voiceschanged', handler);
     return () => {
       window.speechSynthesis.removeEventListener('voiceschanged', handler);
-      clearWatchdog();
+      clearTimers();
       window.speechSynthesis.cancel();
     };
   }, [isAvailable]);

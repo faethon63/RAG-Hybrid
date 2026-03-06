@@ -397,7 +397,6 @@ export function ChatInput() {
     // A ref survives the re-render.
     console.log('[Voice] Auto-record: conditions met, starting recording');
     setShouldAutoRecord(false);
-    window.speechSynthesis?.cancel();
     if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
     autoRecordTimerRef.current = setTimeout(() => {
       autoRecordTimerRef.current = null;
