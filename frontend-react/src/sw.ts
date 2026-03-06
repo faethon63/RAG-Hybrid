@@ -34,7 +34,7 @@ self.addEventListener('push', (event) => {
   }
 
   const title = payload.title || 'RAG-Hybrid';
-  const options: NotificationOptions = {
+  const options: NotificationOptions & { actions?: Array<{ action: string; title: string }> } = {
     body: payload.body || '',
     icon: '/pwa-192x192.png',
     badge: '/pwa-192x192.png',
