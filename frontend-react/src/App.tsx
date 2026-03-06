@@ -8,6 +8,7 @@ import { NotificationBanner } from './components/common/NotificationBanner';
 import { useSettingsStore } from './stores/settingsStore';
 import { useChatStore } from './stores/chatStore';
 import { MenuIcon } from './components/common/icons';
+import { syncPushSubscription } from './utils/pushNotifications';
 
 function App() {
   const sidebarOpen = useSettingsStore((s) => s.sidebarOpen);
@@ -21,6 +22,7 @@ function App() {
     loadSettings();
     checkHealth();
     loadChats();
+    syncPushSubscription(); // Re-sync browser subscription with backend
     // Restore last open chat on refresh
     const savedChatId = localStorage.getItem('rag-currentChatId');
     if (savedChatId) loadChat(savedChatId);

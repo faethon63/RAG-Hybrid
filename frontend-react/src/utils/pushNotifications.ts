@@ -86,3 +86,23 @@ export async function isPushSubscribed(): Promise<boolean> {
 export function isPushSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
+
+/**
+ * Re-send the browser's existing push subscription to the backend.
+ * Covers subscription loss from server-side clears, deploys, or file corruption.
+ */
+export async function syncPushSubscription(): Promise<void> {
+  try {
+    if (!isPushSupported()) return;
+    if (Notification.permission !== 'granted') return;
+
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+
+    // Re-register with backend (handles duplicates gracefully)
+    await api.subscribePush(subscription.toJSON());
+  } catch (err) {
+    console.debug('Push sync skipped:', err);
+  }
+}
