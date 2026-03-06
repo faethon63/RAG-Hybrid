@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSettingsStore, MODEL_OPTIONS, MODE_OPTIONS, getAvailableModelOptions, getAvailableModeOptions } from '../../stores/settingsStore';
 import { CloseIcon, LoaderIcon, CheckIcon, MonitorIcon, AlertIcon, RefreshIcon } from '../common/icons';
 import { api } from '../../api/client';
+import { isPushSupported, unsubscribeFromPush } from '../../utils/pushNotifications';
 
 export function SettingsPanel() {
   const showSettings = useSettingsStore((s) => s.showSettings);
@@ -33,6 +34,8 @@ export function SettingsPanel() {
     reason?: string;
   } | null>(null);
   const [rcLoading, setRcLoading] = useState(false);
+  const [pushResetting, setPushResetting] = useState(false);
+  const [pushResetDone, setPushResetDone] = useState(false);
 
   // Filter options based on Ollama availability
   const ollamaAvailable = health?.services?.ollama ?? false;
@@ -245,6 +248,46 @@ export function SettingsPanel() {
               </div>
             </div>
           </section>
+
+          {/* Notifications */}
+          {isPushSupported() && (
+            <>
+              <div className="border-t border-[var(--color-border)]" />
+              <section>
+                <h3 className="text-sm font-medium text-[var(--color-text-secondary)] uppercase tracking-wide mb-3">
+                  Push Notifications
+                </h3>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm">Reset push subscription</p>
+                    <p className="text-xs text-[var(--color-text-secondary)]">
+                      Clears browser subscription so you can re-register
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setPushResetting(true);
+                      await unsubscribeFromPush();
+                      localStorage.removeItem('push-banner-dismissed');
+                      setPushResetting(false);
+                      setPushResetDone(true);
+                      setTimeout(() => setPushResetDone(false), 3000);
+                    }}
+                    disabled={pushResetting}
+                    className="px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-surface)] transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {pushResetting ? (
+                      <><LoaderIcon className="w-3.5 h-3.5 animate-spin" /> Resetting...</>
+                    ) : pushResetDone ? (
+                      <><CheckIcon className="w-3.5 h-3.5 text-green-500" /> Done — reload app</>
+                    ) : (
+                      'Reset'
+                    )}
+                  </button>
+                </div>
+              </section>
+            </>
+          )}
 
           <div className="border-t border-[var(--color-border)]" />
 
