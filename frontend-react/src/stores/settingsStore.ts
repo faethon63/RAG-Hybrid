@@ -133,14 +133,14 @@ export const useSettingsStore = create<SettingsState>()(
   )
 );
 
-// Model options - Groq orchestrates automatically, Claude selection is tiered
+// Model options - Gemini orchestrates automatically, Claude selection is tiered
 export const MODEL_OPTIONS = [
-  { value: 'auto', label: 'Smart (Groq orchestrates)', description: 'Groq routes queries, uses tiered Claude when needed', requiresOllama: false },
+  { value: 'auto', label: 'Smart (auto-routed)', description: 'AI routes queries to the best model automatically', requiresOllama: false },
   { value: 'local', label: 'Local (Ollama)', description: 'Offline, uses local qwen2.5 model', requiresOllama: true },
 ];
 
 export const MODE_OPTIONS = [
-  { value: 'auto', label: 'Smart', description: 'Groq + web search + tiered Claude fallback', requiresOllama: false },
+  { value: 'auto', label: 'Smart', description: 'Auto-routed with web search + Claude fallback', requiresOllama: false },
   { value: 'private', label: 'Private', description: 'Local Ollama only, no external APIs', requiresOllama: true },
   { value: 'research', label: 'Research', description: 'Deep Perplexity Pro search', requiresOllama: false },
   { value: 'deep_agent', label: 'Deep Agent', description: 'Multi-step research agent', requiresOllama: false },
