@@ -18,11 +18,19 @@ precacheAndRoute(self.__WB_MANIFEST);
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
-  let payload: { title?: string; body?: string; url?: string; tag?: string };
+  let payload: { title?: string; body?: string; url?: string; tag?: string; chatId?: string };
   try {
     payload = event.data.json();
   } catch {
     payload = { title: 'RAG-Hybrid', body: event.data.text() };
+  }
+
+  // Extract chatId from url if present (e.g., "/?chat=chat_123")
+  const url = payload.url || '/';
+  let chatId = payload.chatId;
+  if (!chatId && url.includes('chat=')) {
+    const match = url.match(/[?&]chat=([^&]+)/);
+    if (match) chatId = match[1];
   }
 
   const title = payload.title || 'RAG-Hybrid';
@@ -31,7 +39,13 @@ self.addEventListener('push', (event) => {
     icon: '/pwa-192x192.png',
     badge: '/pwa-192x192.png',
     tag: payload.tag || 'rag-notification',
-    data: { url: payload.url || '/' },
+    data: { url, chatId },
+    actions: chatId
+      ? [
+          { action: 'view', title: 'View' },
+          { action: 'dismiss', title: 'Dismiss' },
+        ]
+      : [],
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
@@ -41,17 +55,26 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const url = (event.notification.data?.url as string) || '/';
+  const data = event.notification.data || {};
+  const url = (data.url as string) || '/';
+  const chatId = data.chatId as string | undefined;
 
+  // "Dismiss" action: delete the linked chat and close notification
+  if (event.action === 'dismiss' && chatId) {
+    event.waitUntil(
+      fetch(`/api/v1/chats/${chatId}`, { method: 'DELETE' }).catch(() => {})
+    );
+    return;
+  }
+
+  // Default / "View" action: open or focus the app at the URL
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-      // Focus existing tab if open
       for (const client of windowClients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
-          return client.focus();
+          return (client as WindowClient).navigate(url).then((c) => c?.focus());
         }
       }
-      // Otherwise open new tab
       return self.clients.openWindow(url);
     })
   );

@@ -3515,7 +3515,8 @@ async def send_notification(request: Request):
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
     title = body.get("title", "RAG-Hybrid")
     msg = body.get("body", body.get("message", ""))
-    url = body.get("url", "/")
+    chat_id = body.get("chat_id")
+    url = f"/?chat={chat_id}" if chat_id else body.get("url", "/")
     tag = body.get("tag")
     if not msg:
         raise HTTPException(status_code=400, detail="Missing 'body' or 'message'")

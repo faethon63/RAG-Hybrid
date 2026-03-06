@@ -179,7 +179,7 @@ Should you send a notification? Consider:
 - Do NOT notify just to say "no updates" — only if there's something genuinely useful
 
 Respond with ONLY valid JSON:
-{{"notify": true/false, "title": "short title", "message": "notification body (1-2 sentences)", "reason": "why you decided this"}}"""
+{{"notify": true/false, "title": "short title", "message": "notification body (1-2 sentences)", "reason": "why you decided this", "research_query": "optional search string if notification would benefit from a quick web lookup first"}}"""
 
         try:
             from agent import get_groq_api_key
@@ -225,6 +225,7 @@ Respond with ONLY valid JSON:
                 if decision.get("notify"):
                     title = decision.get("title", "RAG-Hybrid")
                     message = decision.get("message", "")
+                    research_query = decision.get("research_query")
 
                     # Dedup: don't send same message within 24h
                     msg_key = message[:50].lower()
@@ -237,15 +238,61 @@ Respond with ONLY valid JSON:
                     if len(self._recent_notifications) > 100:
                         self._recent_notifications = self._recent_notifications[-50:]
 
-                    # Send push notification
+                    # Optional: run Perplexity research before notifying
+                    chat_id = None
+                    if research_query:
+                        chat_id = await self._research_and_save(research_query, title)
+
+                    # Send push notification (with deep link if chat was saved)
                     from notifications import send_push_notification
-                    await send_push_notification(title=title, body=message, tag="heartbeat")
-                    logger.info(f"Heartbeat notification sent: {title}")
+                    notify_url = f"/?chat={chat_id}" if chat_id else "/"
+                    await send_push_notification(title=title, body=message, url=notify_url, tag="heartbeat")
+                    logger.info(f"Heartbeat notification sent: {title}" + (f" (chat: {chat_id})" if chat_id else ""))
                 else:
                     logger.info(f"Heartbeat: no notification needed. Reason: {decision.get('reason', 'N/A')}")
 
         except Exception as e:
             logger.error(f"Heartbeat check failed: {e}")
+
+    async def _research_and_save(self, query: str, title: str) -> Optional[str]:
+        """Run a Perplexity search, save results as a chat, return chat_id."""
+        perplexity_key = os.getenv("PERPLEXITY_API_KEY", "")
+        if not perplexity_key:
+            logger.warning("Heartbeat: no Perplexity key, skipping research")
+            return None
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    "https://api.perplexity.ai/chat/completions",
+                    headers={"Authorization": f"Bearer {perplexity_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "sonar",
+                        "messages": [{"role": "user", "content": query}],
+                        "max_tokens": 500,
+                    },
+                )
+                resp.raise_for_status()
+                research = resp.json()["choices"][0]["message"]["content"]
+
+            # Save as chat
+            import rag_core as rag_module
+            core = rag_module.RAGCore()
+            chat_data = {
+                "name": title,
+                "project": None,
+                "messages": [
+                    {"role": "user", "content": query},
+                    {"role": "assistant", "content": research},
+                ],
+            }
+            saved = await core.save_chat(chat_data)
+            chat_id = saved.get("id")
+            logger.info(f"Heartbeat research saved as chat {chat_id}")
+            return chat_id
+        except Exception as e:
+            logger.error(f"Heartbeat research failed: {e}")
+            return None
 
     async def daily_briefing(self):
         """Generate and send daily briefing based on user interests."""
@@ -362,17 +409,11 @@ Respond with ONLY valid JSON:
             except Exception as e:
                 logger.warning(f"Brain items nudge query failed: {e}")
 
-            # Step 4: Send notification
-            from notifications import send_push_notification
-            await send_push_notification(
-                title=f"Daily Briefing - {datetime.now().strftime('%b %d')}",
-                body=briefing[:200] + ("..." if len(briefing) > 200 else ""),
-                tag="daily-briefing",
-            )
-
-            # Step 5: Save as chat message (visible in UI)
+            # Step 4: Save as chat first (so we can link notification to it)
+            briefing_chat_id = None
             try:
-                import rag_core
+                import rag_core as rag_module
+                core = rag_module.RAGCore()
                 chat_data = {
                     "name": f"Daily Briefing - {datetime.now().strftime('%B %d, %Y')}",
                     "project": None,
@@ -380,10 +421,21 @@ Respond with ONLY valid JSON:
                         {"role": "assistant", "content": f"# Daily Briefing - {datetime.now().strftime('%B %d, %Y')}\n\n{briefing}"},
                     ],
                 }
-                await rag_core.save_chat(chat_data)
-                logger.info("Daily briefing saved as chat")
+                saved = await core.save_chat(chat_data)
+                briefing_chat_id = saved.get("id")
+                logger.info(f"Daily briefing saved as chat {briefing_chat_id}")
             except Exception as e:
                 logger.warning(f"Failed to save briefing as chat: {e}")
+
+            # Step 5: Send notification with deep link to saved chat
+            from notifications import send_push_notification
+            notify_url = f"/?chat={briefing_chat_id}" if briefing_chat_id else "/"
+            await send_push_notification(
+                title=f"Daily Briefing - {datetime.now().strftime('%b %d')}",
+                body=briefing[:200] + ("..." if len(briefing) > 200 else ""),
+                url=notify_url,
+                tag="daily-briefing",
+            )
 
             # Log it
             log = self._load_heartbeat_log()

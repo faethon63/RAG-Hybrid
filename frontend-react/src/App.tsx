@@ -23,9 +23,17 @@ function App() {
     checkHealth();
     loadChats();
     syncPushSubscription(); // Re-sync browser subscription with backend
-    // Restore last open chat on refresh
-    const savedChatId = localStorage.getItem('rag-currentChatId');
-    if (savedChatId) loadChat(savedChatId);
+    // Handle ?chat= deep link from notifications
+    const params = new URLSearchParams(window.location.search);
+    const chatParam = params.get('chat');
+    if (chatParam) {
+      loadChat(chatParam);
+      window.history.replaceState({}, '', '/');
+    } else {
+      // Restore last open chat on refresh
+      const savedChatId = localStorage.getItem('rag-currentChatId');
+      if (savedChatId) loadChat(savedChatId);
+    }
   }, [loadSettings, checkHealth, loadChats, loadChat]);
 
   return (
