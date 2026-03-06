@@ -59,7 +59,11 @@ export function useSpeechSynthesis() {
 
     // Stop any current speech and clear previous watchdog
     clearWatchdog();
-    window.speechSynthesis.cancel();
+    // Only cancel if something is actually playing — avoids Chrome firing
+    // spurious 'canceled' error events on mobile when nothing is queued
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      window.speechSynthesis.cancel();
+    }
 
     const cleaned = stripMarkdown(text);
     if (!cleaned) return;

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -23,6 +23,9 @@ import {
 } from '../common/icons';
 import clsx from 'clsx';
 
+// Module-level Set survives React StrictMode double-mount (component refs reset on remount)
+const _autoSpokenIds = new Set<string>();
+
 interface MessageItemProps {
   message: Message;
   isFirstMessage?: boolean;
@@ -46,22 +49,28 @@ export function MessageItem({ message, isFirstMessage, autoPlayTTS, onEdit, onDe
   const meta = message.metadata;
 
   const setShouldAutoRecord = useChatStore((s) => s.setShouldAutoRecord);
-  const spokenIdRef = useRef<string | null>(null);
 
   // Auto-play TTS when response arrives from voice input
   useEffect(() => {
-    if (autoPlayTTS && autoPlayTTS !== spokenIdRef.current && !isUser && content && ttsAvailable) {
-      spokenIdRef.current = autoPlayTTS;
-      const timer = setTimeout(() => {
-        speak(content, () => {
-          // When TTS finishes and voice conversation mode is on, trigger auto-record
-          if (useChatStore.getState().voiceConversationMode) {
-            setShouldAutoRecord(true);
-          }
-        });
-      }, 300);
-      return () => clearTimeout(timer);
+    if (!autoPlayTTS || isUser || !content || !ttsAvailable) return;
+    if (_autoSpokenIds.has(autoPlayTTS)) return;
+    _autoSpokenIds.add(autoPlayTTS);
+
+    // Prune set to prevent unbounded growth
+    if (_autoSpokenIds.size > 100) {
+      const first = _autoSpokenIds.values().next().value;
+      if (first) _autoSpokenIds.delete(first);
     }
+
+    const timer = setTimeout(() => {
+      speak(content, () => {
+        // When TTS finishes and voice conversation mode is on, trigger auto-record
+        if (useChatStore.getState().voiceConversationMode) {
+          setShouldAutoRecord(true);
+        }
+      });
+    }, 300);
+    return () => clearTimeout(timer);
   }, [autoPlayTTS]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = async () => {

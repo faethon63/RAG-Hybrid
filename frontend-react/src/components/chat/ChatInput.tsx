@@ -40,6 +40,7 @@ export function ChatInput() {
   const silenceStartRef = useRef<number | null>(null);
   const silenceRafRef = useRef<number | null>(null);
   const hadSpeechRef = useRef(false);
+  const autoRecordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isLoading = useChatStore((s) => s.isLoading);
   const sendQuery = useChatStore((s) => s.sendQuery);
@@ -365,6 +366,10 @@ export function ChatInput() {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
       }
+      if (autoRecordTimerRef.current) {
+        clearTimeout(autoRecordTimerRef.current);
+        autoRecordTimerRef.current = null;
+      }
     };
   }, [stopRecordingCleanup]);
 
@@ -386,18 +391,22 @@ export function ChatInput() {
       return;
     }
 
-    // Conditions met — clear flag and start recording
+    // Conditions met — clear flag and start recording after delay.
+    // Use a ref-based timer instead of effect cleanup: setShouldAutoRecord(false)
+    // triggers a Zustand re-render → React runs cleanup → timer gets canceled.
+    // A ref survives the re-render.
     console.log('[Voice] Auto-record: conditions met, starting recording');
     setShouldAutoRecord(false);
     window.speechSynthesis?.cancel();
-    const timer = setTimeout(() => {
+    if (autoRecordTimerRef.current) clearTimeout(autoRecordTimerRef.current);
+    autoRecordTimerRef.current = setTimeout(() => {
+      autoRecordTimerRef.current = null;
       if (useChatStore.getState().voiceConversationMode) {
         startRecording().catch((err) => {
           console.error('[Voice] Auto-record failed to start:', err);
         });
       }
     }, 800);
-    return () => clearTimeout(timer);
   }, [shouldAutoRecord, isRecording, isLoading, isTranscribing, setShouldAutoRecord, startRecording]);
 
   const handleSubmit = async () => {
@@ -585,6 +594,10 @@ export function ChatInput() {
               if (!next) {
                 console.log('[Voice] Toggle OFF');
                 setShouldAutoRecord(false); // Clear any pending auto-record
+                if (autoRecordTimerRef.current) {
+                  clearTimeout(autoRecordTimerRef.current);
+                  autoRecordTimerRef.current = null;
+                }
                 if (isRecording) stopRecording();
                 window.speechSynthesis?.cancel();
               }
