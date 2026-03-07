@@ -405,7 +405,7 @@ export function ChatInput() {
           console.error('[Voice] Auto-record failed to start:', err);
         });
       }
-    }, 800);
+    }, 200);
   }, [shouldAutoRecord, isRecording, isLoading, isTranscribing, setShouldAutoRecord, startRecording]);
 
   const handleSubmit = async () => {
@@ -603,7 +603,7 @@ export function ChatInput() {
             }}
             disabled={isLoading || isTranscribing}
             className={clsx(
-              'px-2 py-1 m-1 rounded-lg transition-all flex-shrink-0 text-xs font-medium',
+              'px-2 py-1 m-1 rounded-lg transition-all flex-shrink-0 text-xs font-medium relative z-20',
               voiceConversationMode
                 ? 'bg-green-500/20 text-green-400 border border-green-500/40'
                 : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
